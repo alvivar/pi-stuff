@@ -1,0 +1,10 @@
+# Ignore everything by default
+*
+
+# Keep this file tracked
+!.gitignore
+
+# Allow commits only from agent/extensions
+!agent/
+!agent/extensions/
+!agent/extensions/**
