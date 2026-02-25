@@ -222,7 +222,8 @@ function streamClaudeCli(
 
 		const args = [
 			"-p",
-			prompt,
+			"--input-format",
+			"text",
 			"--output-format",
 			"stream-json",
 			"--verbose",
@@ -278,7 +279,7 @@ function streamClaudeCli(
 					cwd: process.cwd(),
 					env: process.env,
 					shell: false,
-					stdio: ["ignore", "pipe", "pipe"],
+					stdio: ["pipe", "pipe", "pipe"],
 				});
 
 				let resolved = false;
@@ -315,6 +316,12 @@ function streamClaudeCli(
 				if (options?.signal) {
 					if (options.signal.aborted) killProc();
 					options.signal.addEventListener("abort", abortHandler);
+				}
+
+				try {
+					proc.stdin?.end(prompt);
+				} catch {
+					// ignore stdin write errors; process error/exit handlers cover failures
 				}
 
 				const processLine = (line: string) => {

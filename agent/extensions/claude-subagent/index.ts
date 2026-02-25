@@ -206,7 +206,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const args: string[] = ["-p", params.task];
+			const args: string[] = ["-p", "--input-format", "text"];
 			if (mode === "stream-json") {
 				args.push("--output-format", "stream-json", "--verbose", "--include-partial-messages");
 			} else {
@@ -217,7 +217,8 @@ export default function (pi: ExtensionAPI) {
 			if (resumeSessionId) args.push("--resume", resumeSessionId);
 			else if (params.continueRecent) args.push("--continue");
 
-			const commandPreview = `${cliPath} ${args.join(" ")}`;
+			const taskBytes = Buffer.byteLength(params.task, "utf8");
+			const commandPreview = `${cliPath} ${args.join(" ")} <stdin:${taskBytes}b>`;
 			let stdout = "";
 			let stderr = "";
 			let parsedObjects: any[] = [];
@@ -231,7 +232,7 @@ export default function (pi: ExtensionAPI) {
 						cwd: workingDir,
 						env: process.env,
 						shell: false,
-						stdio: ["ignore", "pipe", "pipe"],
+						stdio: ["pipe", "pipe", "pipe"],
 					});
 
 					let lineBuffer = "";
@@ -262,6 +263,12 @@ export default function (pi: ExtensionAPI) {
 					if (signal) {
 						if (signal.aborted) killProcess();
 						signal.addEventListener("abort", killProcess, { once: true });
+					}
+
+					try {
+						proc.stdin?.end(params.task);
+					} catch {
+						// ignore stdin write errors; process error/exit handlers cover failures
 					}
 
 					const processLine = (line: string) => {
