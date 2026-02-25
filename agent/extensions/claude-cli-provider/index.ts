@@ -42,7 +42,6 @@ const DEFAULT_TIMEOUT_SECONDS = Number(process.env.CLAUDE_CLI_TIMEOUT_SECONDS ||
 
 const DEFAULT_ALLOWED_TOOLS =
 	process.env.CLAUDE_CLI_ALLOWED_TOOLS ||
-	process.env.CLAUDE_CLI_AGENT_ALLOWED_TOOLS ||
 	"Read,Edit,Write,Bash,Grep,Glob";
 
 const SONNET46_CLI_MODEL =

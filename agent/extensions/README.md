@@ -12,17 +12,18 @@ Registers a `claude-cli` provider that lets Pi use your locally installed `claud
 
 - Provider id: `claude-cli`
 - Model ids:
-    - `claude-cli-sonnet-4-6-chat`, `claude-cli-sonnet-4-6-agent`
-    - `claude-cli-opus-4-6-chat`, `claude-cli-opus-4-6-agent`
-    - `claude-cli-haiku-4-5-chat`, `claude-cli-haiku-4-5-agent`
+    - `claude-cli-sonnet-4-6`
+    - `claude-cli-opus-4-6`
+    - `claude-cli-haiku-4-5`
+    - (removed) the older `...-chat` / `...-agent` model ids are no longer registered
 - Includes a command to clear the provider’s internal resume/session cache: `claude-cli-reset`
+- Propagates Pi thinking level to Claude CLI via `--effort` (low/medium/high)
 
 Environment variables supported by this extension include:
 
 - `CLAUDE_CLI_PATH` (default: `claude`)
 - `CLAUDE_CLI_TIMEOUT_SECONDS` (default: `240`)
-- `CLAUDE_CLI_CHAT_ALLOWED_TOOLS` (default: `Read`)
-- `CLAUDE_CLI_AGENT_ALLOWED_TOOLS` (default: `Read,Edit,Write,Bash,Grep,Glob`)
+- `CLAUDE_CLI_ALLOWED_TOOLS` (default: `Read,Edit,Write,Bash,Grep,Glob`)
 - `CLAUDE_CLI_MODEL_SONNET_46`, `CLAUDE_CLI_MODEL_OPUS_46`, `CLAUDE_CLI_MODEL_HAIKU_45`
 - `CLAUDE_CLI_APPEND_SYSTEM_PROMPT`
 
