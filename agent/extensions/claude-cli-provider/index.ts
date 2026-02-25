@@ -11,7 +11,6 @@ import {
 } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-type CliMode = "chat" | "agent";
 type CliEffort = "low" | "medium" | "high";
 
 type UsageLike = {
@@ -41,9 +40,10 @@ function mapReasoningToCliEffort(reasoning?: SimpleStreamOptions["reasoning"]): 
 const DEFAULT_CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || "claude";
 const DEFAULT_TIMEOUT_SECONDS = Number(process.env.CLAUDE_CLI_TIMEOUT_SECONDS || "240");
 
-const DEFAULT_CHAT_ALLOWED_TOOLS = process.env.CLAUDE_CLI_CHAT_ALLOWED_TOOLS || "Read";
-const DEFAULT_AGENT_ALLOWED_TOOLS =
-	process.env.CLAUDE_CLI_AGENT_ALLOWED_TOOLS || "Read,Edit,Write,Bash,Grep,Glob";
+const DEFAULT_ALLOWED_TOOLS =
+	process.env.CLAUDE_CLI_ALLOWED_TOOLS ||
+	process.env.CLAUDE_CLI_AGENT_ALLOWED_TOOLS ||
+	"Read,Edit,Write,Bash,Grep,Glob";
 
 const SONNET46_CLI_MODEL =
 	process.env.CLAUDE_CLI_MODEL_SONNET_46 || process.env.CLAUDE_CLI_MODEL_SONNET || "claude-sonnet-4-6";
@@ -170,23 +170,19 @@ function getLastUserText(context: Context): string {
 	return "Continue.";
 }
 
-function modelCliConfig(modelId: string): { cliModel: string; mode: CliMode; allowedTools: string } {
-	const isChat = modelId.endsWith("-chat");
-	const mode: CliMode = isChat ? "chat" : "agent";
-	const allowedTools = mode === "chat" ? DEFAULT_CHAT_ALLOWED_TOOLS : DEFAULT_AGENT_ALLOWED_TOOLS;
-
-	if (modelId.startsWith("claude-cli-sonnet-4-6-")) {
-		return { cliModel: SONNET46_CLI_MODEL, mode, allowedTools };
+function modelCliConfig(modelId: string): { cliModel: string; allowedTools: string } {
+	if (modelId.startsWith("claude-cli-sonnet-4-6")) {
+		return { cliModel: SONNET46_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
 	}
-	if (modelId.startsWith("claude-cli-opus-4-6-")) {
-		return { cliModel: OPUS46_CLI_MODEL, mode, allowedTools };
+	if (modelId.startsWith("claude-cli-opus-4-6")) {
+		return { cliModel: OPUS46_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
 	}
-	if (modelId.startsWith("claude-cli-haiku-4-5-")) {
-		return { cliModel: HAIKU45_CLI_MODEL, mode, allowedTools };
+	if (modelId.startsWith("claude-cli-haiku-4-5")) {
+		return { cliModel: HAIKU45_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
 	}
 
-	// Fallback to Sonnet 4.6 agent
-	return { cliModel: SONNET46_CLI_MODEL, mode: "agent", allowedTools: DEFAULT_AGENT_ALLOWED_TOOLS };
+	// Fallback to Sonnet 4.6
+	return { cliModel: SONNET46_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
 }
 
 function streamClaudeCli(
@@ -233,7 +229,7 @@ function streamClaudeCli(
 			? Math.floor(DEFAULT_TIMEOUT_SECONDS * 1000)
 			: 240_000;
 
-		const { cliModel, mode, allowedTools } = modelCliConfig(model.id);
+		const { cliModel, allowedTools } = modelCliConfig(model.id);
 		const prompt = getLastUserText(context);
 		const effort = mapReasoningToCliEffort(options?.reasoning);
 
@@ -261,14 +257,6 @@ function streamClaudeCli(
 
 		if (rememberedSessionId) {
 			args.push("--resume", rememberedSessionId);
-		}
-
-		// Optional bridge context: include a short note when we are in "chat" mode.
-		if (mode === "chat" && context.systemPrompt) {
-			args.push(
-				"--append-system-prompt",
-				"You are being used as a model backend for another assistant. Keep answers concise and direct.",
-			);
 		}
 
 		const beginText = () => {
@@ -462,8 +450,8 @@ export default function (pi: ExtensionAPI) {
 
 		models: [
 			{
-				id: "claude-cli-sonnet-4-6-chat",
-				name: "Claude CLI Sonnet 4.6 (Chat/Read-only)",
+				id: "claude-cli-sonnet-4-6",
+				name: "Claude CLI Sonnet 4.6",
 				reasoning: true,
 				input: ["text"],
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -471,8 +459,8 @@ export default function (pi: ExtensionAPI) {
 				maxTokens: 32000,
 			},
 			{
-				id: "claude-cli-sonnet-4-6-agent",
-				name: "Claude CLI Sonnet 4.6 (Agent mode)",
+				id: "claude-cli-opus-4-6",
+				name: "Claude CLI Opus 4.6",
 				reasoning: true,
 				input: ["text"],
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -480,35 +468,8 @@ export default function (pi: ExtensionAPI) {
 				maxTokens: 32000,
 			},
 			{
-				id: "claude-cli-opus-4-6-chat",
-				name: "Claude CLI Opus 4.6 (Chat/Read-only)",
-				reasoning: true,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 200000,
-				maxTokens: 32000,
-			},
-			{
-				id: "claude-cli-opus-4-6-agent",
-				name: "Claude CLI Opus 4.6 (Agent mode)",
-				reasoning: true,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 200000,
-				maxTokens: 32000,
-			},
-			{
-				id: "claude-cli-haiku-4-5-chat",
-				name: "Claude CLI Haiku 4.5 (Chat/Read-only)",
-				reasoning: true,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 200000,
-				maxTokens: 32000,
-			},
-			{
-				id: "claude-cli-haiku-4-5-agent",
-				name: "Claude CLI Haiku 4.5 (Agent mode)",
+				id: "claude-cli-haiku-4-5",
+				name: "Claude CLI Haiku 4.5",
 				reasoning: true,
 				input: ["text"],
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
