@@ -12,6 +12,7 @@ import {
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 type CliMode = "chat" | "agent";
+type CliEffort = "low" | "medium" | "high";
 
 type UsageLike = {
 	input?: number;
@@ -21,6 +22,21 @@ type UsageLike = {
 	totalTokens?: number;
 	costTotal?: number;
 };
+
+function mapReasoningToCliEffort(reasoning?: SimpleStreamOptions["reasoning"]): CliEffort | undefined {
+	switch (reasoning) {
+		case "minimal":
+		case "low":
+			return "low";
+		case "medium":
+			return "medium";
+		case "high":
+		case "xhigh":
+			return "high";
+		default:
+			return undefined;
+	}
+}
 
 const DEFAULT_CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || "claude";
 const DEFAULT_TIMEOUT_SECONDS = Number(process.env.CLAUDE_CLI_TIMEOUT_SECONDS || "240");
@@ -219,6 +235,7 @@ function streamClaudeCli(
 
 		const { cliModel, mode, allowedTools } = modelCliConfig(model.id);
 		const prompt = getLastUserText(context);
+		const effort = mapReasoningToCliEffort(options?.reasoning);
 
 		const args = [
 			"-p",
@@ -233,6 +250,10 @@ function streamClaudeCli(
 			"--allowedTools",
 			allowedTools,
 		];
+
+		if (effort) {
+			args.push("--effort", effort);
+		}
 
 		if (GLOBAL_APPEND_SYSTEM_PROMPT) {
 			args.push("--append-system-prompt", GLOBAL_APPEND_SYSTEM_PROMPT);
@@ -388,8 +409,19 @@ function streamClaudeCli(
 			}
 
 			if (exitCode !== 0) {
+				const trimmedStderr = stderr.trim();
+				const effortUnsupported =
+					Boolean(effort) &&
+					trimmedStderr.includes("--effort") &&
+					/unknown|invalid|unexpected/i.test(trimmedStderr);
+				if (effortUnsupported) {
+					throw new Error(
+						`Claude CLI does not support --effort (${effort}). Update Claude CLI or use thinking off for this provider.\n${trimmedStderr}`,
+					);
+				}
+
 				throw new Error(
-					stderr.trim() ||
+					trimmedStderr ||
 						(gotAbort || options?.signal?.aborted
 							? "Claude CLI request aborted"
 							: `Claude CLI exited with code ${exitCode}`),

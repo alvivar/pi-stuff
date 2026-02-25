@@ -17,6 +17,10 @@ const OutputMode = StringEnum(["json", "stream-json"] as const, {
 	default: "json",
 });
 
+const EffortMode = StringEnum(["low", "medium", "high"] as const, {
+	description: "Claude --effort value for reasoning depth.",
+});
+
 const ClaudeSubagentParams = Type.Object({
 	task: Type.String({ description: "Task to delegate to Claude Code." }),
 	thread: Type.Optional(
@@ -42,6 +46,7 @@ const ClaudeSubagentParams = Type.Object({
 				'Claude --allowedTools value. Default: "Read,Edit,Bash". Example: "Read,Edit,Bash(git diff *)"',
 		}),
 	),
+	effort: Type.Optional(EffortMode),
 	appendSystemPrompt: Type.Optional(
 		Type.String({
 			description: "Optional Claude --append-system-prompt text.",
@@ -184,7 +189,7 @@ export default function (pi: ExtensionAPI) {
 		name: "claude_subagent",
 		label: "Claude Subagent",
 		description:
-			"Delegate a task to Claude Code (claude -p) and return the result. Supports thread-based session reuse, --resume/--continue, and --allowedTools.",
+			"Delegate a task to Claude Code (claude -p) and return the result. Supports thread-based session reuse, --resume/--continue, --allowedTools, and --effort.",
 		parameters: ClaudeSubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -213,6 +218,7 @@ export default function (pi: ExtensionAPI) {
 				args.push("--output-format", "json");
 			}
 			if (allowedTools) args.push("--allowedTools", allowedTools);
+			if (params.effort) args.push("--effort", params.effort);
 			if (params.appendSystemPrompt) args.push("--append-system-prompt", params.appendSystemPrompt);
 			if (resumeSessionId) args.push("--resume", resumeSessionId);
 			else if (params.continueRecent) args.push("--continue");
@@ -325,15 +331,24 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				if (exitCode !== 0) {
-					const errorText = stderr.trim() || stdout.trim() || `Claude exited with code ${exitCode}.`;
+					const trimmedStderr = stderr.trim();
+					const effortUnsupported =
+						Boolean(params.effort) &&
+						trimmedStderr.includes("--effort") &&
+						/unknown|invalid|unexpected/i.test(trimmedStderr);
+					const errorText = trimmedStderr || stdout.trim() || `Claude exited with code ${exitCode}.`;
+					const effortHint = effortUnsupported
+						? `\n\nThis Claude CLI build may not support --effort (${params.effort}). Update Claude CLI or omit effort.`
+						: "";
 					return {
-						content: [{ type: "text", text: `claude_subagent failed:\n${errorText}` }],
+						content: [{ type: "text", text: `claude_subagent failed:\n${errorText}${effortHint}` }],
 						details: {
 							exitCode,
 							command: commandPreview,
 							cwd: workingDir,
 							sessionId: effectiveSessionId,
 							thread: params.thread,
+							effort: params.effort,
 							stdout: stdout.slice(-5000),
 							stderr: stderr.slice(-5000),
 						},
@@ -386,6 +401,7 @@ export default function (pi: ExtensionAPI) {
 						usedResume: Boolean(resumeSessionId),
 						usedContinue: Boolean(params.continueRecent),
 						allowedTools,
+						effort: params.effort,
 						truncated: truncated.truncated,
 						fullOutputPath: truncated.fullOutputPath,
 						raw: mode === "json" ? topLevel : undefined,
@@ -407,6 +423,7 @@ export default function (pi: ExtensionAPI) {
 						cwd: workingDir,
 						sessionId: effectiveSessionId,
 						thread: params.thread,
+						effort: params.effort,
 						stderr: stderr.slice(-5000),
 						stdout: stdout.slice(-5000),
 					},
