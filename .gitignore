@@ -1,4 +1,4 @@
-bin/
-sessions/
-auth.json
-settings.json
+agent/bin/
+agent/sessions/
+agent/auth.json
+agent/settings.json
