@@ -4,19 +4,19 @@ This directory contains extensions for the [Pi agent](http://pi.dev).
 
 ## Extensions
 
-### `claude-cli-provider`
+### `claude-code-provider`
 
-**Path:** `agent/extensions/claude-cli-provider/index.ts`
+**Path:** `agent/extensions/claude-code-provider/index.ts`
 
-Registers a `claude-cli` provider that lets Pi use your locally installed `claude` CLI as a model backend.
+Registers a `claude-code` provider that lets Pi use your locally installed `claude` CLI as a model backend.
 
-- Provider id: `claude-cli`
+- Provider id: `claude-code`
 - Model ids:
-    - `claude-cli-sonnet-4-6`
-    - `claude-cli-opus-4-6`
-    - `claude-cli-haiku-4-5`
+    - `claude-code-sonnet-4-6`
+    - `claude-code-opus-4-6`
+    - `claude-code-haiku-4-5`
     - (removed) the older `...-chat` / `...-agent` model ids are no longer registered
-- Includes a command to clear the provider’s internal resume/session cache: `claude-cli-reset`
+- Includes a command to clear the provider’s internal resume/session cache: `claude-code-reset`
 - Propagates Pi thinking level to Claude CLI via `--effort` (low/medium/high)
 - Propagates Pi system prompt via `--append-system-prompt`
 
@@ -41,7 +41,7 @@ Registers a `claude_subagent` tool that delegates a task to the local `claude` C
 
 ## Configuration
 
-Model enablement happens via Pi settings (see `agent/settings.json`). For example, this repo’s settings enable the `claude-cli/...` models so they can be selected in Pi.
+Model enablement happens via Pi settings (see `agent/settings.json`). For example, this repo’s settings enable the `claude-code/...` models so they can be selected in Pi.
 
 ## Requirements
 

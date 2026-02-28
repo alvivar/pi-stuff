@@ -187,7 +187,7 @@ function getLastUserText(context: Context): string {
     let text = textParts.join("\n\n").trim();
     if (!text) text = "Continue.";
     if (imageCount > 0) {
-      text += `\n\n[Note: ${imageCount} image attachment(s) were provided in Pi but are not forwarded by claude-cli-provider v1.]`;
+      text += `\n\n[Note: ${imageCount} image attachment(s) were provided in Pi but are not forwarded by claude-code-provider v1.]`;
     }
     return text;
   }
@@ -195,13 +195,13 @@ function getLastUserText(context: Context): string {
 }
 
 function modelCliConfig(modelId: string): { cliModel: string; allowedTools: string } {
-  if (modelId.startsWith("claude-cli-sonnet-4-6")) {
+  if (modelId.startsWith("claude-code-sonnet-4-6")) {
     return { cliModel: SONNET46_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
   }
-  if (modelId.startsWith("claude-cli-opus-4-6")) {
+  if (modelId.startsWith("claude-code-opus-4-6")) {
     return { cliModel: OPUS46_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
   }
-  if (modelId.startsWith("claude-cli-haiku-4-5")) {
+  if (modelId.startsWith("claude-code-haiku-4-5")) {
     return { cliModel: HAIKU45_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
   }
 
@@ -473,15 +473,15 @@ function streamClaudeCli(
 export default function (pi: ExtensionAPI) {
   const sessionMap = new Map<string, string>();
 
-  pi.registerProvider("claude-cli", {
+  pi.registerProvider("claude-code", {
     baseUrl: "claude://local-cli",
-    apiKey: "claude-cli-local",
-    api: "claude-cli-api",
+    apiKey: "claude-code-local",
+    api: "claude-code-api",
 
     models: [
       {
-        id: "claude-cli-sonnet-4-6",
-        name: "Claude CLI Sonnet 4.6",
+        id: "claude-code-sonnet-4-6",
+        name: "Claude Code Sonnet 4.6",
         reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -489,8 +489,8 @@ export default function (pi: ExtensionAPI) {
         maxTokens: 32000,
       },
       {
-        id: "claude-cli-opus-4-6",
-        name: "Claude CLI Opus 4.6",
+        id: "claude-code-opus-4-6",
+        name: "Claude Code Opus 4.6",
         reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -498,8 +498,8 @@ export default function (pi: ExtensionAPI) {
         maxTokens: 32000,
       },
       {
-        id: "claude-cli-haiku-4-5",
-        name: "Claude CLI Haiku 4.5",
+        id: "claude-code-haiku-4-5",
+        name: "Claude Code Haiku 4.5",
         reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -511,11 +511,11 @@ export default function (pi: ExtensionAPI) {
     streamSimple: (model, context, options) => streamClaudeCli(sessionMap, model, context, options),
   });
 
-  pi.registerCommand("claude-cli-reset", {
-    description: "Reset claude-cli provider resume/session cache",
+  pi.registerCommand("claude-code-reset", {
+    description: "Reset claude-code provider resume/session cache",
     handler: async (_args, ctx) => {
       sessionMap.clear();
-      ctx.ui.notify("claude-cli session map cleared", "info");
+      ctx.ui.notify("claude-code session map cleared", "info");
     },
   });
 }
