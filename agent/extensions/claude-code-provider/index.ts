@@ -511,8 +511,8 @@ export default function (pi: ExtensionAPI) {
     streamSimple: (model, context, options) => streamClaudeCli(sessionMap, model, context, options),
   });
 
-  pi.registerCommand("claude-code-reset", {
-    description: "Reset claude-code provider resume/session cache",
+  pi.registerCommand("claude-code-new-session", {
+    description: "Clear stored Claude CLI session IDs to start a fresh session",
     handler: async (_args, ctx) => {
       sessionMap.clear();
       ctx.ui.notify("claude-code session map cleared", "info");

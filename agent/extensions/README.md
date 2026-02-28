@@ -16,7 +16,7 @@ Registers a `claude-code` provider that lets Pi use your locally installed `clau
     - `claude-code-opus-4-6`
     - `claude-code-haiku-4-5`
     - (removed) the older `...-chat` / `...-agent` model ids are no longer registered
-- Includes a command to clear the provider’s internal resume/session cache: `claude-code-reset`
+- Includes a command to clear the provider’s internal resume/session cache: `claude-code-new-session`
 - Propagates Pi thinking level to Claude CLI via `--effort` (low/medium/high)
 - Propagates Pi system prompt via `--append-system-prompt`
 
