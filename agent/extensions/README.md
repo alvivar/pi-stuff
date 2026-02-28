@@ -18,6 +18,7 @@ Registers a `claude-cli` provider that lets Pi use your locally installed `claud
     - (removed) the older `...-chat` / `...-agent` model ids are no longer registered
 - Includes a command to clear the provider’s internal resume/session cache: `claude-cli-reset`
 - Propagates Pi thinking level to Claude CLI via `--effort` (low/medium/high)
+- Propagates Pi system prompt via `--append-system-prompt`
 
 Environment variables supported by this extension include:
 
