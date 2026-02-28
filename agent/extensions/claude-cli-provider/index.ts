@@ -276,11 +276,13 @@ function streamClaudeCli(
       args.push("--effort", effort);
     }
 
-    const appendSystemPromptParts = [piSystemPrompt, GLOBAL_APPEND_SYSTEM_PROMPT]
-      .filter((part): part is string => Boolean(part && part.trim()))
-      .map((part) => part.trim());
-    if (appendSystemPromptParts.length > 0) {
-      args.push("--append-system-prompt", appendSystemPromptParts.join("\n\n"));
+    if (piSystemPrompt) {
+      const parts = [piSystemPrompt, GLOBAL_APPEND_SYSTEM_PROMPT]
+        .filter((part): part is string => Boolean(part && part.trim()))
+        .map((part) => part.trim());
+      args.push("--system-prompt", parts.join("\n\n"));
+    } else if (GLOBAL_APPEND_SYSTEM_PROMPT?.trim()) {
+      args.push("--append-system-prompt", GLOBAL_APPEND_SYSTEM_PROMPT.trim());
     }
 
     if (rememberedSessionId) {
