@@ -19,7 +19,8 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 // tool cards are appended as pending tool execution components at the bottom instead of
 // behaving like chronological chat content. To keep ordering stable, this provider emits
 // tool-use as plain assistant text trace lines and streams content in strict arrival order.
-// We intentionally avoid partial-message snapshots and synthetic paragraph restructuring.
+// Partial assistant snapshots are consumed only as monotonic suffix fallback when canonical
+// `stream_event` text deltas are not the active prose source.
 
 // ---------------------------------------------------------------------------
 // Simple file logger — writes newline-delimited JSON to ~/.pi/agent/debug.log
@@ -138,6 +139,51 @@ function extractResultText(event: any): string | undefined {
     if (typeof c === "string" && c.trim().length > 0) return c;
   }
   return undefined;
+}
+
+function extractAssistantSnapshotText(event: any): { messageId: string; text: string } | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  if (event.type !== "assistant") return undefined;
+  const message = event.message;
+  if (!message || typeof message !== "object") return undefined;
+  if (typeof message.id !== "string" || message.id.length === 0) return undefined;
+  if (!Array.isArray(message.content)) return undefined;
+
+  const text = message.content
+    .filter((block: any) => block?.type === "text" && typeof block.text === "string")
+    .map((block: any) => block.text)
+    .join("\n\n");
+
+  if (!text) return undefined;
+  return { messageId: message.id, text };
+}
+
+function extractAssistantSnapshotToolUses(event: any): { id: string; name: string; input?: unknown }[] {
+  if (!event || typeof event !== "object") return [];
+  if (event.type !== "assistant") return [];
+  const message = event.message;
+  if (!message || typeof message !== "object") return [];
+  if (!Array.isArray(message.content)) return [];
+
+  return message.content
+    .filter((block: any) => block?.type === "tool_use" && typeof block.id === "string")
+    .map((block: any) => ({
+      id: block.id,
+      name: typeof block.name === "string" ? block.name : "unknown",
+      input: block.input,
+    }));
+}
+
+function extractUserToolResultIds(event: any): string[] {
+  if (!event || typeof event !== "object") return [];
+  if (event.type !== "user") return [];
+  const message = event.message;
+  if (!message || typeof message !== "object") return [];
+  if (!Array.isArray(message.content)) return [];
+
+  return message.content
+    .filter((block: any) => block?.type === "tool_result" && typeof block.tool_use_id === "string")
+    .map((block: any) => block.tool_use_id);
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -390,6 +436,12 @@ function streamClaudeCli(
     let gotAbort = false;
     let acceptParsedLines = true;
     let sawResultEvent = false;
+    let sawProseContent = false;
+    let lastTextCategory: "prose" | "trace" | undefined;
+    let proseSource: "stream_event" | "assistant_snapshot" | undefined;
+    let toolTraceSource: "stream_event" | "assistant_snapshot" | undefined;
+    const snapshotTextByMessageId = new Map<string, string>();
+    const snapshotToolById = new Map<string, { name: string; input?: unknown }>();
 
     const streamKey = `${options?.sessionId || "default"}:${model.id}`;
     const rememberedSessionId = sessionMap.get(streamKey);
@@ -411,6 +463,7 @@ function streamClaudeCli(
       "--output-format",
       "stream-json",
       "--verbose",
+      "--include-partial-messages",
       "--model",
       cliModel,
       "--allowedTools",
@@ -448,11 +501,34 @@ function streamClaudeCli(
       stream.push({ type: "text_delta", contentIndex: textIndex!, delta, partial: output });
     };
 
-    const appendTraceLine = (line: string) => {
+    const ensureCategoryGap = (nextCategory: "prose" | "trace") => {
+      if (lastTextCategory === undefined || lastTextCategory === nextCategory) return;
+      if (textIndex === undefined) return;
+      const block = output.content[textIndex] as { type: "text"; text: string };
+      if (!block.text) return;
+      if (block.text.endsWith("\n\n")) return;
+      if (block.text.endsWith("\n")) {
+        appendText("\n");
+      } else {
+        appendText("\n\n");
+      }
+    };
+
+    const appendCategorizedText = (category: "prose" | "trace", text: string) => {
+      if (!text) return;
       beginText();
-      const block = output.content[textIndex!] as { type: "text"; text: string };
-      const prefix = block.text.length > 0 && !block.text.endsWith("\n") ? "\n" : "";
-      appendText(`${prefix}${line}\n`);
+      ensureCategoryGap(category);
+      appendText(text);
+      lastTextCategory = category;
+      if (category === "prose") sawProseContent = true;
+    };
+
+    const appendProseDelta = (delta: string) => {
+      appendCategorizedText("prose", delta);
+    };
+
+    const appendTraceLine = (line: string) => {
+      appendCategorizedText("trace", `${line}\n`);
     };
 
     const endTextIfNeeded = () => {
@@ -513,6 +589,21 @@ function streamClaudeCli(
       toolTraceNameByBlock.delete(blockIndex);
       toolTraceInitialInputByBlock.delete(blockIndex);
       toolTraceDeltaJsonByBlock.delete(blockIndex);
+    };
+
+    const beginSnapshotToolTrace = (id: string, name: string, input?: unknown) => {
+      if (snapshotToolById.has(id)) return;
+      snapshotToolById.set(id, { name, input });
+      const preview = formatToolArgsPreview(input);
+      appendTraceLine(`[claude-code tool_use start: ${name}${preview ? ` args=${preview}` : ""}]`);
+    };
+
+    const endSnapshotToolTrace = (id: string) => {
+      const snapshot = snapshotToolById.get(id);
+      if (!snapshot) return;
+      const preview = formatToolArgsPreview(snapshot.input);
+      appendTraceLine(`[claude-code tool_use end: ${snapshot.name}${preview ? ` args=${preview}` : ""}]`);
+      snapshotToolById.delete(id);
     };
 
     debugLog("cli_start", {
@@ -621,17 +712,20 @@ function streamClaudeCli(
             }
 
             if (streamEvent.content_block?.type === "tool_use") {
-              const rawToolName =
-                typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
-              const toolName = normalizeTraceToolName(rawToolName);
-              const initialArgs =
-                streamEvent.content_block.input &&
-                typeof streamEvent.content_block.input === "object" &&
-                !Array.isArray(streamEvent.content_block.input)
-                  ? streamEvent.content_block.input
-                  : undefined;
-              beginToolTrace(streamEvent.index, toolName, initialArgs);
-              return;
+              if (!toolTraceSource) toolTraceSource = "stream_event";
+              if (toolTraceSource === "stream_event") {
+                const rawToolName =
+                  typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
+                const toolName = normalizeTraceToolName(rawToolName);
+                const initialArgs =
+                  streamEvent.content_block.input &&
+                  typeof streamEvent.content_block.input === "object" &&
+                  !Array.isArray(streamEvent.content_block.input)
+                    ? streamEvent.content_block.input
+                    : undefined;
+                beginToolTrace(streamEvent.index, toolName, initialArgs);
+                return;
+              }
             }
           }
 
@@ -642,6 +736,7 @@ function streamClaudeCli(
             }
 
             if (
+              toolTraceSource === "stream_event" &&
               streamEvent.delta?.type === "input_json_delta" &&
               typeof streamEvent.delta.partial_json === "string" &&
               streamEvent.delta.partial_json.length > 0 &&
@@ -658,7 +753,7 @@ function streamClaudeCli(
               return;
             }
 
-            if (toolTraceNameByBlock.has(streamEvent.index)) {
+            if (toolTraceSource === "stream_event" && toolTraceNameByBlock.has(streamEvent.index)) {
               endToolTrace(streamEvent.index);
               return;
             }
@@ -666,8 +761,47 @@ function streamClaudeCli(
 
           const delta = extractTextDelta(parsed);
           if (delta) {
-            appendText(delta);
-            return;
+            if (!proseSource) proseSource = "stream_event";
+            if (proseSource === "stream_event") {
+              appendProseDelta(delta);
+              return;
+            }
+          }
+
+          const snapshotText = extractAssistantSnapshotText(parsed);
+          if (snapshotText) {
+            if (!proseSource) proseSource = "assistant_snapshot";
+            if (proseSource === "assistant_snapshot") {
+              const previous = snapshotTextByMessageId.get(snapshotText.messageId) || "";
+              if (snapshotText.text.startsWith(previous)) {
+                const suffix = snapshotText.text.slice(previous.length);
+                if (suffix) appendProseDelta(suffix);
+              } else {
+                debugLog("assistant_snapshot_rewrite", {
+                  messageId: snapshotText.messageId,
+                  previousLength: previous.length,
+                  nextLength: snapshotText.text.length,
+                });
+              }
+              snapshotTextByMessageId.set(snapshotText.messageId, snapshotText.text);
+            }
+          }
+
+          const snapshotToolUses = extractAssistantSnapshotToolUses(parsed);
+          if (snapshotToolUses.length > 0) {
+            if (!toolTraceSource) toolTraceSource = "assistant_snapshot";
+            if (toolTraceSource === "assistant_snapshot") {
+              for (const toolUse of snapshotToolUses) {
+                beginSnapshotToolTrace(toolUse.id, normalizeTraceToolName(toolUse.name), toolUse.input);
+              }
+            }
+          }
+
+          if (toolTraceSource === "assistant_snapshot") {
+            const toolResultIds = extractUserToolResultIds(parsed);
+            for (const toolResultId of toolResultIds) {
+              endSnapshotToolTrace(toolResultId);
+            }
           }
 
           const resultText = extractResultText(parsed);
@@ -708,8 +842,8 @@ function streamClaudeCli(
         sessionMap.set(streamKey, latestSessionId);
       }
 
-      if (textIndex === undefined && fallbackResultText.trim()) {
-        appendText(fallbackResultText);
+      if (!sawProseContent && fallbackResultText.trim()) {
+        appendProseDelta(fallbackResultText);
       }
 
       if (exitCode !== 0) {
@@ -730,6 +864,13 @@ function streamClaudeCli(
             ? "Claude CLI request aborted"
             : `Claude CLI exited with code ${exitCode}`),
         );
+      }
+
+      for (const blockIndex of Array.from(toolTraceNameByBlock.keys())) {
+        endToolTrace(blockIndex);
+      }
+      for (const toolId of Array.from(snapshotToolById.keys())) {
+        endSnapshotToolTrace(toolId);
       }
 
       const rateLimitNotice = formatRateLimitNotice(latestRateLimitInfo);
