@@ -2,3 +2,4 @@ agent/bin/
 agent/sessions/
 agent/auth.json
 agent/settings.json
+debug.log
