@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   calculateCost,
   createAssistantMessageEventStream,
@@ -10,6 +13,22 @@ import {
   type SimpleStreamOptions,
 } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+
+// ---------------------------------------------------------------------------
+// Simple file logger — writes newline-delimited JSON to ~/.pi/agent/debug.log
+// Watch live:  tail -f ~/.pi/agent/debug.log
+// Pretty-read: cat ~/.pi/agent/debug.log | jq .
+// ---------------------------------------------------------------------------
+const DEBUG_LOG_FILE = path.join(os.homedir(), ".pi", "agent", "debug.log");
+
+function debugLog(event: string, data?: unknown): void {
+  try {
+    const entry = JSON.stringify({ ts: new Date().toISOString(), event, data: data ?? null });
+    fs.appendFileSync(DEBUG_LOG_FILE, entry + "\n", "utf8");
+  } catch {
+    // Never crash the extension because of a logging failure
+  }
+}
 
 type CliEffort = "low" | "medium" | "high";
 
@@ -310,6 +329,16 @@ function streamClaudeCli(
       stream.push({ type: "text_end", contentIndex: textIndex, content: block.text, partial: output });
     };
 
+    debugLog("cli_start", {
+      cli,
+      args,
+      model: model.id,
+      cliModel,
+      effort,
+      resumeSessionId: rememberedSessionId,
+      streamKey,
+    });
+
     stream.push({ type: "start", partial: output });
 
     try {
@@ -367,10 +396,16 @@ function streamClaudeCli(
           const parsed = parseJsonLine(line);
           if (!parsed) return;
 
+          debugLog("stdout_line", parsed);
+
           const sid = extractSessionId(parsed);
-          if (sid) latestSessionId = sid;
+          if (sid) {
+            latestSessionId = sid;
+            debugLog("session_id", { sid, streamKey });
+          }
 
           const usage = extractUsage(parsed);
+          if (usage) debugLog("usage", usage);
           applyUsage(output, usage, model);
 
           const delta = extractTextDelta(parsed);
@@ -392,7 +427,9 @@ function streamClaudeCli(
         });
 
         proc.stderr.on("data", (chunk) => {
-          stderr += chunk.toString();
+          const text = chunk.toString();
+          stderr += text;
+          debugLog("stderr", { text: text.trim() });
         });
 
         proc.on("error", (err) => {
@@ -455,6 +492,12 @@ function streamClaudeCli(
       if (!output.usage.cost.total) {
         calculateCost(model, output.usage);
       }
+      debugLog("done", {
+        sessionId: latestSessionId,
+        streamKey,
+        usage: output.usage,
+        contentLength: output.content.length,
+      });
       stream.push({ type: "done", reason: "stop", message: output });
       stream.end();
     } catch (error) {
@@ -462,6 +505,7 @@ function streamClaudeCli(
       endTextIfNeeded();
       output.stopReason = options?.signal?.aborted || gotAbort ? "aborted" : "error";
       output.errorMessage = error instanceof Error ? error.message : String(error);
+      debugLog("error", { message: output.errorMessage, stopReason: output.stopReason, stderr });
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
     }
