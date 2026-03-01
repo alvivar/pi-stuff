@@ -77,7 +77,7 @@ From `agent/debug.log` samples:
 
 **Status:** ✅ Implemented as always-on trace in `agent/extensions/claude-code-provider/index.ts`.
 
-- Maps `tool_use` + `input_json_delta` to assistant text trace lines (`[claude-code tool_use start|end: ...]`).
+- Maps `tool_use` + `input_json_delta` to assistant text trace lines (`[tool #N start|end] ...`) with concise, tool-specific argument summaries.
 - Uses normalized tool names for readability (`Read/Edit/Write/Bash/Grep/Find/Ls` → lowercase).
 - Chosen over `toolcall_*` UI blocks because interactive mode renders those as pending tool components at the chat bottom, which breaks chronological flow for trace-only (non-executed) Claude internal tools.
 - Trace remains visibility-only; Pi does not execute Claude-internal tool calls.
@@ -94,6 +94,7 @@ From `agent/debug.log` samples:
   - extension-level bridge (event/command/state) for UX notifications.
 - Tool-use forwarding should be conservative to avoid implying Pi executed those tool calls directly.
 - Streaming is event-linear with category-aware separators; when output category changes (e.g., prose ↔ tool trace), rendering inserts up to `\n\n` for readability.
+- Tool trace entries include lightweight visual separators (`────────`) between completed tools to improve scanability in Pi's text renderer.
 - Canonical `stream_event` prose is mapped per upstream content block index (not a single global text block) to preserve UI block order and avoid late-tail visual artifacts.
 - `--include-partial-messages` is enabled, but rendering locks to a single source per response (`stream_event` or `assistant_snapshot`) to prevent cross-channel ordering drift.
 - Snapshot fallback uses only top-level assistant/user events (`parent_tool_use_id == null`) and accepts monotonic suffix growth from one active assistant message id; other snapshot message ids are ignored for rendering.

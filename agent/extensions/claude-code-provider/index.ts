@@ -324,20 +324,146 @@ function normalizeTraceToolName(name: string): string {
   }
 }
 
-function formatToolArgsPreview(input: unknown, maxLen = 280): string | undefined {
+function compactWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncate(value: string, maxLen: number): string {
+  if (value.length <= maxLen) return value;
+  return `${value.slice(0, maxLen)}…`;
+}
+
+function previewPath(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const compact = compactWhitespace(value);
+  if (!compact) return undefined;
+  const normalized = compact.replace(/\\/g, "/");
+  const base = path.basename(normalized);
+  if (!base || base === normalized) return truncate(normalized, 72);
+  const parent = path.basename(path.dirname(normalized));
+  const short = parent && parent !== "." ? `${parent}/${base}` : base;
+  return truncate(short, 72);
+}
+
+function formatGenericToolArgsPreview(input: unknown, maxLen = 220): string | undefined {
   if (input === undefined || input === null) return undefined;
-  let text: string;
+
   if (typeof input === "string") {
-    text = input;
-  } else {
-    try {
-      text = JSON.stringify(input);
-    } catch {
-      return undefined;
+    const compact = compactWhitespace(input);
+    return compact ? truncate(compact, maxLen) : undefined;
+  }
+
+  if (Array.isArray(input)) {
+    return `items=${input.length}`;
+  }
+
+  if (typeof input !== "object") {
+    return String(input);
+  }
+
+  const entries = Object.entries(input as Record<string, unknown>);
+  if (entries.length === 0) return undefined;
+
+  const parts: string[] = [];
+  for (const [key, value] of entries.slice(0, 5)) {
+    if (value === undefined || value === null) continue;
+
+    if (key.includes("path")) {
+      const pathPreview = previewPath(value);
+      if (pathPreview) {
+        parts.push(`${key}=${pathPreview}`);
+        continue;
+      }
+    }
+
+    if (typeof value === "string") {
+      const compact = compactWhitespace(value);
+      if (compact) parts.push(`${key}=${truncate(compact, 56)}`);
+      continue;
+    }
+
+    if (typeof value === "number" || typeof value === "boolean") {
+      parts.push(`${key}=${value}`);
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      parts.push(`${key}[${value.length}]`);
+      continue;
+    }
+
+    if (typeof value === "object") {
+      parts.push(`${key}={…}`);
     }
   }
-  if (!text) return undefined;
-  return text.length <= maxLen ? text : `${text.slice(0, maxLen)}…`;
+
+  if (entries.length > 5) parts.push(`+${entries.length - 5} keys`);
+  const text = parts.join(" ").trim();
+  return text ? truncate(text, maxLen) : undefined;
+}
+
+function formatToolArgsPreview(toolName: string, input: unknown): string | undefined {
+  const normalizedTool = toolName.trim().toLowerCase();
+  const obj =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : undefined;
+
+  if (normalizedTool === "todowrite" && obj) {
+    const todos = Array.isArray(obj.todos) ? obj.todos : [];
+    if (todos.length > 0) {
+      let completed = 0;
+      let inProgress = 0;
+      let pending = 0;
+      for (const todo of todos) {
+        const status = typeof (todo as any)?.status === "string" ? (todo as any).status : "";
+        if (status === "completed") completed += 1;
+        else if (status === "in_progress") inProgress += 1;
+        else pending += 1;
+      }
+      return `todos=${todos.length} done=${completed} doing=${inProgress} pending=${pending}`;
+    }
+  }
+
+  if (normalizedTool === "edit" && obj) {
+    const parts: string[] = [];
+    const filePreview = previewPath(obj.file_path);
+    if (filePreview) parts.push(`file=${filePreview}`);
+    if (typeof obj.replace_all === "boolean") parts.push(`replace_all=${obj.replace_all}`);
+    if (typeof obj.old_string === "string") parts.push(`old=${obj.old_string.length}c`);
+    if (typeof obj.new_string === "string") parts.push(`new=${obj.new_string.length}c`);
+    const text = parts.join(" ");
+    if (text) return text;
+  }
+
+  if (normalizedTool === "read" && obj) {
+    const parts: string[] = [];
+    const filePreview = previewPath(obj.file_path);
+    if (filePreview) parts.push(`file=${filePreview}`);
+    if (typeof obj.offset === "number") parts.push(`offset=${obj.offset}`);
+    if (typeof obj.limit === "number") parts.push(`limit=${obj.limit}`);
+    const text = parts.join(" ");
+    if (text) return text;
+  }
+
+  if (normalizedTool === "write" && obj) {
+    const parts: string[] = [];
+    const filePreview = previewPath(obj.file_path);
+    if (filePreview) parts.push(`file=${filePreview}`);
+    if (typeof obj.content === "string") parts.push(`content=${obj.content.length}c`);
+    const text = parts.join(" ");
+    if (text) return text;
+  }
+
+  if (normalizedTool === "bash" && obj) {
+    const parts: string[] = [];
+    if (typeof obj.command === "string") parts.push(`cmd=${truncate(compactWhitespace(obj.command), 100)}`);
+    if (typeof obj.timeout === "number") parts.push(`timeout=${obj.timeout}`);
+    const text = parts.join(" ");
+    if (text) return text;
+  }
+
+  return formatGenericToolArgsPreview(input);
 }
 
 function contentToText(content: unknown): string {
@@ -416,6 +542,7 @@ function streamClaudeCli(
     const textIndexByBlock = new Map<number, number>();
     const thinkingIndexByBlock = new Map<number, number>();
     const toolTraceNameByBlock = new Map<number, string>();
+    const toolTraceSequenceByBlock = new Map<number, number>();
     const toolTraceInitialInputByBlock = new Map<number, unknown>();
     const toolTraceDeltaJsonByBlock = new Map<number, string>();
     let latestSessionId: string | undefined;
@@ -435,7 +562,9 @@ function streamClaudeCli(
     let renderSource: "stream_event" | "assistant_snapshot" | undefined;
     let activeSnapshotMessageId: string | undefined;
     let activeSnapshotMessageText = "";
+    let nextToolTraceSequence = 1;
     const snapshotToolById = new Map<string, { name: string; input?: unknown }>();
+    const snapshotToolSequenceById = new Map<string, number>();
 
     const streamKey = `${options?.sessionId || "default"}:${model.id}`;
     const rememberedSessionId = sessionMap.get(streamKey);
@@ -576,11 +705,13 @@ function streamClaudeCli(
     };
 
     const beginToolTrace = (blockIndex: number, toolName: string, initialInput?: unknown) => {
+      const sequence = nextToolTraceSequence++;
       toolTraceNameByBlock.set(blockIndex, toolName);
+      toolTraceSequenceByBlock.set(blockIndex, sequence);
       toolTraceInitialInputByBlock.set(blockIndex, initialInput);
       toolTraceDeltaJsonByBlock.set(blockIndex, "");
-      const initialPreview = formatToolArgsPreview(initialInput);
-      appendTraceLine(`[claude-code tool_use start: ${toolName}${initialPreview ? ` args=${initialPreview}` : ""}]`, blockIndex);
+      const initialPreview = formatToolArgsPreview(toolName, initialInput);
+      appendTraceLine(`[tool #${sequence} start] ${toolName}${initialPreview ? ` — ${initialPreview}` : ""}`, blockIndex);
     };
 
     const appendToolTraceDelta = (blockIndex: number, delta: string) => {
@@ -593,31 +724,39 @@ function streamClaudeCli(
     const endToolTrace = (blockIndex: number) => {
       const toolName = toolTraceNameByBlock.get(blockIndex);
       if (!toolName) return;
+      const sequence = toolTraceSequenceByBlock.get(blockIndex);
       const deltaJson = toolTraceDeltaJsonByBlock.get(blockIndex) || "";
       const parsedArgs = parseJsonObject(deltaJson);
       const finalArgs =
         parsedArgs ??
         (deltaJson.trim().length > 0 ? deltaJson : toolTraceInitialInputByBlock.get(blockIndex));
-      const preview = formatToolArgsPreview(finalArgs);
-      appendTraceLine(`[claude-code tool_use end: ${toolName}${preview ? ` args=${preview}` : ""}]`, blockIndex);
+      const preview = formatToolArgsPreview(toolName, finalArgs);
+      appendTraceLine(`[tool #${sequence ?? "?"} end] ${toolName}${preview ? ` — ${preview}` : ""}`, blockIndex);
+      appendTraceLine("────────", blockIndex);
       toolTraceNameByBlock.delete(blockIndex);
+      toolTraceSequenceByBlock.delete(blockIndex);
       toolTraceInitialInputByBlock.delete(blockIndex);
       toolTraceDeltaJsonByBlock.delete(blockIndex);
     };
 
     const beginSnapshotToolTrace = (id: string, name: string, input?: unknown) => {
       if (snapshotToolById.has(id)) return;
+      const sequence = nextToolTraceSequence++;
       snapshotToolById.set(id, { name, input });
-      const preview = formatToolArgsPreview(input);
-      appendTraceLine(`[claude-code tool_use start: ${name}${preview ? ` args=${preview}` : ""}]`);
+      snapshotToolSequenceById.set(id, sequence);
+      const preview = formatToolArgsPreview(name, input);
+      appendTraceLine(`[tool #${sequence} start] ${name}${preview ? ` — ${preview}` : ""}`);
     };
 
     const endSnapshotToolTrace = (id: string) => {
       const snapshot = snapshotToolById.get(id);
       if (!snapshot) return;
-      const preview = formatToolArgsPreview(snapshot.input);
-      appendTraceLine(`[claude-code tool_use end: ${snapshot.name}${preview ? ` args=${preview}` : ""}]`);
+      const sequence = snapshotToolSequenceById.get(id);
+      const preview = formatToolArgsPreview(snapshot.name, snapshot.input);
+      appendTraceLine(`[tool #${sequence ?? "?"} end] ${snapshot.name}${preview ? ` — ${preview}` : ""}`);
+      appendTraceLine("────────");
       snapshotToolById.delete(id);
+      snapshotToolSequenceById.delete(id);
     };
 
     debugLog("cli_start", {
