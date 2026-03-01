@@ -28,7 +28,7 @@ Tool-use visibility is enabled by default (see P3).
 | Data                        | Claude Code emits                                                              | Pi can consume                             | Currently propagated         |
 | --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------ | ---------------------------- |
 | Thinking content            | `stream_event.content_block_delta.delta.type = "thinking_delta"`               | `thinking_start/delta/end`                 | ✅ Yes                       |
-| Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | `toolcall_start/delta/end`                 | ✅ Yes (default-on trace)    |
+| Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | Assistant text trace lines                 | ✅ Yes (default-on trace)    |
 | Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ✅ Yes (text notice)         |
 | Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ✅ Yes (text notice)         |
 | Claude Code version         | `type = "system"`, `subtype = "init"`, `claude_code_version`                   | Debug/diagnostics output                   | ✅ Yes (`/claude-code-info`) |
@@ -79,10 +79,10 @@ From `agent/debug.log` samples:
 
 **Status:** ✅ Implemented as default-on trace in `agent/extensions/claude-code-provider/index.ts`.
 
-- Maps `tool_use` + `input_json_delta` to `toolcall_start/delta/end`.
-- Normalizes known Claude built-in tool names (`Read/Edit/Write/Bash/Grep/Find/Ls`) to Pi’s lowercase built-ins for rendering.
-- Unknown tool names are surfaced as trace text lines (`[claude-code tool_use ...]`) so tool activity remains visible even without a Pi tool renderer.
-- For safety, tool-call blocks are removed from final assistant content before `done`, so Pi does not execute Claude-internal tool calls.
+- Maps `tool_use` + `input_json_delta` to assistant text trace lines (`[claude-code tool_use start|end: ...]`).
+- Uses normalized tool names for readability (`Read/Edit/Write/Bash/Grep/Find/Ls` → lowercase).
+- Chosen over `toolcall_*` UI blocks because interactive mode renders those as pending tool components at the chat bottom, which breaks chronological flow for trace-only (non-executed) Claude internal tools.
+- Trace remains visibility-only; Pi does not execute Claude-internal tool calls.
 
 ### P4 — Cache tier fidelity (core change)
 
@@ -111,7 +111,7 @@ From `agent/debug.log` samples:
 ### DoD for P3
 
 - User can see Claude tool activity by default.
-- Unknown tool names are still visible via trace text fallback.
+- Tool activity appears in chronological chat flow as trace lines.
 
 ---
 

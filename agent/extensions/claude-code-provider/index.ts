@@ -14,6 +14,12 @@ import {
 } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
+// NOTE: Claude Code can emit internal tool_use events during a single assistant stream.
+// Rendering those as Pi `toolCall` blocks causes UI ordering issues in interactive mode:
+// tool cards are appended as pending tool execution components at the bottom instead of
+// behaving like chronological chat content. To keep ordering stable, this provider surfaces
+// Claude tool-use activity as assistant text trace lines instead of `toolcall_*` events.
+
 // ---------------------------------------------------------------------------
 // Simple file logger — writes newline-delimited JSON to ~/.pi/agent/debug.log
 // Watch live:  tail -f ~/.pi/agent/debug.log
@@ -279,21 +285,6 @@ function normalizeTraceToolName(name: string): string {
   }
 }
 
-function isRenderableTraceToolName(name: string): boolean {
-  switch (name) {
-    case "read":
-    case "edit":
-    case "write":
-    case "bash":
-    case "grep":
-    case "find":
-    case "ls":
-      return true;
-    default:
-      return false;
-  }
-}
-
 function formatToolArgsPreview(input: unknown, maxLen = 280): string | undefined {
   if (input === undefined || input === null) return undefined;
   let text: string;
@@ -384,10 +375,8 @@ function streamClaudeCli(
 
     let textIndex: number | undefined;
     const thinkingIndexByBlock = new Map<number, number>();
-    const toolCallIndexByBlock = new Map<number, number>();
-    const toolCallJsonByBlock = new Map<number, string>();
-    const unknownToolNameByBlock = new Map<number, string>();
-    const unknownToolJsonByBlock = new Map<number, string>();
+    const toolTraceNameByBlock = new Map<number, string>();
+    const toolTraceJsonByBlock = new Map<number, string>();
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
     let latestRateLimitInfo: RateLimitInfoLike | undefined;
@@ -487,75 +476,31 @@ function streamClaudeCli(
       thinkingIndexByBlock.delete(blockIndex);
     };
 
-    const beginToolCall = (blockIndex: number, id: string, name: string, initialArgs?: Record<string, any>) => {
-      output.content.push({ type: "toolCall", id, name, arguments: initialArgs ?? {} });
-      const contentIndex = output.content.length - 1;
-      toolCallIndexByBlock.set(blockIndex, contentIndex);
-      toolCallJsonByBlock.set(blockIndex, "");
-      stream.push({ type: "toolcall_start", contentIndex, partial: output });
-    };
-
-    const appendToolCallDelta = (blockIndex: number, delta: string) => {
-      if (!delta) return;
-      const contentIndex = toolCallIndexByBlock.get(blockIndex);
-      if (contentIndex === undefined) return;
-      const block = output.content[contentIndex] as {
-        type: "toolCall";
-        id: string;
-        name: string;
-        arguments: Record<string, any>;
-      };
-      const partialJson = (toolCallJsonByBlock.get(blockIndex) || "") + delta;
-      toolCallJsonByBlock.set(blockIndex, partialJson);
-      const parsedArgs = parseJsonObject(partialJson);
-      if (parsedArgs) block.arguments = parsedArgs;
-      stream.push({ type: "toolcall_delta", contentIndex, delta, partial: output });
-    };
-
-    const endToolCall = (blockIndex: number) => {
-      const contentIndex = toolCallIndexByBlock.get(blockIndex);
-      if (contentIndex === undefined) return;
-      const block = output.content[contentIndex] as {
-        type: "toolCall";
-        id: string;
-        name: string;
-        arguments: Record<string, any>;
-      };
-      stream.push({
-        type: "toolcall_end",
-        contentIndex,
-        toolCall: { type: "toolCall", id: block.id, name: block.name, arguments: block.arguments },
-        partial: output,
-      });
-      toolCallIndexByBlock.delete(blockIndex);
-      toolCallJsonByBlock.delete(blockIndex);
-    };
-
-    const beginUnknownToolTrace = (blockIndex: number, toolName: string, initialInput?: unknown) => {
-      unknownToolNameByBlock.set(blockIndex, toolName);
+    const beginToolTrace = (blockIndex: number, toolName: string, initialInput?: unknown) => {
+      toolTraceNameByBlock.set(blockIndex, toolName);
       const initialJson = formatToolArgsPreview(initialInput) || "";
-      unknownToolJsonByBlock.set(blockIndex, initialJson);
+      toolTraceJsonByBlock.set(blockIndex, initialJson);
       appendText(
         `${textIndex === undefined ? "" : "\n\n"}[claude-code tool_use start: ${toolName}${initialJson ? ` args=${initialJson}` : ""}]`,
       );
     };
 
-    const appendUnknownToolTraceDelta = (blockIndex: number, delta: string) => {
+    const appendToolTraceDelta = (blockIndex: number, delta: string) => {
       if (!delta) return;
-      if (!unknownToolNameByBlock.has(blockIndex)) return;
-      const existing = unknownToolJsonByBlock.get(blockIndex) || "";
-      unknownToolJsonByBlock.set(blockIndex, existing + delta);
+      if (!toolTraceNameByBlock.has(blockIndex)) return;
+      const existing = toolTraceJsonByBlock.get(blockIndex) || "";
+      toolTraceJsonByBlock.set(blockIndex, existing + delta);
     };
 
-    const endUnknownToolTrace = (blockIndex: number) => {
-      const toolName = unknownToolNameByBlock.get(blockIndex);
+    const endToolTrace = (blockIndex: number) => {
+      const toolName = toolTraceNameByBlock.get(blockIndex);
       if (!toolName) return;
-      const partialJson = unknownToolJsonByBlock.get(blockIndex) || "";
+      const partialJson = toolTraceJsonByBlock.get(blockIndex) || "";
       const parsedArgs = parseJsonObject(partialJson);
       const preview = formatToolArgsPreview(parsedArgs ?? partialJson);
       appendText(`\n[claude-code tool_use end: ${toolName}${preview ? ` args=${preview}` : ""}]`);
-      unknownToolNameByBlock.delete(blockIndex);
-      unknownToolJsonByBlock.delete(blockIndex);
+      toolTraceNameByBlock.delete(blockIndex);
+      toolTraceJsonByBlock.delete(blockIndex);
     };
 
     debugLog("cli_start", {
@@ -663,7 +608,6 @@ function streamClaudeCli(
             }
 
             if (ENABLE_TOOLCALL_TRACE && streamEvent.content_block?.type === "tool_use") {
-              const toolId = typeof streamEvent.content_block.id === "string" ? streamEvent.content_block.id : "";
               const rawToolName =
                 typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
               const toolName = normalizeTraceToolName(rawToolName);
@@ -673,11 +617,7 @@ function streamClaudeCli(
                 !Array.isArray(streamEvent.content_block.input)
                   ? streamEvent.content_block.input
                   : undefined;
-              if (isRenderableTraceToolName(toolName)) {
-                beginToolCall(streamEvent.index, toolId, toolName, initialArgs);
-              } else {
-                beginUnknownToolTrace(streamEvent.index, rawToolName, initialArgs);
-              }
+              beginToolTrace(streamEvent.index, toolName, initialArgs);
               return;
             }
           }
@@ -692,16 +632,11 @@ function streamClaudeCli(
               ENABLE_TOOLCALL_TRACE &&
               streamEvent.delta?.type === "input_json_delta" &&
               typeof streamEvent.delta.partial_json === "string" &&
-              streamEvent.delta.partial_json.length > 0
+              streamEvent.delta.partial_json.length > 0 &&
+              toolTraceNameByBlock.has(streamEvent.index)
             ) {
-              if (toolCallIndexByBlock.has(streamEvent.index)) {
-                appendToolCallDelta(streamEvent.index, streamEvent.delta.partial_json);
-                return;
-              }
-              if (unknownToolNameByBlock.has(streamEvent.index)) {
-                appendUnknownToolTraceDelta(streamEvent.index, streamEvent.delta.partial_json);
-                return;
-              }
+              appendToolTraceDelta(streamEvent.index, streamEvent.delta.partial_json);
+              return;
             }
           }
 
@@ -711,13 +646,8 @@ function streamClaudeCli(
               return;
             }
 
-            if (ENABLE_TOOLCALL_TRACE && toolCallIndexByBlock.has(streamEvent.index)) {
-              endToolCall(streamEvent.index);
-              return;
-            }
-
-            if (ENABLE_TOOLCALL_TRACE && unknownToolNameByBlock.has(streamEvent.index)) {
-              endUnknownToolTrace(streamEvent.index);
+            if (ENABLE_TOOLCALL_TRACE && toolTraceNameByBlock.has(streamEvent.index)) {
+              endToolTrace(streamEvent.index);
               return;
             }
           }
