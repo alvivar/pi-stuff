@@ -95,7 +95,7 @@ const HAIKU45_CLI_MODEL =
   process.env.CLAUDE_CLI_MODEL_HAIKU_45 || process.env.CLAUDE_CLI_MODEL_HAIKU || "claude-haiku-4-5";
 
 const GLOBAL_APPEND_SYSTEM_PROMPT = process.env.CLAUDE_CLI_APPEND_SYSTEM_PROMPT;
-const ENABLE_TOOLCALL_TRACE = /^(1|true|yes)$/i.test(process.env.CLAUDE_CODE_TOOLCALL_TRACE || "");
+const ENABLE_TOOLCALL_TRACE = true;
 
 function parseJsonLine(line: string): any | undefined {
   const trimmed = line.trim();

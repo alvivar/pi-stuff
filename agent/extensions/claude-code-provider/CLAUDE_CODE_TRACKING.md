@@ -19,16 +19,16 @@ The provider currently propagates:
 - rate-limit warning/info notices (when notable)
 - run metadata notice (`duration_ms`, `num_turns`)
 - init diagnostics via `/claude-code-info` (version/tools/MCP status)
-- tool-use streaming trace via `CLAUDE_CODE_TOOLCALL_TRACE=1`
+- tool-use streaming trace (enabled by default)
 
-Tool-use visibility is now available as **opt-in streaming trace** (see P3), while default behavior remains unchanged.
+Tool-use visibility is enabled by default (see P3).
 
 ## Gap matrix
 
 | Data                        | Claude Code emits                                                              | Pi can consume                             | Currently propagated         |
 | --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------ | ---------------------------- |
 | Thinking content            | `stream_event.content_block_delta.delta.type = "thinking_delta"`               | `thinking_start/delta/end`                 | ✅ Yes                       |
-| Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | `toolcall_start/delta/end`                 | ✅ Yes (opt-in trace)        |
+| Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | `toolcall_start/delta/end`                 | ✅ Yes (default-on trace)    |
 | Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ✅ Yes (text notice)         |
 | Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ✅ Yes (text notice)         |
 | Claude Code version         | `type = "system"`, `subtype = "init"`, `claude_code_version`                   | Debug/diagnostics output                   | ✅ Yes (`/claude-code-info`) |
@@ -75,16 +75,14 @@ From `agent/debug.log` samples:
 - Capture latest `system:init` payload in memory
 - Add `/claude-code-info` to print version/tools/MCP status
 
-### P3 — Tool-use visibility (opt-in)
+### P3 — Tool-use visibility (default-on)
 
-**Status:** ✅ Implemented as opt-in trace in `agent/extensions/claude-code-provider/index.ts`.
+**Status:** ✅ Implemented as default-on trace in `agent/extensions/claude-code-provider/index.ts`.
 
-- Set `CLAUDE_CODE_TOOLCALL_TRACE=1` to enable toolcall streaming trace.
 - Maps `tool_use` + `input_json_delta` to `toolcall_start/delta/end`.
 - Normalizes known Claude built-in tool names (`Read/Edit/Write/Bash/Grep/Find/Ls`) to Pi’s lowercase built-ins for rendering.
-- Unknown tool names are surfaced as opt-in trace text lines (`[claude-code tool_use ...]`) so tool activity remains visible even without a Pi tool renderer.
+- Unknown tool names are surfaced as trace text lines (`[claude-code tool_use ...]`) so tool activity remains visible even without a Pi tool renderer.
 - For safety, tool-call blocks are removed from final assistant content before `done`, so Pi does not execute Claude-internal tool calls.
-- Default behavior remains unchanged/noisy trace is off by default.
 
 ### P4 — Cache tier fidelity (core change)
 
@@ -112,11 +110,11 @@ From `agent/debug.log` samples:
 
 ### DoD for P3
 
-- User can see Claude tool activity when enabled.
-- Default behavior remains clean/non-noisy.
+- User can see Claude tool activity by default.
+- Unknown tool names are still visible via trace text fallback.
 
 ---
 
 ## Quick summary
 
-**Thinking, P1 telemetry, P2 init diagnostics, and P3 opt-in tool-use trace are now implemented.** Remaining gap is cache-tier fidelity (5m vs 1h).
+**Thinking, P1 telemetry, P2 init diagnostics, and P3 default-on tool-use trace are now implemented.** Remaining gap is cache-tier fidelity (5m vs 1h).
