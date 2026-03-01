@@ -555,6 +555,33 @@ export default function (pi: ExtensionAPI) {
     streamSimple: (model, context, options) => streamClaudeCli(sessionMap, model, context, options),
   });
 
+  pi.on("session_before_compact", async (event, ctx) => {
+    // Only intercept when the active model belongs to this provider.
+    // Other providers (Anthropic, OpenAI, etc.) should compact normally.
+    if (ctx.model?.provider !== "claude-code") return undefined;
+
+    // Pi's conversation history is display-only when using the Claude Code provider.
+    // Real memory (file context, tool history, prompt caching) lives in the Claude
+    // Code CLI session via --resume. Invoking Claude Code just to compact Pi's
+    // display log would be wasteful — return a cheap stub summary instead.
+    const { preparation } = event;
+    return {
+      compaction: {
+        summary: [
+          "## Goal",
+          "Ongoing conversation via Claude Code provider.",
+          "",
+          "## Critical Context",
+          "- Conversation memory is managed by the Claude Code CLI session (--resume).",
+          "- Pi conversation history is display-only; the provider only sends the last user message.",
+          "- Switching to another provider will expose the full Pi Q&A history naturally.",
+        ].join("\n"),
+        firstKeptEntryId: preparation.firstKeptEntryId,
+        tokensBefore: preparation.tokensBefore,
+      },
+    };
+  });
+
   pi.registerCommand("claude-code-new-session", {
     description: "Clear stored Claude CLI session IDs to start a fresh session",
     handler: async (_args, ctx) => {
