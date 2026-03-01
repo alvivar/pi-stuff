@@ -11,7 +11,7 @@ Track Claude Code stream metadata that is available from `claude -p --output-for
 
 The provider currently propagates:
 
-- assistant text in strict arrival order (canonical `text_delta`, with monotonic assistant-snapshot suffix fallback)
+- assistant text in strict arrival order with per-upstream text block mapping (single-source per response: canonical `text_delta` by block index, or monotonic top-level assistant-snapshot suffix fallback)
 - thinking events (`thinking_start` / `thinking_delta` / `thinking_end`)
 - usage totals (input/output/cache)
 - session id (`session_id`)
@@ -94,7 +94,9 @@ From `agent/debug.log` samples:
   - extension-level bridge (event/command/state) for UX notifications.
 - Tool-use forwarding should be conservative to avoid implying Pi executed those tool calls directly.
 - Streaming is event-linear with category-aware separators; when output category changes (e.g., prose ↔ tool trace), rendering inserts up to `\n\n` for readability.
-- `--include-partial-messages` is enabled, but assistant snapshots are consumed only as monotonic text suffix fallback when canonical `stream_event` text deltas are not the active prose source.
+- Canonical `stream_event` prose is mapped per upstream content block index (not a single global text block) to preserve UI block order and avoid late-tail visual artifacts.
+- `--include-partial-messages` is enabled, but rendering locks to a single source per response (`stream_event` or `assistant_snapshot`) to prevent cross-channel ordering drift.
+- Snapshot fallback uses only top-level assistant/user events (`parent_tool_use_id == null`) and accepts monotonic suffix growth from one active assistant message id; other snapshot message ids are ignored for rendering.
 - After the top-level `result` event is seen, subsequent stdout lines are ignored for rendering to prevent post-final tail glitches.
 
 ## Definition of done (incremental)

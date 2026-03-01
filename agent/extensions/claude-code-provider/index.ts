@@ -123,13 +123,6 @@ function extractSessionId(event: any): string | undefined {
   return sid(event) ?? sid(event.result) ?? sid(event.metadata) ?? sid(event.event);
 }
 
-function extractTextDelta(event: any): string | undefined {
-  if (!event || typeof event !== "object") return undefined;
-  const delta = event.event?.delta;
-  if (delta?.type === "text_delta" && typeof delta.text === "string") return delta.text;
-  return undefined;
-}
-
 function extractResultText(event: any): string | undefined {
   if (!event || typeof event !== "object") return undefined;
   if (event.type !== "result") return undefined;
@@ -419,7 +412,8 @@ function streamClaudeCli(
       timestamp: Date.now(),
     };
 
-    let textIndex: number | undefined;
+    const FALLBACK_TEXT_BLOCK_KEY = -1;
+    const textIndexByBlock = new Map<number, number>();
     const thinkingIndexByBlock = new Map<number, number>();
     const toolTraceNameByBlock = new Map<number, string>();
     const toolTraceInitialInputByBlock = new Map<number, unknown>();
@@ -438,9 +432,9 @@ function streamClaudeCli(
     let sawResultEvent = false;
     let sawProseContent = false;
     let lastTextCategory: "prose" | "trace" | undefined;
-    let proseSource: "stream_event" | "assistant_snapshot" | undefined;
-    let toolTraceSource: "stream_event" | "assistant_snapshot" | undefined;
-    const snapshotTextByMessageId = new Map<string, string>();
+    let renderSource: "stream_event" | "assistant_snapshot" | undefined;
+    let activeSnapshotMessageId: string | undefined;
+    let activeSnapshotMessageText = "";
     const snapshotToolById = new Map<string, { name: string; input?: unknown }>();
 
     const streamKey = `${options?.sessionId || "default"}:${model.id}`;
@@ -486,55 +480,75 @@ function streamClaudeCli(
       args.push("--resume", rememberedSessionId);
     }
 
-    const beginText = () => {
-      if (textIndex !== undefined) return;
+    const beginTextForBlock = (blockKey: number): number => {
+      const existingContentIndex = textIndexByBlock.get(blockKey);
+      if (existingContentIndex !== undefined) return existingContentIndex;
+
       output.content.push({ type: "text", text: "" });
-      textIndex = output.content.length - 1;
-      stream.push({ type: "text_start", contentIndex: textIndex, partial: output });
+      const contentIndex = output.content.length - 1;
+      textIndexByBlock.set(blockKey, contentIndex);
+      stream.push({ type: "text_start", contentIndex, partial: output });
+      return contentIndex;
     };
 
-    const appendText = (delta: string) => {
+    const appendTextByContentIndex = (contentIndex: number, delta: string) => {
       if (!delta) return;
-      beginText();
-      const block = output.content[textIndex!] as { type: "text"; text: string };
+      const block = output.content[contentIndex] as { type: "text"; text: string };
       block.text += delta;
-      stream.push({ type: "text_delta", contentIndex: textIndex!, delta, partial: output });
+      stream.push({ type: "text_delta", contentIndex, delta, partial: output });
     };
 
-    const ensureCategoryGap = (nextCategory: "prose" | "trace") => {
+    const ensureCategoryGap = (contentIndex: number, nextCategory: "prose" | "trace") => {
       if (lastTextCategory === undefined || lastTextCategory === nextCategory) return;
-      if (textIndex === undefined) return;
-      const block = output.content[textIndex] as { type: "text"; text: string };
+      const block = output.content[contentIndex] as { type: "text"; text: string };
       if (!block.text) return;
       if (block.text.endsWith("\n\n")) return;
       if (block.text.endsWith("\n")) {
-        appendText("\n");
+        appendTextByContentIndex(contentIndex, "\n");
       } else {
-        appendText("\n\n");
+        appendTextByContentIndex(contentIndex, "\n\n");
       }
     };
 
-    const appendCategorizedText = (category: "prose" | "trace", text: string) => {
+    const appendCategorizedText = (category: "prose" | "trace", text: string, blockKey = FALLBACK_TEXT_BLOCK_KEY) => {
       if (!text) return;
-      beginText();
-      ensureCategoryGap(category);
-      appendText(text);
+      const contentIndex = beginTextForBlock(blockKey);
+      ensureCategoryGap(contentIndex, category);
+      appendTextByContentIndex(contentIndex, text);
       lastTextCategory = category;
       if (category === "prose") sawProseContent = true;
     };
 
-    const appendProseDelta = (delta: string) => {
-      appendCategorizedText("prose", delta);
+    const appendProseDelta = (delta: string, blockKey = FALLBACK_TEXT_BLOCK_KEY) => {
+      appendCategorizedText("prose", delta, blockKey);
     };
 
-    const appendTraceLine = (line: string) => {
-      appendCategorizedText("trace", `${line}\n`);
+    const appendTraceLine = (line: string, blockKey = FALLBACK_TEXT_BLOCK_KEY) => {
+      appendCategorizedText("trace", `${line}\n`, blockKey);
     };
 
-    const endTextIfNeeded = () => {
-      if (textIndex === undefined) return;
-      const block = output.content[textIndex] as { type: "text"; text: string };
-      stream.push({ type: "text_end", contentIndex: textIndex, content: block.text, partial: output });
+    const useRenderSource = (source: "stream_event" | "assistant_snapshot"): boolean => {
+      if (!renderSource) {
+        renderSource = source;
+      }
+      return renderSource === source;
+    };
+
+    const endTextBlock = (blockKey: number) => {
+      const contentIndex = textIndexByBlock.get(blockKey);
+      if (contentIndex === undefined) return;
+      const block = output.content[contentIndex] as { type: "text"; text: string };
+      stream.push({ type: "text_end", contentIndex, content: block.text, partial: output });
+      textIndexByBlock.delete(blockKey);
+      if (textIndexByBlock.size === 0) {
+        lastTextCategory = undefined;
+      }
+    };
+
+    const endAllTextBlocks = () => {
+      for (const blockKey of Array.from(textIndexByBlock.keys())) {
+        endTextBlock(blockKey);
+      }
     };
 
     const beginThinking = (blockIndex: number) => {
@@ -566,7 +580,7 @@ function streamClaudeCli(
       toolTraceInitialInputByBlock.set(blockIndex, initialInput);
       toolTraceDeltaJsonByBlock.set(blockIndex, "");
       const initialPreview = formatToolArgsPreview(initialInput);
-      appendTraceLine(`[claude-code tool_use start: ${toolName}${initialPreview ? ` args=${initialPreview}` : ""}]`);
+      appendTraceLine(`[claude-code tool_use start: ${toolName}${initialPreview ? ` args=${initialPreview}` : ""}]`, blockIndex);
     };
 
     const appendToolTraceDelta = (blockIndex: number, delta: string) => {
@@ -585,7 +599,7 @@ function streamClaudeCli(
         parsedArgs ??
         (deltaJson.trim().length > 0 ? deltaJson : toolTraceInitialInputByBlock.get(blockIndex));
       const preview = formatToolArgsPreview(finalArgs);
-      appendTraceLine(`[claude-code tool_use end: ${toolName}${preview ? ` args=${preview}` : ""}]`);
+      appendTraceLine(`[claude-code tool_use end: ${toolName}${preview ? ` args=${preview}` : ""}]`, blockIndex);
       toolTraceNameByBlock.delete(blockIndex);
       toolTraceInitialInputByBlock.delete(blockIndex);
       toolTraceDeltaJsonByBlock.delete(blockIndex);
@@ -711,21 +725,23 @@ function streamClaudeCli(
               return;
             }
 
-            if (streamEvent.content_block?.type === "tool_use") {
-              if (!toolTraceSource) toolTraceSource = "stream_event";
-              if (toolTraceSource === "stream_event") {
-                const rawToolName =
-                  typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
-                const toolName = normalizeTraceToolName(rawToolName);
-                const initialArgs =
-                  streamEvent.content_block.input &&
-                  typeof streamEvent.content_block.input === "object" &&
-                  !Array.isArray(streamEvent.content_block.input)
-                    ? streamEvent.content_block.input
-                    : undefined;
-                beginToolTrace(streamEvent.index, toolName, initialArgs);
-                return;
-              }
+            if (streamEvent.content_block?.type === "text" && useRenderSource("stream_event")) {
+              beginTextForBlock(streamEvent.index);
+              return;
+            }
+
+            if (streamEvent.content_block?.type === "tool_use" && useRenderSource("stream_event")) {
+              const rawToolName =
+                typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
+              const toolName = normalizeTraceToolName(rawToolName);
+              const initialArgs =
+                streamEvent.content_block.input &&
+                typeof streamEvent.content_block.input === "object" &&
+                !Array.isArray(streamEvent.content_block.input)
+                  ? streamEvent.content_block.input
+                  : undefined;
+              beginToolTrace(streamEvent.index, toolName, initialArgs);
+              return;
             }
           }
 
@@ -736,7 +752,16 @@ function streamClaudeCli(
             }
 
             if (
-              toolTraceSource === "stream_event" &&
+              streamEvent.delta?.type === "text_delta" &&
+              typeof streamEvent.delta.text === "string" &&
+              useRenderSource("stream_event")
+            ) {
+              appendProseDelta(streamEvent.delta.text, streamEvent.index);
+              return;
+            }
+
+            if (
+              renderSource === "stream_event" &&
               streamEvent.delta?.type === "input_json_delta" &&
               typeof streamEvent.delta.partial_json === "string" &&
               streamEvent.delta.partial_json.length > 0 &&
@@ -753,26 +778,34 @@ function streamClaudeCli(
               return;
             }
 
-            if (toolTraceSource === "stream_event" && toolTraceNameByBlock.has(streamEvent.index)) {
+            if (renderSource === "stream_event" && toolTraceNameByBlock.has(streamEvent.index)) {
               endToolTrace(streamEvent.index);
+              endTextBlock(streamEvent.index);
+              return;
+            }
+
+            if (renderSource === "stream_event" && textIndexByBlock.has(streamEvent.index)) {
+              endTextBlock(streamEvent.index);
               return;
             }
           }
 
-          const delta = extractTextDelta(parsed);
-          if (delta) {
-            if (!proseSource) proseSource = "stream_event";
-            if (proseSource === "stream_event") {
-              appendProseDelta(delta);
-              return;
-            }
-          }
+          const isTopLevelSnapshot = parsed.parent_tool_use_id == null;
 
-          const snapshotText = extractAssistantSnapshotText(parsed);
-          if (snapshotText) {
-            if (!proseSource) proseSource = "assistant_snapshot";
-            if (proseSource === "assistant_snapshot") {
-              const previous = snapshotTextByMessageId.get(snapshotText.messageId) || "";
+          const snapshotText = isTopLevelSnapshot ? extractAssistantSnapshotText(parsed) : undefined;
+          if (snapshotText && useRenderSource("assistant_snapshot")) {
+            if (!activeSnapshotMessageId) {
+              activeSnapshotMessageId = snapshotText.messageId;
+            }
+
+            if (snapshotText.messageId !== activeSnapshotMessageId) {
+              debugLog("assistant_snapshot_ignored_message", {
+                activeMessageId: activeSnapshotMessageId,
+                incomingMessageId: snapshotText.messageId,
+                incomingLength: snapshotText.text.length,
+              });
+            } else {
+              const previous = activeSnapshotMessageText;
               if (snapshotText.text.startsWith(previous)) {
                 const suffix = snapshotText.text.slice(previous.length);
                 if (suffix) appendProseDelta(suffix);
@@ -783,21 +816,18 @@ function streamClaudeCli(
                   nextLength: snapshotText.text.length,
                 });
               }
-              snapshotTextByMessageId.set(snapshotText.messageId, snapshotText.text);
+              activeSnapshotMessageText = snapshotText.text;
             }
           }
 
-          const snapshotToolUses = extractAssistantSnapshotToolUses(parsed);
-          if (snapshotToolUses.length > 0) {
-            if (!toolTraceSource) toolTraceSource = "assistant_snapshot";
-            if (toolTraceSource === "assistant_snapshot") {
-              for (const toolUse of snapshotToolUses) {
-                beginSnapshotToolTrace(toolUse.id, normalizeTraceToolName(toolUse.name), toolUse.input);
-              }
+          const snapshotToolUses = isTopLevelSnapshot ? extractAssistantSnapshotToolUses(parsed) : [];
+          if (snapshotToolUses.length > 0 && useRenderSource("assistant_snapshot")) {
+            for (const toolUse of snapshotToolUses) {
+              beginSnapshotToolTrace(toolUse.id, normalizeTraceToolName(toolUse.name), toolUse.input);
             }
           }
 
-          if (toolTraceSource === "assistant_snapshot") {
+          if (isTopLevelSnapshot && renderSource === "assistant_snapshot") {
             const toolResultIds = extractUserToolResultIds(parsed);
             for (const toolResultId of toolResultIds) {
               endSnapshotToolTrace(toolResultId);
@@ -883,7 +913,7 @@ function streamClaudeCli(
         debugLog("run_metadata_notice", { notice: runMetaNotice });
       }
 
-      endTextIfNeeded();
+      endAllTextBlocks();
       output.stopReason = "stop";
       if (!output.usage.totalTokens) {
         output.usage.totalTokens =
@@ -902,7 +932,7 @@ function streamClaudeCli(
       stream.end();
     } catch (error) {
       if (timeoutId) clearTimeout(timeoutId);
-      endTextIfNeeded();
+      endAllTextBlocks();
       output.stopReason = options?.signal?.aborted || gotAbort ? "aborted" : "error";
       output.errorMessage = error instanceof Error ? error.message : String(error);
       debugLog("error", { message: output.errorMessage, stopReason: output.stopReason, stderr: stderrChunks.join("") });
