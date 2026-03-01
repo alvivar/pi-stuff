@@ -279,6 +279,37 @@ function normalizeTraceToolName(name: string): string {
   }
 }
 
+function isRenderableTraceToolName(name: string): boolean {
+  switch (name) {
+    case "read":
+    case "edit":
+    case "write":
+    case "bash":
+    case "grep":
+    case "find":
+    case "ls":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function formatToolArgsPreview(input: unknown, maxLen = 280): string | undefined {
+  if (input === undefined || input === null) return undefined;
+  let text: string;
+  if (typeof input === "string") {
+    text = input;
+  } else {
+    try {
+      text = JSON.stringify(input);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!text) return undefined;
+  return text.length <= maxLen ? text : `${text.slice(0, maxLen)}…`;
+}
+
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
@@ -355,6 +386,8 @@ function streamClaudeCli(
     const thinkingIndexByBlock = new Map<number, number>();
     const toolCallIndexByBlock = new Map<number, number>();
     const toolCallJsonByBlock = new Map<number, string>();
+    const unknownToolNameByBlock = new Map<number, string>();
+    const unknownToolJsonByBlock = new Map<number, string>();
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
     let latestRateLimitInfo: RateLimitInfoLike | undefined;
@@ -498,6 +531,33 @@ function streamClaudeCli(
       toolCallJsonByBlock.delete(blockIndex);
     };
 
+    const beginUnknownToolTrace = (blockIndex: number, toolName: string, initialInput?: unknown) => {
+      unknownToolNameByBlock.set(blockIndex, toolName);
+      const initialJson = formatToolArgsPreview(initialInput) || "";
+      unknownToolJsonByBlock.set(blockIndex, initialJson);
+      appendText(
+        `${textIndex === undefined ? "" : "\n\n"}[claude-code tool_use start: ${toolName}${initialJson ? ` args=${initialJson}` : ""}]`,
+      );
+    };
+
+    const appendUnknownToolTraceDelta = (blockIndex: number, delta: string) => {
+      if (!delta) return;
+      if (!unknownToolNameByBlock.has(blockIndex)) return;
+      const existing = unknownToolJsonByBlock.get(blockIndex) || "";
+      unknownToolJsonByBlock.set(blockIndex, existing + delta);
+    };
+
+    const endUnknownToolTrace = (blockIndex: number) => {
+      const toolName = unknownToolNameByBlock.get(blockIndex);
+      if (!toolName) return;
+      const partialJson = unknownToolJsonByBlock.get(blockIndex) || "";
+      const parsedArgs = parseJsonObject(partialJson);
+      const preview = formatToolArgsPreview(parsedArgs ?? partialJson);
+      appendText(`\n[claude-code tool_use end: ${toolName}${preview ? ` args=${preview}` : ""}]`);
+      unknownToolNameByBlock.delete(blockIndex);
+      unknownToolJsonByBlock.delete(blockIndex);
+    };
+
     debugLog("cli_start", {
       cli,
       args,
@@ -613,7 +673,11 @@ function streamClaudeCli(
                 !Array.isArray(streamEvent.content_block.input)
                   ? streamEvent.content_block.input
                   : undefined;
-              beginToolCall(streamEvent.index, toolId, toolName, initialArgs);
+              if (isRenderableTraceToolName(toolName)) {
+                beginToolCall(streamEvent.index, toolId, toolName, initialArgs);
+              } else {
+                beginUnknownToolTrace(streamEvent.index, rawToolName, initialArgs);
+              }
               return;
             }
           }
@@ -630,8 +694,14 @@ function streamClaudeCli(
               typeof streamEvent.delta.partial_json === "string" &&
               streamEvent.delta.partial_json.length > 0
             ) {
-              appendToolCallDelta(streamEvent.index, streamEvent.delta.partial_json);
-              return;
+              if (toolCallIndexByBlock.has(streamEvent.index)) {
+                appendToolCallDelta(streamEvent.index, streamEvent.delta.partial_json);
+                return;
+              }
+              if (unknownToolNameByBlock.has(streamEvent.index)) {
+                appendUnknownToolTraceDelta(streamEvent.index, streamEvent.delta.partial_json);
+                return;
+              }
             }
           }
 
@@ -643,6 +713,11 @@ function streamClaudeCli(
 
             if (ENABLE_TOOLCALL_TRACE && toolCallIndexByBlock.has(streamEvent.index)) {
               endToolCall(streamEvent.index);
+              return;
+            }
+
+            if (ENABLE_TOOLCALL_TRACE && unknownToolNameByBlock.has(streamEvent.index)) {
+              endUnknownToolTrace(streamEvent.index);
               return;
             }
           }

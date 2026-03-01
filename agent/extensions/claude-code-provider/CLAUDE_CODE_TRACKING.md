@@ -82,6 +82,7 @@ From `agent/debug.log` samples:
 - Set `CLAUDE_CODE_TOOLCALL_TRACE=1` to enable toolcall streaming trace.
 - Maps `tool_use` + `input_json_delta` to `toolcall_start/delta/end`.
 - Normalizes known Claude built-in tool names (`Read/Edit/Write/Bash/Grep/Find/Ls`) to Pi’s lowercase built-ins for rendering.
+- Unknown tool names are surfaced as opt-in trace text lines (`[claude-code tool_use ...]`) so tool activity remains visible even without a Pi tool renderer.
 - For safety, tool-call blocks are removed from final assistant content before `done`, so Pi does not execute Claude-internal tool calls.
 - Default behavior remains unchanged/noisy trace is off by default.
 
