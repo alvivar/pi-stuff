@@ -559,6 +559,7 @@ function streamClaudeCli(
     let sawResultEvent = false;
     let sawProseContent = false;
     let lastTextCategory: "prose" | "trace" | undefined;
+    let pendingTraceJoinBlockIndex: number | undefined;
     let renderSource: "stream_event" | "assistant_snapshot" | undefined;
     let activeSnapshotMessageId: string | undefined;
     let activeSnapshotMessageText = "";
@@ -669,7 +670,7 @@ function streamClaudeCli(
       const block = output.content[contentIndex] as { type: "text"; text: string };
       stream.push({ type: "text_end", contentIndex, content: block.text, partial: output });
       textIndexByBlock.delete(blockKey);
-      if (textIndexByBlock.size === 0) {
+      if (textIndexByBlock.size === 0 && pendingTraceJoinBlockIndex === undefined) {
         lastTextCategory = undefined;
       }
     };
@@ -678,6 +679,16 @@ function streamClaudeCli(
       for (const blockKey of Array.from(textIndexByBlock.keys())) {
         endTextBlock(blockKey);
       }
+      lastTextCategory = undefined;
+      pendingTraceJoinBlockIndex = undefined;
+    };
+
+    const flushPendingTraceJoinBlock = () => {
+      if (pendingTraceJoinBlockIndex === undefined) return;
+      if (textIndexByBlock.has(pendingTraceJoinBlockIndex)) {
+        endTextBlock(pendingTraceJoinBlockIndex);
+      }
+      pendingTraceJoinBlockIndex = undefined;
     };
 
     const beginThinking = (blockIndex: number) => {
@@ -711,6 +722,7 @@ function streamClaudeCli(
       toolTraceInitialInputByBlock.set(blockIndex, initialInput);
       toolTraceDeltaJsonByBlock.set(blockIndex, "");
       const initialPreview = formatToolArgsPreview(toolName, initialInput);
+      appendTraceLine("────────", blockIndex);
       appendTraceLine(`[tool #${sequence} start] ${toolName}${initialPreview ? ` — ${initialPreview}` : ""}`, blockIndex);
     };
 
@@ -745,6 +757,7 @@ function streamClaudeCli(
       snapshotToolById.set(id, { name, input });
       snapshotToolSequenceById.set(id, sequence);
       const preview = formatToolArgsPreview(name, input);
+      appendTraceLine("────────");
       appendTraceLine(`[tool #${sequence} start] ${name}${preview ? ` — ${preview}` : ""}`);
     };
 
@@ -860,16 +873,29 @@ function streamClaudeCli(
           const streamEvent = parsed.type === "stream_event" ? parsed.event : undefined;
           if (streamEvent?.type === "content_block_start" && typeof streamEvent.index === "number") {
             if (streamEvent.content_block?.type === "thinking") {
+              flushPendingTraceJoinBlock();
               beginThinking(streamEvent.index);
               return;
             }
 
             if (streamEvent.content_block?.type === "text" && useRenderSource("stream_event")) {
+              if (pendingTraceJoinBlockIndex !== undefined) {
+                const pendingContentIndex = textIndexByBlock.get(pendingTraceJoinBlockIndex);
+                if (pendingContentIndex !== undefined) {
+                  textIndexByBlock.set(streamEvent.index, pendingContentIndex);
+                  textIndexByBlock.delete(pendingTraceJoinBlockIndex);
+                  pendingTraceJoinBlockIndex = undefined;
+                  return;
+                }
+                pendingTraceJoinBlockIndex = undefined;
+              }
+
               beginTextForBlock(streamEvent.index);
               return;
             }
 
             if (streamEvent.content_block?.type === "tool_use" && useRenderSource("stream_event")) {
+              flushPendingTraceJoinBlock();
               const rawToolName =
                 typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
               const toolName = normalizeTraceToolName(rawToolName);
@@ -919,7 +945,9 @@ function streamClaudeCli(
 
             if (renderSource === "stream_event" && toolTraceNameByBlock.has(streamEvent.index)) {
               endToolTrace(streamEvent.index);
-              endTextBlock(streamEvent.index);
+              if (textIndexByBlock.has(streamEvent.index)) {
+                pendingTraceJoinBlockIndex = streamEvent.index;
+              }
               return;
             }
 
