@@ -374,6 +374,7 @@ function streamClaudeCli(
     };
 
     let textIndex: number | undefined;
+    let seenTextBlockStarts = 0;
     const thinkingIndexByBlock = new Map<number, number>();
     const toolTraceNameByBlock = new Map<number, string>();
     const toolTraceJsonByBlock = new Map<number, string>();
@@ -446,6 +447,18 @@ function streamClaudeCli(
       stream.push({ type: "text_delta", contentIndex: textIndex!, delta, partial: output });
     };
 
+    const ensureParagraphGap = () => {
+      if (textIndex === undefined) return;
+      const block = output.content[textIndex] as { type: "text"; text: string };
+      if (!block.text) return;
+      if (block.text.endsWith("\n\n")) return;
+      if (block.text.endsWith("\n")) {
+        appendText("\n");
+      } else {
+        appendText("\n\n");
+      }
+    };
+
     const endTextIfNeeded = () => {
       if (textIndex === undefined) return;
       const block = output.content[textIndex] as { type: "text"; text: string };
@@ -480,9 +493,8 @@ function streamClaudeCli(
       toolTraceNameByBlock.set(blockIndex, toolName);
       const initialJson = formatToolArgsPreview(initialInput) || "";
       toolTraceJsonByBlock.set(blockIndex, initialJson);
-      appendText(
-        `${textIndex === undefined ? "" : "\n\n"}[claude-code tool_use start: ${toolName}${initialJson ? ` args=${initialJson}` : ""}]`,
-      );
+      ensureParagraphGap();
+      appendText(`[claude-code tool_use start: ${toolName}${initialJson ? ` args=${initialJson}` : ""}]`);
     };
 
     const appendToolTraceDelta = (blockIndex: number, delta: string) => {
@@ -499,6 +511,7 @@ function streamClaudeCli(
       const parsedArgs = parseJsonObject(partialJson);
       const preview = formatToolArgsPreview(parsedArgs ?? partialJson);
       appendText(`\n[claude-code tool_use end: ${toolName}${preview ? ` args=${preview}` : ""}]`);
+      ensureParagraphGap();
       toolTraceNameByBlock.delete(blockIndex);
       toolTraceJsonByBlock.delete(blockIndex);
     };
@@ -602,6 +615,13 @@ function streamClaudeCli(
 
           const streamEvent = parsed.type === "stream_event" ? parsed.event : undefined;
           if (streamEvent?.type === "content_block_start" && typeof streamEvent.index === "number") {
+            if (streamEvent.content_block?.type === "text") {
+              if (seenTextBlockStarts > 0) {
+                ensureParagraphGap();
+              }
+              seenTextBlockStarts += 1;
+            }
+
             if (streamEvent.content_block?.type === "thinking") {
               beginThinking(streamEvent.index);
               return;
@@ -722,7 +742,8 @@ function streamClaudeCli(
         formatRunMetadata(runDurationMs, runNumTurns),
       ].filter((line): line is string => Boolean(line));
       if (metaLines.length > 0) {
-        appendText(`${textIndex === undefined ? "" : "\n\n"}${metaLines.join("\n")}`);
+        ensureParagraphGap();
+        appendText(metaLines.join("\n"));
       }
 
       endTextIfNeeded();
