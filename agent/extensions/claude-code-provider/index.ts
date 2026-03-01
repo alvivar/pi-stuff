@@ -263,6 +263,22 @@ function parseJsonObject(value: string): Record<string, any> | undefined {
   }
 }
 
+function normalizeTraceToolName(name: string): string {
+  const normalized = name.trim().toLowerCase();
+  switch (normalized) {
+    case "read":
+    case "edit":
+    case "write":
+    case "bash":
+    case "grep":
+    case "find":
+    case "ls":
+      return normalized;
+    default:
+      return name;
+  }
+}
+
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
@@ -588,7 +604,9 @@ function streamClaudeCli(
 
             if (ENABLE_TOOLCALL_TRACE && streamEvent.content_block?.type === "tool_use") {
               const toolId = typeof streamEvent.content_block.id === "string" ? streamEvent.content_block.id : "";
-              const toolName = typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
+              const rawToolName =
+                typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
+              const toolName = normalizeTraceToolName(rawToolName);
               const initialArgs =
                 streamEvent.content_block.input &&
                 typeof streamEvent.content_block.input === "object" &&
