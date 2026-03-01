@@ -41,19 +41,16 @@ type UsageLike = {
   costTotal?: number;
 };
 
+const REASONING_TO_EFFORT: Partial<Record<NonNullable<SimpleStreamOptions["reasoning"]>, CliEffort>> = {
+  minimal: "low",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "high",
+};
+
 function mapReasoningToCliEffort(reasoning?: SimpleStreamOptions["reasoning"]): CliEffort | undefined {
-  switch (reasoning) {
-    case "minimal":
-    case "low":
-      return "low";
-    case "medium":
-      return "medium";
-    case "high":
-    case "xhigh":
-      return "high";
-    default:
-      return undefined;
-  }
+  return reasoning ? REASONING_TO_EFFORT[reasoning] : undefined;
 }
 
 const DEFAULT_CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || "claude";
@@ -84,39 +81,18 @@ function parseJsonLine(line: string): any | undefined {
 
 function extractSessionId(event: any): string | undefined {
   if (!event || typeof event !== "object") return undefined;
-  const candidates = [
-    event.session_id,
-    event.sessionId,
-    event.result?.session_id,
-    event.result?.sessionId,
-    event.metadata?.session_id,
-    event.metadata?.sessionId,
-    event.event?.session_id,
-    event.event?.sessionId,
-  ];
-  for (const value of candidates) {
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-  return undefined;
+  const sid = (o: any): string | undefined => {
+    const v = o?.session_id ?? o?.sessionId;
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
+  return sid(event) ?? sid(event.result) ?? sid(event.metadata) ?? sid(event.event);
 }
 
 function extractTextDelta(event: any): string | undefined {
   if (!event || typeof event !== "object") return undefined;
-
-  // Claude CLI stream-json format
-  if (event.type === "stream_event") {
-    const delta = event.event?.delta;
-    if (delta?.type === "text_delta" && typeof delta.text === "string") return delta.text;
-
-    // Fallbacks for potential event shapes
-    if (typeof event.event?.text === "string") return event.event.text;
-  }
-
-  // Generic fallback if the CLI format shifts
-  if (event.event?.delta?.type === "text_delta" && typeof event.event?.delta?.text === "string") {
-    return event.event.delta.text;
-  }
-
+  const delta = event.event?.delta;
+  if (delta?.type === "text_delta" && typeof delta.text === "string") return delta.text;
+  if (event.type === "stream_event" && typeof event.event?.text === "string") return event.event.text;
   return undefined;
 }
 
@@ -195,37 +171,22 @@ function getPiSystemPrompt(context: Context): string | undefined {
 }
 
 function getLastUserText(context: Context): string {
-  for (let i = context.messages.length - 1; i >= 0; i--) {
-    const msg = context.messages[i];
-    if (msg.role !== "user") continue;
-
-    if (typeof msg.content === "string") return msg.content.trim() || "Continue.";
-
-    const textParts = msg.content.filter((c) => c.type === "text").map((c) => c.text);
-    const imageCount = msg.content.filter((c) => c.type === "image").length;
-    let text = textParts.join("\n\n").trim();
-    if (!text) text = "Continue.";
-    if (imageCount > 0) {
-      text += `\n\n[Note: ${imageCount} image attachment(s) were provided in Pi but are not forwarded by claude-code-provider v1.]`;
-    }
-    return text;
+  const msg = context.messages.findLast((m) => m.role === "user");
+  if (!msg) return "Continue.";
+  if (typeof msg.content === "string") return msg.content.trim() || "Continue.";
+  const textParts = msg.content.filter((c) => c.type === "text").map((c) => c.text);
+  const imageCount = msg.content.filter((c) => c.type === "image").length;
+  let text = textParts.join("\n\n").trim() || "Continue.";
+  if (imageCount > 0) {
+    text += `\n\n[Note: ${imageCount} image attachment(s) were provided in Pi but are not forwarded by claude-code-provider v1.]`;
   }
-  return "Continue.";
+  return text;
 }
 
-function modelCliConfig(modelId: string): { cliModel: string; allowedTools: string } {
-  if (modelId.startsWith("claude-code-sonnet-4-6")) {
-    return { cliModel: SONNET46_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
-  }
-  if (modelId.startsWith("claude-code-opus-4-6")) {
-    return { cliModel: OPUS46_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
-  }
-  if (modelId.startsWith("claude-code-haiku-4-5")) {
-    return { cliModel: HAIKU45_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
-  }
-
-  // Fallback to Sonnet 4.6
-  return { cliModel: SONNET46_CLI_MODEL, allowedTools: DEFAULT_ALLOWED_TOOLS };
+function cliModelFor(modelId: string): string {
+  if (modelId.startsWith("claude-code-opus-4-6"))  return OPUS46_CLI_MODEL;
+  if (modelId.startsWith("claude-code-haiku-4-5")) return HAIKU45_CLI_MODEL;
+  return SONNET46_CLI_MODEL; // default: Sonnet 4.6
 }
 
 function streamClaudeCli(
@@ -258,7 +219,7 @@ function streamClaudeCli(
     let textIndex: number | undefined;
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
-    let stderr = "";
+    const stderrChunks: string[] = [];
     let lineBuffer = "";
     let timeoutId: NodeJS.Timeout | undefined;
     let proc: ReturnType<typeof spawn> | undefined;
@@ -272,7 +233,7 @@ function streamClaudeCli(
       ? Math.floor(DEFAULT_TIMEOUT_SECONDS * 1000)
       : 240_000;
 
-    const { cliModel, allowedTools } = modelCliConfig(model.id);
+    const cliModel = cliModelFor(model.id);
     const prompt = getLastUserText(context);
     const piSystemPrompt = getPiSystemPrompt(context);
     const effort = mapReasoningToCliEffort(options?.reasoning);
@@ -288,20 +249,19 @@ function streamClaudeCli(
       "--model",
       cliModel,
       "--allowedTools",
-      allowedTools,
+      DEFAULT_ALLOWED_TOOLS,
     ];
 
     if (effort) {
       args.push("--effort", effort);
     }
 
+    const globalPrompt = GLOBAL_APPEND_SYSTEM_PROMPT?.trim();
     if (piSystemPrompt) {
-      const parts = [piSystemPrompt, GLOBAL_APPEND_SYSTEM_PROMPT]
-        .filter((part): part is string => Boolean(part && part.trim()))
-        .map((part) => part.trim());
+      const parts = [piSystemPrompt, globalPrompt].filter((p): p is string => Boolean(p));
       args.push("--system-prompt", parts.join("\n\n"));
-    } else if (GLOBAL_APPEND_SYSTEM_PROMPT?.trim()) {
-      args.push("--append-system-prompt", GLOBAL_APPEND_SYSTEM_PROMPT.trim());
+    } else if (globalPrompt) {
+      args.push("--append-system-prompt", globalPrompt);
     }
 
     if (rememberedSessionId) {
@@ -354,7 +314,7 @@ function streamClaudeCli(
         const resolveOnce = (code: number) => {
           if (resolved) return;
           resolved = true;
-          if (options?.signal) options.signal.removeEventListener("abort", abortHandler);
+          if (options?.signal) options.signal.removeEventListener("abort", killProc);
           resolve(code);
         };
 
@@ -376,14 +336,12 @@ function streamClaudeCli(
           }, 3000);
         };
 
-        const abortHandler = () => killProc();
-
         if (timeoutMs > 0) {
           timeoutId = setTimeout(killProc, timeoutMs);
         }
         if (options?.signal) {
           if (options.signal.aborted) killProc();
-          options.signal.addEventListener("abort", abortHandler);
+          options.signal.addEventListener("abort", killProc);
         }
 
         try {
@@ -419,7 +377,7 @@ function streamClaudeCli(
         };
 
         proc.stdout.on("data", (chunk) => {
-          const text = chunk.toString();
+          const text = chunk.toString("utf8");
           lineBuffer += text;
           const lines = lineBuffer.split(/\r?\n/);
           lineBuffer = lines.pop() || "";
@@ -427,28 +385,18 @@ function streamClaudeCli(
         });
 
         proc.stderr.on("data", (chunk) => {
-          const text = chunk.toString();
-          stderr += text;
+          const text = chunk.toString("utf8");
+          stderrChunks.push(text);
           debugLog("stderr", { text: text.trim() });
         });
 
         proc.on("error", (err) => {
-          stderr += `${err.message}\n`;
+          stderrChunks.push(`${err.message}\n`);
           resolveOnce(1);
         });
 
         proc.on("close", (code) => {
-          if (lineBuffer.trim()) {
-            const parsed = parseJsonLine(lineBuffer);
-            if (parsed) {
-              const sid = extractSessionId(parsed);
-              if (sid) latestSessionId = sid;
-              const usage = extractUsage(parsed);
-              applyUsage(output, usage, model);
-              const resultText = extractResultText(parsed);
-              if (resultText) fallbackResultText = resultText;
-            }
-          }
+          if (lineBuffer.trim()) processLine(lineBuffer);
           resolveOnce(code ?? 0);
         });
       });
@@ -464,7 +412,7 @@ function streamClaudeCli(
       }
 
       if (exitCode !== 0) {
-        const trimmedStderr = stderr.trim();
+        const trimmedStderr = stderrChunks.join("").trim();
         const effortUnsupported =
           Boolean(effort) &&
           trimmedStderr.includes("--effort") &&
@@ -505,7 +453,7 @@ function streamClaudeCli(
       endTextIfNeeded();
       output.stopReason = options?.signal?.aborted || gotAbort ? "aborted" : "error";
       output.errorMessage = error instanceof Error ? error.message : String(error);
-      debugLog("error", { message: output.errorMessage, stopReason: output.stopReason, stderr });
+      debugLog("error", { message: output.errorMessage, stopReason: output.stopReason, stderr: stderrChunks.join("") });
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
     }
@@ -552,7 +500,7 @@ export default function (pi: ExtensionAPI) {
       },
     ],
 
-    streamSimple: (model, context, options) => streamClaudeCli(sessionMap, model, context, options),
+    streamSimple: streamClaudeCli.bind(null, sessionMap),
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
