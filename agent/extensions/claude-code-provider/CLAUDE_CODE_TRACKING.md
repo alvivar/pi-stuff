@@ -19,19 +19,20 @@ The provider currently propagates:
 - rate-limit warning/info notices (when notable)
 - run metadata notice (`duration_ms`, `num_turns`)
 - init diagnostics via `/claude-code-info` (version/tools/MCP status)
+- tool-use streaming trace via `CLAUDE_CODE_TOOLCALL_TRACE=1`
 
-The provider still does **not** propagate tool-use details into Pi UX.
+Tool-use visibility is now available as **opt-in streaming trace** (see P3), while default behavior remains unchanged.
 
 ## Gap matrix
 
-| Data                        | Claude Code emits                                                              | Pi can consume                             | Currently propagated |
-| --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------ | -------------------- |
-| Thinking content            | `stream_event.content_block_delta.delta.type = "thinking_delta"`               | `thinking_start/delta/end`                 | ✅ Yes               |
-| Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | `toolcall_start/delta/end`                 | ❌ No                |
-| Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ✅ Yes (text notice) |
-| Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ✅ Yes (text notice) |
+| Data                        | Claude Code emits                                                              | Pi can consume                             | Currently propagated         |
+| --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------ | ---------------------------- |
+| Thinking content            | `stream_event.content_block_delta.delta.type = "thinking_delta"`               | `thinking_start/delta/end`                 | ✅ Yes                       |
+| Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | `toolcall_start/delta/end`                 | ✅ Yes (opt-in trace)        |
+| Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ✅ Yes (text notice)         |
+| Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ✅ Yes (text notice)         |
 | Claude Code version         | `type = "system"`, `subtype = "init"`, `claude_code_version`                   | Debug/diagnostics output                   | ✅ Yes (`/claude-code-info`) |
-| Cache tier split (5m vs 1h) | `message_start.message.usage.cache_creation.*`                                 | Not modeled in Pi `Usage`                  | ❌ No                |
+| Cache tier split (5m vs 1h) | `message_start.message.usage.cache_creation.*`                                 | Not modeled in Pi `Usage`                  | ❌ No                        |
 
 ## Evidence seen in local logs
 
@@ -76,9 +77,12 @@ From `agent/debug.log` samples:
 
 ### P3 — Tool-use visibility (opt-in)
 
-- Map `tool_use` + `input_json_delta` to `toolcall_*` OR render as trace text
-- Make opt-in to avoid noisy default UX
-- Ensure no confusion with Pi-native executable tool loop semantics
+**Status:** ✅ Implemented as opt-in trace in `agent/extensions/claude-code-provider/index.ts`.
+
+- Set `CLAUDE_CODE_TOOLCALL_TRACE=1` to enable toolcall streaming trace.
+- Maps `tool_use` + `input_json_delta` to `toolcall_start/delta/end`.
+- For safety, tool-call blocks are removed from final assistant content before `done`, so Pi does not execute Claude-internal tool calls.
+- Default behavior remains unchanged/noisy trace is off by default.
 
 ### P4 — Cache tier fidelity (core change)
 
@@ -113,4 +117,4 @@ From `agent/debug.log` samples:
 
 ## Quick summary
 
-**Thinking, P1 telemetry, and P2 init diagnostics are now implemented.** Next highest-value gap is opt-in tool-use visibility.
+**Thinking, P1 telemetry, P2 init diagnostics, and P3 opt-in tool-use trace are now implemented.** Remaining gap is cache-tier fidelity (5m vs 1h).

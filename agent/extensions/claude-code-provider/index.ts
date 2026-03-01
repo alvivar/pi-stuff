@@ -95,6 +95,7 @@ const HAIKU45_CLI_MODEL =
   process.env.CLAUDE_CLI_MODEL_HAIKU_45 || process.env.CLAUDE_CLI_MODEL_HAIKU || "claude-haiku-4-5";
 
 const GLOBAL_APPEND_SYSTEM_PROMPT = process.env.CLAUDE_CLI_APPEND_SYSTEM_PROMPT;
+const ENABLE_TOOLCALL_TRACE = /^(1|true|yes)$/i.test(process.env.CLAUDE_CODE_TOOLCALL_TRACE || "");
 
 function parseJsonLine(line: string): any | undefined {
   const trimmed = line.trim();
@@ -252,6 +253,16 @@ function extractSystemInitInfo(event: any): SystemInitInfoLike | undefined {
   };
 }
 
+function parseJsonObject(value: string): Record<string, any> | undefined {
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
@@ -326,6 +337,8 @@ function streamClaudeCli(
 
     let textIndex: number | undefined;
     const thinkingIndexByBlock = new Map<number, number>();
+    const toolCallIndexByBlock = new Map<number, number>();
+    const toolCallJsonByBlock = new Map<number, string>();
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
     let latestRateLimitInfo: RateLimitInfoLike | undefined;
@@ -425,6 +438,50 @@ function streamClaudeCli(
       thinkingIndexByBlock.delete(blockIndex);
     };
 
+    const beginToolCall = (blockIndex: number, id: string, name: string, initialArgs?: Record<string, any>) => {
+      output.content.push({ type: "toolCall", id, name, arguments: initialArgs ?? {} });
+      const contentIndex = output.content.length - 1;
+      toolCallIndexByBlock.set(blockIndex, contentIndex);
+      toolCallJsonByBlock.set(blockIndex, "");
+      stream.push({ type: "toolcall_start", contentIndex, partial: output });
+    };
+
+    const appendToolCallDelta = (blockIndex: number, delta: string) => {
+      if (!delta) return;
+      const contentIndex = toolCallIndexByBlock.get(blockIndex);
+      if (contentIndex === undefined) return;
+      const block = output.content[contentIndex] as {
+        type: "toolCall";
+        id: string;
+        name: string;
+        arguments: Record<string, any>;
+      };
+      const partialJson = (toolCallJsonByBlock.get(blockIndex) || "") + delta;
+      toolCallJsonByBlock.set(blockIndex, partialJson);
+      const parsedArgs = parseJsonObject(partialJson);
+      if (parsedArgs) block.arguments = parsedArgs;
+      stream.push({ type: "toolcall_delta", contentIndex, delta, partial: output });
+    };
+
+    const endToolCall = (blockIndex: number) => {
+      const contentIndex = toolCallIndexByBlock.get(blockIndex);
+      if (contentIndex === undefined) return;
+      const block = output.content[contentIndex] as {
+        type: "toolCall";
+        id: string;
+        name: string;
+        arguments: Record<string, any>;
+      };
+      stream.push({
+        type: "toolcall_end",
+        contentIndex,
+        toolCall: { type: "toolCall", id: block.id, name: block.name, arguments: block.arguments },
+        partial: output,
+      });
+      toolCallIndexByBlock.delete(blockIndex);
+      toolCallJsonByBlock.delete(blockIndex);
+    };
+
     debugLog("cli_start", {
       cli,
       args,
@@ -433,6 +490,7 @@ function streamClaudeCli(
       effort,
       resumeSessionId: rememberedSessionId,
       streamKey,
+      toolCallTrace: ENABLE_TOOLCALL_TRACE,
     });
 
     stream.push({ type: "start", partial: output });
@@ -522,27 +580,51 @@ function streamClaudeCli(
           }
 
           const streamEvent = parsed.type === "stream_event" ? parsed.event : undefined;
-          if (streamEvent?.type === "content_block_start") {
-            if (streamEvent.content_block?.type === "thinking" && typeof streamEvent.index === "number") {
+          if (streamEvent?.type === "content_block_start" && typeof streamEvent.index === "number") {
+            if (streamEvent.content_block?.type === "thinking") {
               beginThinking(streamEvent.index);
               return;
             }
-          }
 
-          if (streamEvent?.type === "content_block_delta") {
-            if (
-              streamEvent.delta?.type === "thinking_delta" &&
-              typeof streamEvent.delta.thinking === "string" &&
-              typeof streamEvent.index === "number"
-            ) {
-              appendThinking(streamEvent.index, streamEvent.delta.thinking);
+            if (ENABLE_TOOLCALL_TRACE && streamEvent.content_block?.type === "tool_use") {
+              const toolId = typeof streamEvent.content_block.id === "string" ? streamEvent.content_block.id : "";
+              const toolName = typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
+              const initialArgs =
+                streamEvent.content_block.input &&
+                typeof streamEvent.content_block.input === "object" &&
+                !Array.isArray(streamEvent.content_block.input)
+                  ? streamEvent.content_block.input
+                  : undefined;
+              beginToolCall(streamEvent.index, toolId, toolName, initialArgs);
               return;
             }
           }
 
-          if (streamEvent?.type === "content_block_stop") {
-            if (typeof streamEvent.index === "number") {
+          if (streamEvent?.type === "content_block_delta" && typeof streamEvent.index === "number") {
+            if (streamEvent.delta?.type === "thinking_delta" && typeof streamEvent.delta.thinking === "string") {
+              appendThinking(streamEvent.index, streamEvent.delta.thinking);
+              return;
+            }
+
+            if (
+              ENABLE_TOOLCALL_TRACE &&
+              streamEvent.delta?.type === "input_json_delta" &&
+              typeof streamEvent.delta.partial_json === "string" &&
+              streamEvent.delta.partial_json.length > 0
+            ) {
+              appendToolCallDelta(streamEvent.index, streamEvent.delta.partial_json);
+              return;
+            }
+          }
+
+          if (streamEvent?.type === "content_block_stop" && typeof streamEvent.index === "number") {
+            if (thinkingIndexByBlock.has(streamEvent.index)) {
               endThinking(streamEvent.index);
+              return;
+            }
+
+            if (ENABLE_TOOLCALL_TRACE && toolCallIndexByBlock.has(streamEvent.index)) {
+              endToolCall(streamEvent.index);
               return;
             }
           }
@@ -621,6 +703,9 @@ function streamClaudeCli(
       }
 
       endTextIfNeeded();
+      if (ENABLE_TOOLCALL_TRACE) {
+        output.content = output.content.filter((block) => block.type !== "toolCall");
+      }
       output.stopReason = "stop";
       if (!output.usage.totalTokens) {
         output.usage.totalTokens =
