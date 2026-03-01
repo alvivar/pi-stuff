@@ -11,15 +11,15 @@ Track Claude Code stream metadata that is available from `claude -p --output-for
 
 The provider currently propagates:
 
-- assistant text deltas (`text_delta`)
+- assistant text deltas (`text_delta`) in strict arrival order
 - thinking events (`thinking_start` / `thinking_delta` / `thinking_end`)
 - usage totals (input/output/cache)
 - session id (`session_id`)
-- fallback final result text (`result`)
-- rate-limit warning/info notices (when notable)
-- run metadata notice (`duration_ms`, `num_turns`)
+- fallback final result text (`result`) when no text deltas arrived
+- rate-limit metadata capture (logged to `~/.pi/agent/debug.log`)
+- run metadata capture (`duration_ms`, `num_turns`; logged to `~/.pi/agent/debug.log`)
 - init diagnostics via `/claude-code-info` (version/tools/MCP status)
-- tool-use streaming trace (enabled by default)
+- tool-use streaming trace as assistant text lines (enabled by default)
 
 Tool-use visibility is enabled by default (see P3).
 
@@ -29,8 +29,8 @@ Tool-use visibility is enabled by default (see P3).
 | --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------ | ---------------------------- |
 | Thinking content            | `stream_event.content_block_delta.delta.type = "thinking_delta"`               | `thinking_start/delta/end`                 | ✅ Yes                       |
 | Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | Assistant text trace lines                 | ✅ Yes (default-on trace)    |
-| Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ✅ Yes (text notice)         |
-| Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ✅ Yes (text notice)         |
+| Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ✅ Yes (debug log capture)   |
+| Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ✅ Yes (debug log capture)   |
 | Claude Code version         | `type = "system"`, `subtype = "init"`, `claude_code_version`                   | Debug/diagnostics output                   | ✅ Yes (`/claude-code-info`) |
 | Cache tier split (5m vs 1h) | `message_start.message.usage.cache_creation.*`                                 | Not modeled in Pi `Usage`                  | ❌ No                        |
 
@@ -62,11 +62,9 @@ From `agent/debug.log` samples:
 **Status:** ✅ Implemented in `agent/extensions/claude-code-provider/index.ts`.
 
 - Parse top-level `rate_limit_event`
-- Surface warning/info when overage/blocked states occur
-- Capture `result.duration_ms`, `result.num_turns`
-- Append brief telemetry lines to assistant output text:
-  - `[claude-code rate-limit: ...]` (when notable)
-  - `[claude-code: duration=..., turns=...]`
+- Capture notable rate-limit state and log notice text to `~/.pi/agent/debug.log`
+- Capture `result.duration_ms`, `result.num_turns` and log notice text to `~/.pi/agent/debug.log`
+- Keep telemetry out of assistant prose to preserve linear content rendering
 
 ### P2 — Init diagnostics
 
@@ -95,6 +93,8 @@ From `agent/debug.log` samples:
   - provider-side text/metadata output, or
   - extension-level bridge (event/command/state) for UX notifications.
 - Tool-use forwarding should be conservative to avoid implying Pi executed those tool calls directly.
+- Streaming is intentionally event-linear (no `--include-partial-messages`) to avoid draft/rewrite glitches in chat output.
+- After the top-level `result` event is seen, subsequent stdout lines are ignored for rendering to prevent post-final tail glitches.
 
 ## Definition of done (incremental)
 
@@ -105,8 +105,8 @@ From `agent/debug.log` samples:
 
 ### DoD for P1
 
-- `rate_limit_event` state visible to user (at least when not fully allowed).
-- `duration_ms` + `num_turns` stored/surfaced per response.
+- `rate_limit_event` state is captured and logged per response.
+- `duration_ms` + `num_turns` are captured and logged per response.
 
 ### DoD for P3
 
@@ -117,4 +117,4 @@ From `agent/debug.log` samples:
 
 ## Quick summary
 
-**Thinking, P1 telemetry, P2 init diagnostics, and P3 default-on tool-use trace are now implemented.** Remaining gap is cache-tier fidelity (5m vs 1h).
+**Thinking, P1 telemetry capture/logging, P2 init diagnostics, and P3 default-on tool-use trace are now implemented.** Remaining gap is cache-tier fidelity (5m vs 1h).

@@ -17,8 +17,9 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 // NOTE: Claude Code can emit internal tool_use events during a single assistant stream.
 // Rendering those as Pi `toolCall` blocks causes UI ordering issues in interactive mode:
 // tool cards are appended as pending tool execution components at the bottom instead of
-// behaving like chronological chat content. To keep ordering stable, this provider surfaces
-// Claude tool-use activity as assistant text trace lines instead of `toolcall_*` events.
+// behaving like chronological chat content. To keep ordering stable, this provider emits
+// tool-use as plain assistant text trace lines and streams content in strict arrival order.
+// We intentionally avoid partial-message snapshots and synthetic paragraph restructuring.
 
 // ---------------------------------------------------------------------------
 // Simple file logger — writes newline-delimited JSON to ~/.pi/agent/debug.log
@@ -101,7 +102,6 @@ const HAIKU45_CLI_MODEL =
   process.env.CLAUDE_CLI_MODEL_HAIKU_45 || process.env.CLAUDE_CLI_MODEL_HAIKU || "claude-haiku-4-5";
 
 const GLOBAL_APPEND_SYSTEM_PROMPT = process.env.CLAUDE_CLI_APPEND_SYSTEM_PROMPT;
-const ENABLE_TOOLCALL_TRACE = true;
 
 function parseJsonLine(line: string): any | undefined {
   const trimmed = line.trim();
@@ -126,12 +126,12 @@ function extractTextDelta(event: any): string | undefined {
   if (!event || typeof event !== "object") return undefined;
   const delta = event.event?.delta;
   if (delta?.type === "text_delta" && typeof delta.text === "string") return delta.text;
-  if (event.type === "stream_event" && typeof event.event?.text === "string") return event.event.text;
   return undefined;
 }
 
 function extractResultText(event: any): string | undefined {
   if (!event || typeof event !== "object") return undefined;
+  if (event.type !== "result") return undefined;
 
   const candidates = [event.result, event.output, event.text, event.message?.text];
   for (const c of candidates) {
@@ -374,10 +374,10 @@ function streamClaudeCli(
     };
 
     let textIndex: number | undefined;
-    let seenTextBlockStarts = 0;
     const thinkingIndexByBlock = new Map<number, number>();
     const toolTraceNameByBlock = new Map<number, string>();
-    const toolTraceJsonByBlock = new Map<number, string>();
+    const toolTraceInitialInputByBlock = new Map<number, unknown>();
+    const toolTraceDeltaJsonByBlock = new Map<number, string>();
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
     let latestRateLimitInfo: RateLimitInfoLike | undefined;
@@ -388,6 +388,8 @@ function streamClaudeCli(
     let timeoutId: NodeJS.Timeout | undefined;
     let proc: ReturnType<typeof spawn> | undefined;
     let gotAbort = false;
+    let acceptParsedLines = true;
+    let sawResultEvent = false;
 
     const streamKey = `${options?.sessionId || "default"}:${model.id}`;
     const rememberedSessionId = sessionMap.get(streamKey);
@@ -409,7 +411,6 @@ function streamClaudeCli(
       "--output-format",
       "stream-json",
       "--verbose",
-      "--include-partial-messages",
       "--model",
       cliModel,
       "--allowedTools",
@@ -447,16 +448,11 @@ function streamClaudeCli(
       stream.push({ type: "text_delta", contentIndex: textIndex!, delta, partial: output });
     };
 
-    const ensureParagraphGap = () => {
-      if (textIndex === undefined) return;
-      const block = output.content[textIndex] as { type: "text"; text: string };
-      if (!block.text) return;
-      if (block.text.endsWith("\n\n")) return;
-      if (block.text.endsWith("\n")) {
-        appendText("\n");
-      } else {
-        appendText("\n\n");
-      }
+    const appendTraceLine = (line: string) => {
+      beginText();
+      const block = output.content[textIndex!] as { type: "text"; text: string };
+      const prefix = block.text.length > 0 && !block.text.endsWith("\n") ? "\n" : "";
+      appendText(`${prefix}${line}\n`);
     };
 
     const endTextIfNeeded = () => {
@@ -491,29 +487,32 @@ function streamClaudeCli(
 
     const beginToolTrace = (blockIndex: number, toolName: string, initialInput?: unknown) => {
       toolTraceNameByBlock.set(blockIndex, toolName);
-      const initialJson = formatToolArgsPreview(initialInput) || "";
-      toolTraceJsonByBlock.set(blockIndex, initialJson);
-      ensureParagraphGap();
-      appendText(`[claude-code tool_use start: ${toolName}${initialJson ? ` args=${initialJson}` : ""}]`);
+      toolTraceInitialInputByBlock.set(blockIndex, initialInput);
+      toolTraceDeltaJsonByBlock.set(blockIndex, "");
+      const initialPreview = formatToolArgsPreview(initialInput);
+      appendTraceLine(`[claude-code tool_use start: ${toolName}${initialPreview ? ` args=${initialPreview}` : ""}]`);
     };
 
     const appendToolTraceDelta = (blockIndex: number, delta: string) => {
       if (!delta) return;
       if (!toolTraceNameByBlock.has(blockIndex)) return;
-      const existing = toolTraceJsonByBlock.get(blockIndex) || "";
-      toolTraceJsonByBlock.set(blockIndex, existing + delta);
+      const existing = toolTraceDeltaJsonByBlock.get(blockIndex) || "";
+      toolTraceDeltaJsonByBlock.set(blockIndex, existing + delta);
     };
 
     const endToolTrace = (blockIndex: number) => {
       const toolName = toolTraceNameByBlock.get(blockIndex);
       if (!toolName) return;
-      const partialJson = toolTraceJsonByBlock.get(blockIndex) || "";
-      const parsedArgs = parseJsonObject(partialJson);
-      const preview = formatToolArgsPreview(parsedArgs ?? partialJson);
-      appendText(`\n[claude-code tool_use end: ${toolName}${preview ? ` args=${preview}` : ""}]`);
-      ensureParagraphGap();
+      const deltaJson = toolTraceDeltaJsonByBlock.get(blockIndex) || "";
+      const parsedArgs = parseJsonObject(deltaJson);
+      const finalArgs =
+        parsedArgs ??
+        (deltaJson.trim().length > 0 ? deltaJson : toolTraceInitialInputByBlock.get(blockIndex));
+      const preview = formatToolArgsPreview(finalArgs);
+      appendTraceLine(`[claude-code tool_use end: ${toolName}${preview ? ` args=${preview}` : ""}]`);
       toolTraceNameByBlock.delete(blockIndex);
-      toolTraceJsonByBlock.delete(blockIndex);
+      toolTraceInitialInputByBlock.delete(blockIndex);
+      toolTraceDeltaJsonByBlock.delete(blockIndex);
     };
 
     debugLog("cli_start", {
@@ -524,7 +523,6 @@ function streamClaudeCli(
       effort,
       resumeSessionId: rememberedSessionId,
       streamKey,
-      toolCallTrace: ENABLE_TOOLCALL_TRACE,
     });
 
     stream.push({ type: "start", partial: output });
@@ -579,8 +577,10 @@ function streamClaudeCli(
         }
 
         const processLine = (line: string) => {
+          if (!acceptParsedLines) return;
           const parsed = parseJsonLine(line);
           if (!parsed) return;
+          if (sawResultEvent) return;
 
           debugLog("stdout_line", parsed);
 
@@ -615,19 +615,12 @@ function streamClaudeCli(
 
           const streamEvent = parsed.type === "stream_event" ? parsed.event : undefined;
           if (streamEvent?.type === "content_block_start" && typeof streamEvent.index === "number") {
-            if (streamEvent.content_block?.type === "text") {
-              if (seenTextBlockStarts > 0) {
-                ensureParagraphGap();
-              }
-              seenTextBlockStarts += 1;
-            }
-
             if (streamEvent.content_block?.type === "thinking") {
               beginThinking(streamEvent.index);
               return;
             }
 
-            if (ENABLE_TOOLCALL_TRACE && streamEvent.content_block?.type === "tool_use") {
+            if (streamEvent.content_block?.type === "tool_use") {
               const rawToolName =
                 typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
               const toolName = normalizeTraceToolName(rawToolName);
@@ -649,7 +642,6 @@ function streamClaudeCli(
             }
 
             if (
-              ENABLE_TOOLCALL_TRACE &&
               streamEvent.delta?.type === "input_json_delta" &&
               typeof streamEvent.delta.partial_json === "string" &&
               streamEvent.delta.partial_json.length > 0 &&
@@ -666,7 +658,7 @@ function streamClaudeCli(
               return;
             }
 
-            if (ENABLE_TOOLCALL_TRACE && toolTraceNameByBlock.has(streamEvent.index)) {
+            if (toolTraceNameByBlock.has(streamEvent.index)) {
               endToolTrace(streamEvent.index);
               return;
             }
@@ -680,6 +672,7 @@ function streamClaudeCli(
 
           const resultText = extractResultText(parsed);
           if (resultText) fallbackResultText = resultText;
+          if (parsed.type === "result") sawResultEvent = true;
         };
 
         proc.stdout.on("data", (chunk) => {
@@ -698,11 +691,13 @@ function streamClaudeCli(
 
         proc.on("error", (err) => {
           stderrChunks.push(`${err.message}\n`);
+          acceptParsedLines = false;
           resolveOnce(1);
         });
 
         proc.on("close", (code) => {
           if (lineBuffer.trim()) processLine(lineBuffer);
+          acceptParsedLines = false;
           resolveOnce(code ?? 0);
         });
       });
@@ -737,19 +732,17 @@ function streamClaudeCli(
         );
       }
 
-      const metaLines = [
-        formatRateLimitNotice(latestRateLimitInfo),
-        formatRunMetadata(runDurationMs, runNumTurns),
-      ].filter((line): line is string => Boolean(line));
-      if (metaLines.length > 0) {
-        ensureParagraphGap();
-        appendText(metaLines.join("\n"));
+      const rateLimitNotice = formatRateLimitNotice(latestRateLimitInfo);
+      if (rateLimitNotice) {
+        debugLog("rate_limit_notice", { notice: rateLimitNotice });
+      }
+
+      const runMetaNotice = formatRunMetadata(runDurationMs, runNumTurns);
+      if (runMetaNotice) {
+        debugLog("run_metadata_notice", { notice: runMetaNotice });
       }
 
       endTextIfNeeded();
-      if (ENABLE_TOOLCALL_TRACE) {
-        output.content = output.content.filter((block) => block.type !== "toolCall");
-      }
       output.stopReason = "stop";
       if (!output.usage.totalTokens) {
         output.usage.totalTokens =
