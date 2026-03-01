@@ -16,8 +16,10 @@ The provider currently propagates:
 - usage totals (input/output/cache)
 - session id (`session_id`)
 - fallback final result text (`result`)
+- rate-limit warning/info notices (when notable)
+- run metadata notice (`duration_ms`, `num_turns`)
 
-The provider still does **not** propagate tool/rate-limit/init/result-metadata details into Pi UX.
+The provider still does **not** propagate tool-use and init/system diagnostics details into Pi UX.
 
 ## Gap matrix
 
@@ -25,8 +27,8 @@ The provider still does **not** propagate tool/rate-limit/init/result-metadata d
 | --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------ | -------------------- |
 | Thinking content            | `stream_event.content_block_delta.delta.type = "thinking_delta"`               | `thinking_start/delta/end`                 | ✅ Yes               |
 | Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | `toolcall_start/delta/end`                 | ❌ No                |
-| Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ❌ No                |
-| Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ❌ No                |
+| Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ✅ Yes (text notice) |
+| Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ✅ Yes (text notice) |
 | Claude Code version         | `type = "system"`, `subtype = "init"`, `claude_code_version`                   | Debug/diagnostics output                   | ❌ No                |
 | Cache tier split (5m vs 1h) | `message_start.message.usage.cache_creation.*`                                 | Not modeled in Pi `Usage`                  | ❌ No                |
 
@@ -55,10 +57,14 @@ From `agent/debug.log` samples:
 
 ### P1 — Rate limit + run metadata
 
+**Status:** ✅ Implemented in `agent/extensions/claude-code-provider/index.ts`.
+
 - Parse top-level `rate_limit_event`
 - Surface warning/info when overage/blocked states occur
 - Capture `result.duration_ms`, `result.num_turns`
-- Optionally append brief telemetry line to assistant output metadata
+- Append brief telemetry lines to assistant output text:
+  - `[claude-code rate-limit: ...]` (when notable)
+  - `[claude-code: duration=..., turns=...]`
 
 ### P2 — Init diagnostics
 
@@ -104,4 +110,4 @@ From `agent/debug.log` samples:
 
 ## Quick summary
 
-**Thinking propagation is now implemented.** Next highest-value gaps are rate-limit/result telemetry and opt-in tool-use visibility.
+**Thinking and P1 telemetry are now implemented.** Next highest-value gaps are init diagnostics and opt-in tool-use visibility.

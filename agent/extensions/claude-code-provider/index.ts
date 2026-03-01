@@ -41,6 +41,20 @@ type UsageLike = {
   costTotal?: number;
 };
 
+type RateLimitInfoLike = {
+  status?: string;
+  overageStatus?: string;
+  isUsingOverage?: boolean;
+  resetsAt?: number;
+  overageResetsAt?: number;
+  rateLimitType?: string;
+};
+
+type RunMetadataLike = {
+  durationMs?: number;
+  numTurns?: number;
+};
+
 const REASONING_TO_EFFORT: Partial<Record<NonNullable<SimpleStreamOptions["reasoning"]>, CliEffort>> = {
   minimal: "low",
   low: "low",
@@ -145,6 +159,61 @@ function applyUsage(output: AssistantMessage, usage?: UsageLike, model?: Model<A
   }
 }
 
+function extractRateLimitInfo(event: any): RateLimitInfoLike | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  if (event.type !== "rate_limit_event") return undefined;
+  const info = event.rate_limit_info;
+  if (!info || typeof info !== "object") return undefined;
+  return {
+    status: typeof info.status === "string" ? info.status : undefined,
+    overageStatus: typeof info.overageStatus === "string" ? info.overageStatus : undefined,
+    isUsingOverage: typeof info.isUsingOverage === "boolean" ? info.isUsingOverage : undefined,
+    resetsAt: asNumber(info.resetsAt),
+    overageResetsAt: asNumber(info.overageResetsAt),
+    rateLimitType: typeof info.rateLimitType === "string" ? info.rateLimitType : undefined,
+  };
+}
+
+function extractRunMetadata(event: any): RunMetadataLike | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const source = event.type === "result" ? event : event.result;
+  if (!source || typeof source !== "object") return undefined;
+
+  const durationMs = asNumber(source.duration_ms ?? source.durationMs);
+  const numTurns = asNumber(source.num_turns ?? source.numTurns);
+  if (durationMs === undefined && numTurns === undefined) return undefined;
+  return { durationMs, numTurns };
+}
+
+function isRateLimitNotable(info?: RateLimitInfoLike): boolean {
+  if (!info) return false;
+  if (info.status && info.status !== "allowed") return true;
+  if (info.overageStatus && info.overageStatus !== "allowed") return true;
+  return info.isUsingOverage === true;
+}
+
+function formatRateLimitNotice(info?: RateLimitInfoLike): string | undefined {
+  if (!isRateLimitNotable(info)) return undefined;
+  const parts: string[] = [];
+  if (info?.status) parts.push(`status=${info.status}`);
+  if (info?.rateLimitType) parts.push(`type=${info.rateLimitType}`);
+  if (info?.isUsingOverage) parts.push("using overage");
+  if (info?.overageStatus && info.overageStatus !== "allowed") parts.push(`overage=${info.overageStatus}`);
+  if (typeof info?.resetsAt === "number") parts.push(`resets=${new Date(info.resetsAt * 1000).toISOString()}`);
+  if (typeof info?.overageResetsAt === "number") {
+    parts.push(`overageResets=${new Date(info.overageResetsAt * 1000).toISOString()}`);
+  }
+  return `[claude-code rate-limit: ${parts.join(", ")}]`;
+}
+
+function formatRunMetadata(durationMs?: number, numTurns?: number): string | undefined {
+  if (durationMs === undefined && numTurns === undefined) return undefined;
+  const parts: string[] = [];
+  if (durationMs !== undefined) parts.push(`duration=${(durationMs / 1000).toFixed(1)}s`);
+  if (numTurns !== undefined) parts.push(`turns=${numTurns}`);
+  return `[claude-code: ${parts.join(", ")}]`;
+}
+
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
@@ -220,6 +289,9 @@ function streamClaudeCli(
     const thinkingIndexByBlock = new Map<number, number>();
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
+    let latestRateLimitInfo: RateLimitInfoLike | undefined;
+    let runDurationMs: number | undefined;
+    let runNumTurns: number | undefined;
     const stderrChunks: string[] = [];
     let lineBuffer = "";
     let timeoutId: NodeJS.Timeout | undefined;
@@ -391,6 +463,19 @@ function streamClaudeCli(
           if (usage) debugLog("usage", usage);
           applyUsage(output, usage, model);
 
+          const rateLimitInfo = extractRateLimitInfo(parsed);
+          if (rateLimitInfo) {
+            latestRateLimitInfo = rateLimitInfo;
+            debugLog("rate_limit", rateLimitInfo);
+          }
+
+          const runMetadata = extractRunMetadata(parsed);
+          if (runMetadata) {
+            runDurationMs = runMetadata.durationMs ?? runDurationMs;
+            runNumTurns = runMetadata.numTurns ?? runNumTurns;
+            debugLog("run_metadata", runMetadata);
+          }
+
           const streamEvent = parsed.type === "stream_event" ? parsed.event : undefined;
           if (streamEvent?.type === "content_block_start") {
             if (streamEvent.content_block?.type === "thinking" && typeof streamEvent.index === "number") {
@@ -480,6 +565,14 @@ function streamClaudeCli(
             ? "Claude CLI request aborted"
             : `Claude CLI exited with code ${exitCode}`),
         );
+      }
+
+      const metaLines = [
+        formatRateLimitNotice(latestRateLimitInfo),
+        formatRunMetadata(runDurationMs, runNumTurns),
+      ].filter((line): line is string => Boolean(line));
+      if (metaLines.length > 0) {
+        appendText(`${textIndex === undefined ? "" : "\n\n"}${metaLines.join("\n")}`);
       }
 
       endTextIfNeeded();
