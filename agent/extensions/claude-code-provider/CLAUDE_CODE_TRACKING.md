@@ -18,8 +18,9 @@ The provider currently propagates:
 - fallback final result text (`result`)
 - rate-limit warning/info notices (when notable)
 - run metadata notice (`duration_ms`, `num_turns`)
+- init diagnostics via `/claude-code-info` (version/tools/MCP status)
 
-The provider still does **not** propagate tool-use and init/system diagnostics details into Pi UX.
+The provider still does **not** propagate tool-use details into Pi UX.
 
 ## Gap matrix
 
@@ -29,7 +30,7 @@ The provider still does **not** propagate tool-use and init/system diagnostics d
 | Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | `toolcall_start/delta/end`                 | ❌ No                |
 | Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ✅ Yes (text notice) |
 | Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ✅ Yes (text notice) |
-| Claude Code version         | `type = "system"`, `subtype = "init"`, `claude_code_version`                   | Debug/diagnostics output                   | ❌ No                |
+| Claude Code version         | `type = "system"`, `subtype = "init"`, `claude_code_version`                   | Debug/diagnostics output                   | ✅ Yes (`/claude-code-info`) |
 | Cache tier split (5m vs 1h) | `message_start.message.usage.cache_creation.*`                                 | Not modeled in Pi `Usage`                  | ❌ No                |
 
 ## Evidence seen in local logs
@@ -68,8 +69,10 @@ From `agent/debug.log` samples:
 
 ### P2 — Init diagnostics
 
+**Status:** ✅ Implemented in `agent/extensions/claude-code-provider/index.ts`.
+
 - Capture latest `system:init` payload in memory
-- Add command (example: `/claude-code-info`) to print version/tools/MCP status
+- Add `/claude-code-info` to print version/tools/MCP status
 
 ### P3 — Tool-use visibility (opt-in)
 
@@ -110,4 +113,4 @@ From `agent/debug.log` samples:
 
 ## Quick summary
 
-**Thinking and P1 telemetry are now implemented.** Next highest-value gaps are init diagnostics and opt-in tool-use visibility.
+**Thinking, P1 telemetry, and P2 init diagnostics are now implemented.** Next highest-value gap is opt-in tool-use visibility.

@@ -55,6 +55,19 @@ type RunMetadataLike = {
   numTurns?: number;
 };
 
+type SystemInitInfoLike = {
+  sessionId?: string;
+  model?: string;
+  claudeCodeVersion?: string;
+  tools: string[];
+  mcpServers: { name: string; status: string }[];
+  capturedAtMs: number;
+};
+
+type InitState = {
+  latest?: SystemInitInfoLike;
+};
+
 const REASONING_TO_EFFORT: Partial<Record<NonNullable<SimpleStreamOptions["reasoning"]>, CliEffort>> = {
   minimal: "low",
   low: "low",
@@ -214,6 +227,31 @@ function formatRunMetadata(durationMs?: number, numTurns?: number): string | und
   return `[claude-code: ${parts.join(", ")}]`;
 }
 
+function extractSystemInitInfo(event: any): SystemInitInfoLike | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  if (event.type !== "system" || event.subtype !== "init") return undefined;
+
+  const tools = Array.isArray(event.tools)
+    ? event.tools.filter((tool: unknown): tool is string => typeof tool === "string")
+    : [];
+  const mcpServers = Array.isArray(event.mcp_servers)
+    ? event.mcp_servers
+        .map((server: any) => ({
+          name: typeof server?.name === "string" ? server.name : "unknown",
+          status: typeof server?.status === "string" ? server.status : "unknown",
+        }))
+    : [];
+
+  return {
+    sessionId: extractSessionId(event),
+    model: typeof event.model === "string" ? event.model : undefined,
+    claudeCodeVersion: typeof event.claude_code_version === "string" ? event.claude_code_version : undefined,
+    tools,
+    mcpServers,
+    capturedAtMs: Date.now(),
+  };
+}
+
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
@@ -260,6 +298,7 @@ function cliModelFor(modelId: string): string {
 
 function streamClaudeCli(
   sessionMap: Map<string, string>,
+  initState: InitState,
   model: Model<Api>,
   context: Context,
   options?: SimpleStreamOptions,
@@ -476,6 +515,12 @@ function streamClaudeCli(
             debugLog("run_metadata", runMetadata);
           }
 
+          const systemInitInfo = extractSystemInitInfo(parsed);
+          if (systemInitInfo) {
+            initState.latest = systemInitInfo;
+            debugLog("system_init", systemInitInfo);
+          }
+
           const streamEvent = parsed.type === "stream_event" ? parsed.event : undefined;
           if (streamEvent?.type === "content_block_start") {
             if (streamEvent.content_block?.type === "thinking" && typeof streamEvent.index === "number") {
@@ -608,6 +653,7 @@ function streamClaudeCli(
 
 export default function (pi: ExtensionAPI) {
   const sessionMap = new Map<string, string>();
+  const initState: InitState = {};
 
   pi.registerProvider("claude-code", {
     baseUrl: "claude://local-cli",
@@ -644,7 +690,7 @@ export default function (pi: ExtensionAPI) {
       },
     ],
 
-    streamSimple: streamClaudeCli.bind(null, sessionMap),
+    streamSimple: streamClaudeCli.bind(null, sessionMap, initState),
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
@@ -674,10 +720,37 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
+  pi.registerCommand("claude-code-info", {
+    description: "Show latest Claude Code init metadata (version/tools/MCP status)",
+    handler: async (_args, ctx) => {
+      const info = initState.latest;
+      if (!info) {
+        ctx.ui.notify("No Claude Code init metadata captured yet. Run a Claude Code prompt first.", "warning");
+        return;
+      }
+
+      const toolsSummary =
+        info.tools.length > 0
+          ? `${info.tools.length} tools (${info.tools.slice(0, 8).join(", ")}${info.tools.length > 8 ? ", ..." : ""})`
+          : "0 tools";
+      const mcpSummary =
+        info.mcpServers.length > 0
+          ? info.mcpServers.map((server) => `${server.name}:${server.status}`).join(", ")
+          : "none";
+      const capturedAt = new Date(info.capturedAtMs).toISOString();
+
+      ctx.ui.notify(
+        `claude-code info | version=${info.claudeCodeVersion || "unknown"} | model=${info.model || "unknown"} | ${toolsSummary} | mcp=${mcpSummary} | captured=${capturedAt}`,
+        "info",
+      );
+    },
+  });
+
   pi.registerCommand("claude-code-new-session", {
     description: "Clear stored Claude CLI session IDs to start a fresh session",
     handler: async (_args, ctx) => {
       sessionMap.clear();
+      initState.latest = undefined;
       ctx.ui.notify("claude-code session map cleared", "info");
     },
   });
