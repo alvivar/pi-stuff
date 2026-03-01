@@ -12,17 +12,18 @@ Track Claude Code stream metadata that is available from `claude -p --output-for
 The provider currently propagates:
 
 - assistant text deltas (`text_delta`)
+- thinking events (`thinking_start` / `thinking_delta` / `thinking_end`)
 - usage totals (input/output/cache)
 - session id (`session_id`)
 - fallback final result text (`result`)
 
-The provider currently does **not** propagate thinking/tool/rate-limit/init/result-metadata details into Pi UX.
+The provider still does **not** propagate tool/rate-limit/init/result-metadata details into Pi UX.
 
 ## Gap matrix
 
 | Data                        | Claude Code emits                                                              | Pi can consume                             | Currently propagated |
 | --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------ | -------------------- |
-| Thinking content            | `stream_event.content_block_delta.delta.type = "thinking_delta"`               | `thinking_start/delta/end`                 | ❌ No                |
+| Thinking content            | `stream_event.content_block_delta.delta.type = "thinking_delta"`               | `thinking_start/delta/end`                 | ✅ Yes               |
 | Tool calls                  | `content_block_start` (`content_block.type = "tool_use"`) + `input_json_delta` | `toolcall_start/delta/end`                 | ❌ No                |
 | Rate limit info             | `type = "rate_limit_event"`                                                    | Side-channel (e.g. notify/log entry)       | ❌ No                |
 | Duration / num_turns        | `type = "result"` with `duration_ms`, `num_turns`                              | Could append as metadata text/custom entry | ❌ No                |
@@ -46,13 +47,11 @@ From `agent/debug.log` samples:
 
 ### P0 — Thinking propagation (immediate)
 
-**Why:** highest value, lowest effort; Pi stream model already supports thinking events.
+**Status:** ✅ Implemented in `agent/extensions/claude-code-provider/index.ts`.
 
 - Detect `content_block_start` where block type is `thinking`
 - Map `thinking_delta` to Pi `thinking_delta`
 - Emit `thinking_end` on `content_block_stop`
-
-Estimated change size: small (~10–30 LOC depending on helper style).
 
 ### P1 — Rate limit + run metadata
 
@@ -105,4 +104,4 @@ Estimated change size: small (~10–30 LOC depending on helper style).
 
 ## Quick summary
 
-The most immediately actionable gap is **thinking propagation**. The data already exists in Claude Code events, and Pi’s stream event types already support it directly.
+**Thinking propagation is now implemented.** Next highest-value gaps are rate-limit/result telemetry and opt-in tool-use visibility.

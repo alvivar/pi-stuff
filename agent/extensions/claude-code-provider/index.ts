@@ -217,6 +217,7 @@ function streamClaudeCli(
     };
 
     let textIndex: number | undefined;
+    const thinkingIndexByBlock = new Map<number, number>();
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
     const stderrChunks: string[] = [];
@@ -287,6 +288,30 @@ function streamClaudeCli(
       if (textIndex === undefined) return;
       const block = output.content[textIndex] as { type: "text"; text: string };
       stream.push({ type: "text_end", contentIndex: textIndex, content: block.text, partial: output });
+    };
+
+    const beginThinking = (blockIndex: number) => {
+      output.content.push({ type: "thinking", thinking: "" });
+      const contentIndex = output.content.length - 1;
+      thinkingIndexByBlock.set(blockIndex, contentIndex);
+      stream.push({ type: "thinking_start", contentIndex, partial: output });
+    };
+
+    const appendThinking = (blockIndex: number, delta: string) => {
+      if (!delta) return;
+      const contentIndex = thinkingIndexByBlock.get(blockIndex);
+      if (contentIndex === undefined) return;
+      const block = output.content[contentIndex] as { type: "thinking"; thinking: string };
+      block.thinking += delta;
+      stream.push({ type: "thinking_delta", contentIndex, delta, partial: output });
+    };
+
+    const endThinking = (blockIndex: number) => {
+      const contentIndex = thinkingIndexByBlock.get(blockIndex);
+      if (contentIndex === undefined) return;
+      const block = output.content[contentIndex] as { type: "thinking"; thinking: string };
+      stream.push({ type: "thinking_end", contentIndex, content: block.thinking, partial: output });
+      thinkingIndexByBlock.delete(blockIndex);
     };
 
     debugLog("cli_start", {
@@ -365,6 +390,32 @@ function streamClaudeCli(
           const usage = extractUsage(parsed);
           if (usage) debugLog("usage", usage);
           applyUsage(output, usage, model);
+
+          const streamEvent = parsed.type === "stream_event" ? parsed.event : undefined;
+          if (streamEvent?.type === "content_block_start") {
+            if (streamEvent.content_block?.type === "thinking" && typeof streamEvent.index === "number") {
+              beginThinking(streamEvent.index);
+              return;
+            }
+          }
+
+          if (streamEvent?.type === "content_block_delta") {
+            if (
+              streamEvent.delta?.type === "thinking_delta" &&
+              typeof streamEvent.delta.thinking === "string" &&
+              typeof streamEvent.index === "number"
+            ) {
+              appendThinking(streamEvent.index, streamEvent.delta.thinking);
+              return;
+            }
+          }
+
+          if (streamEvent?.type === "content_block_stop") {
+            if (typeof streamEvent.index === "number") {
+              endThinking(streamEvent.index);
+              return;
+            }
+          }
 
           const delta = extractTextDelta(parsed);
           if (delta) {
