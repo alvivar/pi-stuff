@@ -93,9 +93,8 @@ From `agent/debug.log` samples:
   - provider-side text/metadata output, or
   - extension-level bridge (event/command/state) for UX notifications.
 - Tool-use forwarding should be conservative to avoid implying Pi executed those tool calls directly.
-- Streaming is event-linear with category-aware separators; when output category changes (e.g., prose ↔ tool trace), rendering inserts up to `\n\n` for readability.
+- Streaming is event-linear with no provider-injected paragraph gaps between prose and tool trace.
 - Tool trace entries include lightweight visual separators (`────────`) between completed tools to improve scanability in Pi's text renderer.
-- When transitioning from tool trace blocks back to prose, provider keeps the boundary in one rendered text block so category separators (`\n\n`) are preserved without invisible spacer characters.
 - Canonical `stream_event` prose is mapped per upstream content block index (not a single global text block) to preserve UI block order and avoid late-tail visual artifacts.
 - `--include-partial-messages` is enabled, but rendering locks to a single source per response (`stream_event` or `assistant_snapshot`) to prevent cross-channel ordering drift.
 - Snapshot fallback uses only top-level assistant/user events (`parent_tool_use_id == null`) and accepts monotonic suffix growth from one active assistant message id; other snapshot message ids are ignored for rendering.

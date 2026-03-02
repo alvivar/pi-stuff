@@ -31,7 +31,11 @@ const DEBUG_LOG_FILE = path.join(os.homedir(), ".pi", "agent", "debug.log");
 
 function debugLog(event: string, data?: unknown): void {
   try {
-    const entry = JSON.stringify({ ts: new Date().toISOString(), event, data: data ?? null });
+    const entry = JSON.stringify({
+      ts: new Date().toISOString(),
+      event,
+      data: data ?? null,
+    });
     fs.appendFileSync(DEBUG_LOG_FILE, entry + "\n", "utf8");
   } catch {
     // Never crash the extension because of a logging failure
@@ -76,7 +80,9 @@ type InitState = {
   latest?: SystemInitInfoLike;
 };
 
-const REASONING_TO_EFFORT: Partial<Record<NonNullable<SimpleStreamOptions["reasoning"]>, CliEffort>> = {
+const REASONING_TO_EFFORT: Partial<
+  Record<NonNullable<SimpleStreamOptions["reasoning"]>, CliEffort>
+> = {
   minimal: "low",
   low: "low",
   medium: "medium",
@@ -84,23 +90,32 @@ const REASONING_TO_EFFORT: Partial<Record<NonNullable<SimpleStreamOptions["reaso
   xhigh: "high",
 };
 
-function mapReasoningToCliEffort(reasoning?: SimpleStreamOptions["reasoning"]): CliEffort | undefined {
+function mapReasoningToCliEffort(
+  reasoning?: SimpleStreamOptions["reasoning"],
+): CliEffort | undefined {
   return reasoning ? REASONING_TO_EFFORT[reasoning] : undefined;
 }
 
 const DEFAULT_CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || "claude";
-const DEFAULT_TIMEOUT_SECONDS = Number(process.env.CLAUDE_CLI_TIMEOUT_SECONDS || "240");
+const DEFAULT_TIMEOUT_SECONDS = Number(
+  process.env.CLAUDE_CLI_TIMEOUT_SECONDS || "240",
+);
 
 const DEFAULT_ALLOWED_TOOLS =
-  process.env.CLAUDE_CLI_ALLOWED_TOOLS ||
-  "Read,Edit,Write,Bash,Grep,Glob";
+  process.env.CLAUDE_CLI_ALLOWED_TOOLS || "Read,Edit,Write,Bash,Grep,Glob";
 
 const SONNET46_CLI_MODEL =
-  process.env.CLAUDE_CLI_MODEL_SONNET_46 || process.env.CLAUDE_CLI_MODEL_SONNET || "claude-sonnet-4-6";
+  process.env.CLAUDE_CLI_MODEL_SONNET_46 ||
+  process.env.CLAUDE_CLI_MODEL_SONNET ||
+  "claude-sonnet-4-6";
 const OPUS46_CLI_MODEL =
-  process.env.CLAUDE_CLI_MODEL_OPUS_46 || process.env.CLAUDE_CLI_MODEL_OPUS || "claude-opus-4-6";
+  process.env.CLAUDE_CLI_MODEL_OPUS_46 ||
+  process.env.CLAUDE_CLI_MODEL_OPUS ||
+  "claude-opus-4-6";
 const HAIKU45_CLI_MODEL =
-  process.env.CLAUDE_CLI_MODEL_HAIKU_45 || process.env.CLAUDE_CLI_MODEL_HAIKU || "claude-haiku-4-5";
+  process.env.CLAUDE_CLI_MODEL_HAIKU_45 ||
+  process.env.CLAUDE_CLI_MODEL_HAIKU ||
+  "claude-haiku-4-5";
 
 const GLOBAL_APPEND_SYSTEM_PROMPT = process.env.CLAUDE_CLI_APPEND_SYSTEM_PROMPT;
 
@@ -120,38 +135,52 @@ function extractSessionId(event: any): string | undefined {
     const v = o?.session_id ?? o?.sessionId;
     return typeof v === "string" && v.length > 0 ? v : undefined;
   };
-  return sid(event) ?? sid(event.result) ?? sid(event.metadata) ?? sid(event.event);
+  return (
+    sid(event) ?? sid(event.result) ?? sid(event.metadata) ?? sid(event.event)
+  );
 }
 
 function extractResultText(event: any): string | undefined {
   if (!event || typeof event !== "object") return undefined;
   if (event.type !== "result") return undefined;
 
-  const candidates = [event.result, event.output, event.text, event.message?.text];
+  const candidates = [
+    event.result,
+    event.output,
+    event.text,
+    event.message?.text,
+  ];
   for (const c of candidates) {
     if (typeof c === "string" && c.trim().length > 0) return c;
   }
   return undefined;
 }
 
-function extractAssistantSnapshotText(event: any): { messageId: string; text: string } | undefined {
+function extractAssistantSnapshotText(
+  event: any,
+): { messageId: string; text: string } | undefined {
   if (!event || typeof event !== "object") return undefined;
   if (event.type !== "assistant") return undefined;
   const message = event.message;
   if (!message || typeof message !== "object") return undefined;
-  if (typeof message.id !== "string" || message.id.length === 0) return undefined;
+  if (typeof message.id !== "string" || message.id.length === 0)
+    return undefined;
   if (!Array.isArray(message.content)) return undefined;
 
   const text = message.content
-    .filter((block: any) => block?.type === "text" && typeof block.text === "string")
+    .filter(
+      (block: any) => block?.type === "text" && typeof block.text === "string",
+    )
     .map((block: any) => block.text)
-    .join("\n\n");
+    .join("");
 
   if (!text) return undefined;
   return { messageId: message.id, text };
 }
 
-function extractAssistantSnapshotToolUses(event: any): { id: string; name: string; input?: unknown }[] {
+function extractAssistantSnapshotToolUses(
+  event: any,
+): { id: string; name: string; input?: unknown }[] {
   if (!event || typeof event !== "object") return [];
   if (event.type !== "assistant") return [];
   const message = event.message;
@@ -159,7 +188,10 @@ function extractAssistantSnapshotToolUses(event: any): { id: string; name: strin
   if (!Array.isArray(message.content)) return [];
 
   return message.content
-    .filter((block: any) => block?.type === "tool_use" && typeof block.id === "string")
+    .filter(
+      (block: any) =>
+        block?.type === "tool_use" && typeof block.id === "string",
+    )
     .map((block: any) => ({
       id: block.id,
       name: typeof block.name === "string" ? block.name : "unknown",
@@ -175,7 +207,10 @@ function extractUserToolResultIds(event: any): string[] {
   if (!Array.isArray(message.content)) return [];
 
   return message.content
-    .filter((block: any) => block?.type === "tool_result" && typeof block.tool_use_id === "string")
+    .filter(
+      (block: any) =>
+        block?.type === "tool_result" && typeof block.tool_use_id === "string",
+    )
     .map((block: any) => block.tool_use_id);
 }
 
@@ -192,24 +227,45 @@ function extractUsage(event: any): UsageLike | undefined {
 
   const input = asNumber(usage.input ?? usage.input_tokens);
   const output = asNumber(usage.output ?? usage.output_tokens);
-  const cacheRead = asNumber(usage.cacheRead ?? usage.cache_read_tokens ?? usage.cache_read_input_tokens);
-  const cacheWrite = asNumber(usage.cacheWrite ?? usage.cache_write_tokens ?? usage.cache_creation_input_tokens);
-  const totalTokens = asNumber(
-    usage.totalTokens ?? usage.total_tokens ?? ((input ?? 0) + (output ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)),
+  const cacheRead = asNumber(
+    usage.cacheRead ?? usage.cache_read_tokens ?? usage.cache_read_input_tokens,
   );
-  const costTotal = asNumber(usage.cost?.total ?? usage.total_cost ?? usage.total_cost_usd ?? event.total_cost_usd);
+  const cacheWrite = asNumber(
+    usage.cacheWrite ??
+      usage.cache_write_tokens ??
+      usage.cache_creation_input_tokens,
+  );
+  const totalTokens = asNumber(
+    usage.totalTokens ??
+      usage.total_tokens ??
+      (input ?? 0) + (output ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0),
+  );
+  const costTotal = asNumber(
+    usage.cost?.total ??
+      usage.total_cost ??
+      usage.total_cost_usd ??
+      event.total_cost_usd,
+  );
 
   return { input, output, cacheRead, cacheWrite, totalTokens, costTotal };
 }
 
-function applyUsage(output: AssistantMessage, usage?: UsageLike, model?: Model<Api>) {
+function applyUsage(
+  output: AssistantMessage,
+  usage?: UsageLike,
+  model?: Model<Api>,
+) {
   if (!usage) return;
   output.usage.input = usage.input ?? output.usage.input;
   output.usage.output = usage.output ?? output.usage.output;
   output.usage.cacheRead = usage.cacheRead ?? output.usage.cacheRead;
   output.usage.cacheWrite = usage.cacheWrite ?? output.usage.cacheWrite;
   output.usage.totalTokens =
-    usage.totalTokens ?? output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
+    usage.totalTokens ??
+    output.usage.input +
+      output.usage.output +
+      output.usage.cacheRead +
+      output.usage.cacheWrite;
 
   if (typeof usage.costTotal === "number") {
     output.usage.cost.total = usage.costTotal;
@@ -225,11 +281,16 @@ function extractRateLimitInfo(event: any): RateLimitInfoLike | undefined {
   if (!info || typeof info !== "object") return undefined;
   return {
     status: typeof info.status === "string" ? info.status : undefined,
-    overageStatus: typeof info.overageStatus === "string" ? info.overageStatus : undefined,
-    isUsingOverage: typeof info.isUsingOverage === "boolean" ? info.isUsingOverage : undefined,
+    overageStatus:
+      typeof info.overageStatus === "string" ? info.overageStatus : undefined,
+    isUsingOverage:
+      typeof info.isUsingOverage === "boolean"
+        ? info.isUsingOverage
+        : undefined,
     resetsAt: asNumber(info.resetsAt),
     overageResetsAt: asNumber(info.overageResetsAt),
-    rateLimitType: typeof info.rateLimitType === "string" ? info.rateLimitType : undefined,
+    rateLimitType:
+      typeof info.rateLimitType === "string" ? info.rateLimitType : undefined,
   };
 }
 
@@ -257,18 +318,26 @@ function formatRateLimitNotice(info?: RateLimitInfoLike): string | undefined {
   if (info?.status) parts.push(`status=${info.status}`);
   if (info?.rateLimitType) parts.push(`type=${info.rateLimitType}`);
   if (info?.isUsingOverage) parts.push("using overage");
-  if (info?.overageStatus && info.overageStatus !== "allowed") parts.push(`overage=${info.overageStatus}`);
-  if (typeof info?.resetsAt === "number") parts.push(`resets=${new Date(info.resetsAt * 1000).toISOString()}`);
+  if (info?.overageStatus && info.overageStatus !== "allowed")
+    parts.push(`overage=${info.overageStatus}`);
+  if (typeof info?.resetsAt === "number")
+    parts.push(`resets=${new Date(info.resetsAt * 1000).toISOString()}`);
   if (typeof info?.overageResetsAt === "number") {
-    parts.push(`overageResets=${new Date(info.overageResetsAt * 1000).toISOString()}`);
+    parts.push(
+      `overageResets=${new Date(info.overageResetsAt * 1000).toISOString()}`,
+    );
   }
   return `[claude-code rate-limit: ${parts.join(", ")}]`;
 }
 
-function formatRunMetadata(durationMs?: number, numTurns?: number): string | undefined {
+function formatRunMetadata(
+  durationMs?: number,
+  numTurns?: number,
+): string | undefined {
   if (durationMs === undefined && numTurns === undefined) return undefined;
   const parts: string[] = [];
-  if (durationMs !== undefined) parts.push(`duration=${(durationMs / 1000).toFixed(1)}s`);
+  if (durationMs !== undefined)
+    parts.push(`duration=${(durationMs / 1000).toFixed(1)}s`);
   if (numTurns !== undefined) parts.push(`turns=${numTurns}`);
   return `[claude-code: ${parts.join(", ")}]`;
 }
@@ -278,20 +347,24 @@ function extractSystemInitInfo(event: any): SystemInitInfoLike | undefined {
   if (event.type !== "system" || event.subtype !== "init") return undefined;
 
   const tools = Array.isArray(event.tools)
-    ? event.tools.filter((tool: unknown): tool is string => typeof tool === "string")
+    ? event.tools.filter(
+        (tool: unknown): tool is string => typeof tool === "string",
+      )
     : [];
   const mcpServers = Array.isArray(event.mcp_servers)
-    ? event.mcp_servers
-        .map((server: any) => ({
-          name: typeof server?.name === "string" ? server.name : "unknown",
-          status: typeof server?.status === "string" ? server.status : "unknown",
-        }))
+    ? event.mcp_servers.map((server: any) => ({
+        name: typeof server?.name === "string" ? server.name : "unknown",
+        status: typeof server?.status === "string" ? server.status : "unknown",
+      }))
     : [];
 
   return {
     sessionId: extractSessionId(event),
     model: typeof event.model === "string" ? event.model : undefined,
-    claudeCodeVersion: typeof event.claude_code_version === "string" ? event.claude_code_version : undefined,
+    claudeCodeVersion:
+      typeof event.claude_code_version === "string"
+        ? event.claude_code_version
+        : undefined,
     tools,
     mcpServers,
     capturedAtMs: Date.now(),
@@ -301,7 +374,8 @@ function extractSystemInitInfo(event: any): SystemInitInfoLike | undefined {
 function parseJsonObject(value: string): Record<string, any> | undefined {
   try {
     const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      return parsed;
     return undefined;
   } catch {
     return undefined;
@@ -345,7 +419,10 @@ function previewPath(value: unknown): string | undefined {
   return truncate(short, 72);
 }
 
-function formatGenericToolArgsPreview(input: unknown, maxLen = 220): string | undefined {
+function formatGenericToolArgsPreview(
+  input: unknown,
+  maxLen = 220,
+): string | undefined {
   if (input === undefined || input === null) return undefined;
 
   if (typeof input === "string") {
@@ -402,7 +479,10 @@ function formatGenericToolArgsPreview(input: unknown, maxLen = 220): string | un
   return text ? truncate(text, maxLen) : undefined;
 }
 
-function formatToolArgsPreview(toolName: string, input: unknown): string | undefined {
+function formatToolArgsPreview(
+  toolName: string,
+  input: unknown,
+): string | undefined {
   const normalizedTool = toolName.trim().toLowerCase();
   const obj =
     input && typeof input === "object" && !Array.isArray(input)
@@ -416,7 +496,8 @@ function formatToolArgsPreview(toolName: string, input: unknown): string | undef
       let inProgress = 0;
       let pending = 0;
       for (const todo of todos) {
-        const status = typeof (todo as any)?.status === "string" ? (todo as any).status : "";
+        const status =
+          typeof (todo as any)?.status === "string" ? (todo as any).status : "";
         if (status === "completed") completed += 1;
         else if (status === "in_progress") inProgress += 1;
         else pending += 1;
@@ -429,9 +510,12 @@ function formatToolArgsPreview(toolName: string, input: unknown): string | undef
     const parts: string[] = [];
     const filePreview = previewPath(obj.file_path);
     if (filePreview) parts.push(`file=${filePreview}`);
-    if (typeof obj.replace_all === "boolean") parts.push(`replace_all=${obj.replace_all}`);
-    if (typeof obj.old_string === "string") parts.push(`old=${obj.old_string.length}c`);
-    if (typeof obj.new_string === "string") parts.push(`new=${obj.new_string.length}c`);
+    if (typeof obj.replace_all === "boolean")
+      parts.push(`replace_all=${obj.replace_all}`);
+    if (typeof obj.old_string === "string")
+      parts.push(`old=${obj.old_string.length}c`);
+    if (typeof obj.new_string === "string")
+      parts.push(`new=${obj.new_string.length}c`);
     const text = parts.join(" ");
     if (text) return text;
   }
@@ -450,14 +534,16 @@ function formatToolArgsPreview(toolName: string, input: unknown): string | undef
     const parts: string[] = [];
     const filePreview = previewPath(obj.file_path);
     if (filePreview) parts.push(`file=${filePreview}`);
-    if (typeof obj.content === "string") parts.push(`content=${obj.content.length}c`);
+    if (typeof obj.content === "string")
+      parts.push(`content=${obj.content.length}c`);
     const text = parts.join(" ");
     if (text) return text;
   }
 
   if (normalizedTool === "bash" && obj) {
     const parts: string[] = [];
-    if (typeof obj.command === "string") parts.push(`cmd=${truncate(compactWhitespace(obj.command), 100)}`);
+    if (typeof obj.command === "string")
+      parts.push(`cmd=${truncate(compactWhitespace(obj.command), 100)}`);
     if (typeof obj.timeout === "number") parts.push(`timeout=${obj.timeout}`);
     const text = parts.join(" ");
     if (text) return text;
@@ -480,7 +566,9 @@ function getPiSystemPrompt(context: Context): string | undefined {
   const directSystemPrompt = contentToText((context as any).systemPrompt);
   if (directSystemPrompt) return directSystemPrompt;
 
-  const messages = Array.isArray((context as any).messages) ? (context as any).messages : [];
+  const messages = Array.isArray((context as any).messages)
+    ? (context as any).messages
+    : [];
   const parts: string[] = [];
   for (const msg of messages) {
     if (msg?.role !== "system") continue;
@@ -495,7 +583,9 @@ function getLastUserText(context: Context): string {
   const msg = context.messages.findLast((m) => m.role === "user");
   if (!msg) return "Continue.";
   if (typeof msg.content === "string") return msg.content.trim() || "Continue.";
-  const textParts = msg.content.filter((c) => c.type === "text").map((c) => c.text);
+  const textParts = msg.content
+    .filter((c) => c.type === "text")
+    .map((c) => c.text);
   const imageCount = msg.content.filter((c) => c.type === "image").length;
   let text = textParts.join("\n\n").trim() || "Continue.";
   if (imageCount > 0) {
@@ -505,7 +595,7 @@ function getLastUserText(context: Context): string {
 }
 
 function cliModelFor(modelId: string): string {
-  if (modelId.startsWith("claude-code-opus-4-6"))  return OPUS46_CLI_MODEL;
+  if (modelId.startsWith("claude-code-opus-4-6")) return OPUS46_CLI_MODEL;
   if (modelId.startsWith("claude-code-haiku-4-5")) return HAIKU45_CLI_MODEL;
   return SONNET46_CLI_MODEL; // default: Sonnet 4.6
 }
@@ -558,22 +648,24 @@ function streamClaudeCli(
     let acceptParsedLines = true;
     let sawResultEvent = false;
     let sawProseContent = false;
-    let lastTextCategory: "prose" | "trace" | undefined;
-    let pendingTraceJoinBlockIndex: number | undefined;
     let renderSource: "stream_event" | "assistant_snapshot" | undefined;
     let activeSnapshotMessageId: string | undefined;
     let activeSnapshotMessageText = "";
     let nextToolTraceSequence = 1;
-    const snapshotToolById = new Map<string, { name: string; input?: unknown }>();
+    const snapshotToolById = new Map<
+      string,
+      { name: string; input?: unknown }
+    >();
     const snapshotToolSequenceById = new Map<string, number>();
 
     const streamKey = `${options?.sessionId || "default"}:${model.id}`;
     const rememberedSessionId = sessionMap.get(streamKey);
 
     const cli = DEFAULT_CLAUDE_CLI;
-    const timeoutMs = Number.isFinite(DEFAULT_TIMEOUT_SECONDS) && DEFAULT_TIMEOUT_SECONDS > 0
-      ? Math.floor(DEFAULT_TIMEOUT_SECONDS * 1000)
-      : 240_000;
+    const timeoutMs =
+      Number.isFinite(DEFAULT_TIMEOUT_SECONDS) && DEFAULT_TIMEOUT_SECONDS > 0
+        ? Math.floor(DEFAULT_TIMEOUT_SECONDS * 1000)
+        : 240_000;
 
     const cliModel = cliModelFor(model.id);
     const prompt = getLastUserText(context);
@@ -600,7 +692,9 @@ function streamClaudeCli(
 
     const globalPrompt = GLOBAL_APPEND_SYSTEM_PROMPT?.trim();
     if (piSystemPrompt) {
-      const parts = [piSystemPrompt, globalPrompt].filter((p): p is string => Boolean(p));
+      const parts = [piSystemPrompt, globalPrompt].filter((p): p is string =>
+        Boolean(p),
+      );
       args.push("--system-prompt", parts.join("\n\n"));
     } else if (globalPrompt) {
       args.push("--append-system-prompt", globalPrompt);
@@ -623,41 +717,42 @@ function streamClaudeCli(
 
     const appendTextByContentIndex = (contentIndex: number, delta: string) => {
       if (!delta) return;
-      const block = output.content[contentIndex] as { type: "text"; text: string };
+      const block = output.content[contentIndex] as {
+        type: "text";
+        text: string;
+      };
       block.text += delta;
       stream.push({ type: "text_delta", contentIndex, delta, partial: output });
     };
 
-    const ensureCategoryGap = (contentIndex: number, nextCategory: "prose" | "trace") => {
-      if (lastTextCategory === undefined || lastTextCategory === nextCategory) return;
-      const block = output.content[contentIndex] as { type: "text"; text: string };
-      if (!block.text) return;
-      if (block.text.endsWith("\n\n")) return;
-      if (block.text.endsWith("\n")) {
-        appendTextByContentIndex(contentIndex, "\n");
-      } else {
-        appendTextByContentIndex(contentIndex, "\n\n");
-      }
-    };
-
-    const appendCategorizedText = (category: "prose" | "trace", text: string, blockKey = FALLBACK_TEXT_BLOCK_KEY) => {
+    const appendCategorizedText = (
+      category: "prose" | "trace",
+      text: string,
+      blockKey = FALLBACK_TEXT_BLOCK_KEY,
+    ) => {
       if (!text) return;
       const contentIndex = beginTextForBlock(blockKey);
-      ensureCategoryGap(contentIndex, category);
       appendTextByContentIndex(contentIndex, text);
-      lastTextCategory = category;
       if (category === "prose") sawProseContent = true;
     };
 
-    const appendProseDelta = (delta: string, blockKey = FALLBACK_TEXT_BLOCK_KEY) => {
+    const appendProseDelta = (
+      delta: string,
+      blockKey = FALLBACK_TEXT_BLOCK_KEY,
+    ) => {
       appendCategorizedText("prose", delta, blockKey);
     };
 
-    const appendTraceLine = (line: string, blockKey = FALLBACK_TEXT_BLOCK_KEY) => {
+    const appendTraceLine = (
+      line: string,
+      blockKey = FALLBACK_TEXT_BLOCK_KEY,
+    ) => {
       appendCategorizedText("trace", `${line}\n`, blockKey);
     };
 
-    const useRenderSource = (source: "stream_event" | "assistant_snapshot"): boolean => {
+    const useRenderSource = (
+      source: "stream_event" | "assistant_snapshot",
+    ): boolean => {
       if (!renderSource) {
         renderSource = source;
       }
@@ -667,28 +762,23 @@ function streamClaudeCli(
     const endTextBlock = (blockKey: number) => {
       const contentIndex = textIndexByBlock.get(blockKey);
       if (contentIndex === undefined) return;
-      const block = output.content[contentIndex] as { type: "text"; text: string };
-      stream.push({ type: "text_end", contentIndex, content: block.text, partial: output });
+      const block = output.content[contentIndex] as {
+        type: "text";
+        text: string;
+      };
+      stream.push({
+        type: "text_end",
+        contentIndex,
+        content: block.text,
+        partial: output,
+      });
       textIndexByBlock.delete(blockKey);
-      if (textIndexByBlock.size === 0 && pendingTraceJoinBlockIndex === undefined) {
-        lastTextCategory = undefined;
-      }
     };
 
     const endAllTextBlocks = () => {
       for (const blockKey of Array.from(textIndexByBlock.keys())) {
         endTextBlock(blockKey);
       }
-      lastTextCategory = undefined;
-      pendingTraceJoinBlockIndex = undefined;
-    };
-
-    const flushPendingTraceJoinBlock = () => {
-      if (pendingTraceJoinBlockIndex === undefined) return;
-      if (textIndexByBlock.has(pendingTraceJoinBlockIndex)) {
-        endTextBlock(pendingTraceJoinBlockIndex);
-      }
-      pendingTraceJoinBlockIndex = undefined;
     };
 
     const beginThinking = (blockIndex: number) => {
@@ -702,28 +792,50 @@ function streamClaudeCli(
       if (!delta) return;
       const contentIndex = thinkingIndexByBlock.get(blockIndex);
       if (contentIndex === undefined) return;
-      const block = output.content[contentIndex] as { type: "thinking"; thinking: string };
+      const block = output.content[contentIndex] as {
+        type: "thinking";
+        thinking: string;
+      };
       block.thinking += delta;
-      stream.push({ type: "thinking_delta", contentIndex, delta, partial: output });
+      stream.push({
+        type: "thinking_delta",
+        contentIndex,
+        delta,
+        partial: output,
+      });
     };
 
     const endThinking = (blockIndex: number) => {
       const contentIndex = thinkingIndexByBlock.get(blockIndex);
       if (contentIndex === undefined) return;
-      const block = output.content[contentIndex] as { type: "thinking"; thinking: string };
-      stream.push({ type: "thinking_end", contentIndex, content: block.thinking, partial: output });
+      const block = output.content[contentIndex] as {
+        type: "thinking";
+        thinking: string;
+      };
+      stream.push({
+        type: "thinking_end",
+        contentIndex,
+        content: block.thinking,
+        partial: output,
+      });
       thinkingIndexByBlock.delete(blockIndex);
     };
 
-    const beginToolTrace = (blockIndex: number, toolName: string, initialInput?: unknown) => {
+    const beginToolTrace = (
+      blockIndex: number,
+      toolName: string,
+      initialInput?: unknown,
+    ) => {
       const sequence = nextToolTraceSequence++;
       toolTraceNameByBlock.set(blockIndex, toolName);
       toolTraceSequenceByBlock.set(blockIndex, sequence);
       toolTraceInitialInputByBlock.set(blockIndex, initialInput);
       toolTraceDeltaJsonByBlock.set(blockIndex, "");
       const initialPreview = formatToolArgsPreview(toolName, initialInput);
-      appendTraceLine("────────", blockIndex);
-      appendTraceLine(`[tool #${sequence} start] ${toolName}${initialPreview ? ` — ${initialPreview}` : ""}`, blockIndex);
+      appendTraceLine(
+        `[tool #${sequence} start] ${toolName}${initialPreview ? ` — ${initialPreview}` : ""}`,
+        blockIndex,
+      );
     };
 
     const appendToolTraceDelta = (blockIndex: number, delta: string) => {
@@ -741,9 +853,14 @@ function streamClaudeCli(
       const parsedArgs = parseJsonObject(deltaJson);
       const finalArgs =
         parsedArgs ??
-        (deltaJson.trim().length > 0 ? deltaJson : toolTraceInitialInputByBlock.get(blockIndex));
+        (deltaJson.trim().length > 0
+          ? deltaJson
+          : toolTraceInitialInputByBlock.get(blockIndex));
       const preview = formatToolArgsPreview(toolName, finalArgs);
-      appendTraceLine(`[tool #${sequence ?? "?"} end] ${toolName}${preview ? ` — ${preview}` : ""}`, blockIndex);
+      appendTraceLine(
+        `[tool #${sequence ?? "?"} end] ${toolName}${preview ? ` — ${preview}` : ""}`,
+        blockIndex,
+      );
       appendTraceLine("────────", blockIndex);
       toolTraceNameByBlock.delete(blockIndex);
       toolTraceSequenceByBlock.delete(blockIndex);
@@ -751,14 +868,19 @@ function streamClaudeCli(
       toolTraceDeltaJsonByBlock.delete(blockIndex);
     };
 
-    const beginSnapshotToolTrace = (id: string, name: string, input?: unknown) => {
+    const beginSnapshotToolTrace = (
+      id: string,
+      name: string,
+      input?: unknown,
+    ) => {
       if (snapshotToolById.has(id)) return;
       const sequence = nextToolTraceSequence++;
       snapshotToolById.set(id, { name, input });
       snapshotToolSequenceById.set(id, sequence);
       const preview = formatToolArgsPreview(name, input);
-      appendTraceLine("────────");
-      appendTraceLine(`[tool #${sequence} start] ${name}${preview ? ` — ${preview}` : ""}`);
+      appendTraceLine(
+        `[tool #${sequence} start] ${name}${preview ? ` — ${preview}` : ""}`,
+      );
     };
 
     const endSnapshotToolTrace = (id: string) => {
@@ -766,7 +888,9 @@ function streamClaudeCli(
       if (!snapshot) return;
       const sequence = snapshotToolSequenceById.get(id);
       const preview = formatToolArgsPreview(snapshot.name, snapshot.input);
-      appendTraceLine(`[tool #${sequence ?? "?"} end] ${snapshot.name}${preview ? ` — ${preview}` : ""}`);
+      appendTraceLine(
+        `[tool #${sequence ?? "?"} end] ${snapshot.name}${preview ? ` — ${preview}` : ""}`,
+      );
       appendTraceLine("────────");
       snapshotToolById.delete(id);
       snapshotToolSequenceById.delete(id);
@@ -797,7 +921,8 @@ function streamClaudeCli(
         const resolveOnce = (code: number) => {
           if (resolved) return;
           resolved = true;
-          if (options?.signal) options.signal.removeEventListener("abort", killProc);
+          if (options?.signal)
+            options.signal.removeEventListener("abort", killProc);
           resolve(code);
         };
 
@@ -870,34 +995,33 @@ function streamClaudeCli(
             debugLog("system_init", systemInitInfo);
           }
 
-          const streamEvent = parsed.type === "stream_event" ? parsed.event : undefined;
-          if (streamEvent?.type === "content_block_start" && typeof streamEvent.index === "number") {
+          const streamEvent =
+            parsed.type === "stream_event" ? parsed.event : undefined;
+          if (
+            streamEvent?.type === "content_block_start" &&
+            typeof streamEvent.index === "number"
+          ) {
             if (streamEvent.content_block?.type === "thinking") {
-              flushPendingTraceJoinBlock();
               beginThinking(streamEvent.index);
               return;
             }
 
-            if (streamEvent.content_block?.type === "text" && useRenderSource("stream_event")) {
-              if (pendingTraceJoinBlockIndex !== undefined) {
-                const pendingContentIndex = textIndexByBlock.get(pendingTraceJoinBlockIndex);
-                if (pendingContentIndex !== undefined) {
-                  textIndexByBlock.set(streamEvent.index, pendingContentIndex);
-                  textIndexByBlock.delete(pendingTraceJoinBlockIndex);
-                  pendingTraceJoinBlockIndex = undefined;
-                  return;
-                }
-                pendingTraceJoinBlockIndex = undefined;
-              }
-
+            if (
+              streamEvent.content_block?.type === "text" &&
+              useRenderSource("stream_event")
+            ) {
               beginTextForBlock(streamEvent.index);
               return;
             }
 
-            if (streamEvent.content_block?.type === "tool_use" && useRenderSource("stream_event")) {
-              flushPendingTraceJoinBlock();
+            if (
+              streamEvent.content_block?.type === "tool_use" &&
+              useRenderSource("stream_event")
+            ) {
               const rawToolName =
-                typeof streamEvent.content_block.name === "string" ? streamEvent.content_block.name : "unknown";
+                typeof streamEvent.content_block.name === "string"
+                  ? streamEvent.content_block.name
+                  : "unknown";
               const toolName = normalizeTraceToolName(rawToolName);
               const initialArgs =
                 streamEvent.content_block.input &&
@@ -910,8 +1034,14 @@ function streamClaudeCli(
             }
           }
 
-          if (streamEvent?.type === "content_block_delta" && typeof streamEvent.index === "number") {
-            if (streamEvent.delta?.type === "thinking_delta" && typeof streamEvent.delta.thinking === "string") {
+          if (
+            streamEvent?.type === "content_block_delta" &&
+            typeof streamEvent.index === "number"
+          ) {
+            if (
+              streamEvent.delta?.type === "thinking_delta" &&
+              typeof streamEvent.delta.thinking === "string"
+            ) {
               appendThinking(streamEvent.index, streamEvent.delta.thinking);
               return;
             }
@@ -932,26 +1062,36 @@ function streamClaudeCli(
               streamEvent.delta.partial_json.length > 0 &&
               toolTraceNameByBlock.has(streamEvent.index)
             ) {
-              appendToolTraceDelta(streamEvent.index, streamEvent.delta.partial_json);
+              appendToolTraceDelta(
+                streamEvent.index,
+                streamEvent.delta.partial_json,
+              );
               return;
             }
           }
 
-          if (streamEvent?.type === "content_block_stop" && typeof streamEvent.index === "number") {
+          if (
+            streamEvent?.type === "content_block_stop" &&
+            typeof streamEvent.index === "number"
+          ) {
             if (thinkingIndexByBlock.has(streamEvent.index)) {
               endThinking(streamEvent.index);
               return;
             }
 
-            if (renderSource === "stream_event" && toolTraceNameByBlock.has(streamEvent.index)) {
+            if (
+              renderSource === "stream_event" &&
+              toolTraceNameByBlock.has(streamEvent.index)
+            ) {
               endToolTrace(streamEvent.index);
-              if (textIndexByBlock.has(streamEvent.index)) {
-                pendingTraceJoinBlockIndex = streamEvent.index;
-              }
+              endTextBlock(streamEvent.index);
               return;
             }
 
-            if (renderSource === "stream_event" && textIndexByBlock.has(streamEvent.index)) {
+            if (
+              renderSource === "stream_event" &&
+              textIndexByBlock.has(streamEvent.index)
+            ) {
               endTextBlock(streamEvent.index);
               return;
             }
@@ -959,7 +1099,9 @@ function streamClaudeCli(
 
           const isTopLevelSnapshot = parsed.parent_tool_use_id == null;
 
-          const snapshotText = isTopLevelSnapshot ? extractAssistantSnapshotText(parsed) : undefined;
+          const snapshotText = isTopLevelSnapshot
+            ? extractAssistantSnapshotText(parsed)
+            : undefined;
           if (snapshotText && useRenderSource("assistant_snapshot")) {
             if (!activeSnapshotMessageId) {
               activeSnapshotMessageId = snapshotText.messageId;
@@ -987,10 +1129,19 @@ function streamClaudeCli(
             }
           }
 
-          const snapshotToolUses = isTopLevelSnapshot ? extractAssistantSnapshotToolUses(parsed) : [];
-          if (snapshotToolUses.length > 0 && useRenderSource("assistant_snapshot")) {
+          const snapshotToolUses = isTopLevelSnapshot
+            ? extractAssistantSnapshotToolUses(parsed)
+            : [];
+          if (
+            snapshotToolUses.length > 0 &&
+            useRenderSource("assistant_snapshot")
+          ) {
             for (const toolUse of snapshotToolUses) {
-              beginSnapshotToolTrace(toolUse.id, normalizeTraceToolName(toolUse.name), toolUse.input);
+              beginSnapshotToolTrace(
+                toolUse.id,
+                normalizeTraceToolName(toolUse.name),
+                toolUse.input,
+              );
             }
           }
 
@@ -1057,9 +1208,9 @@ function streamClaudeCli(
 
         throw new Error(
           trimmedStderr ||
-          (gotAbort || options?.signal?.aborted
-            ? "Claude CLI request aborted"
-            : `Claude CLI exited with code ${exitCode}`),
+            (gotAbort || options?.signal?.aborted
+              ? "Claude CLI request aborted"
+              : `Claude CLI exited with code ${exitCode}`),
         );
       }
 
@@ -1084,7 +1235,10 @@ function streamClaudeCli(
       output.stopReason = "stop";
       if (!output.usage.totalTokens) {
         output.usage.totalTokens =
-          output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
+          output.usage.input +
+          output.usage.output +
+          output.usage.cacheRead +
+          output.usage.cacheWrite;
       }
       if (!output.usage.cost.total) {
         calculateCost(model, output.usage);
@@ -1100,9 +1254,15 @@ function streamClaudeCli(
     } catch (error) {
       if (timeoutId) clearTimeout(timeoutId);
       endAllTextBlocks();
-      output.stopReason = options?.signal?.aborted || gotAbort ? "aborted" : "error";
-      output.errorMessage = error instanceof Error ? error.message : String(error);
-      debugLog("error", { message: output.errorMessage, stopReason: output.stopReason, stderr: stderrChunks.join("") });
+      output.stopReason =
+        options?.signal?.aborted || gotAbort ? "aborted" : "error";
+      output.errorMessage =
+        error instanceof Error ? error.message : String(error);
+      debugLog("error", {
+        message: output.errorMessage,
+        stopReason: output.stopReason,
+        stderr: stderrChunks.join(""),
+      });
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
     }
@@ -1181,11 +1341,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("claude-code-info", {
-    description: "Show latest Claude Code init metadata (version/tools/MCP status)",
+    description:
+      "Show latest Claude Code init metadata (version/tools/MCP status)",
     handler: async (_args, ctx) => {
       const info = initState.latest;
       if (!info) {
-        ctx.ui.notify("No Claude Code init metadata captured yet. Run a Claude Code prompt first.", "warning");
+        ctx.ui.notify(
+          "No Claude Code init metadata captured yet. Run a Claude Code prompt first.",
+          "warning",
+        );
         return;
       }
 
@@ -1195,7 +1359,9 @@ export default function (pi: ExtensionAPI) {
           : "0 tools";
       const mcpSummary =
         info.mcpServers.length > 0
-          ? info.mcpServers.map((server) => `${server.name}:${server.status}`).join(", ")
+          ? info.mcpServers
+              .map((server) => `${server.name}:${server.status}`)
+              .join(", ")
           : "none";
       const capturedAt = new Date(info.capturedAtMs).toISOString();
 
