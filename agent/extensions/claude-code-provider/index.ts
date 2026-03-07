@@ -219,6 +219,10 @@ function asNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+// Claude Code headless / `claude -p` gives us authoritative token buckets and a final
+// total cost (`total_cost_usd`), but not an authoritative per-bucket USD breakdown.
+// Be faithful to what the CLI actually reports: ingest token counts and the reported
+// total, but do not invent input/output/cache cost components from external pricing.
 function extractUsage(event: any): UsageLike | undefined {
   if (!event || typeof event !== "object") return undefined;
 
@@ -256,6 +260,13 @@ function applyUsage(
   model?: Model<Api>,
 ) {
   if (!usage) return;
+
+  // Token buckets are mapped directly from Claude CLI fields.
+  // Monetary fidelity rule for this provider:
+  // - if Claude reports `total_cost_usd`, trust it as `usage.cost.total`
+  // - do not infer per-bucket USD components from model pricing
+  // Registered model pricing is intentionally zeroed below so any fallback cost
+  // calculation preserves zero component costs rather than inventing them.
   output.usage.input = usage.input ?? output.usage.input;
   output.usage.output = usage.output ?? output.usage.output;
   output.usage.cacheRead = usage.cacheRead ?? output.usage.cacheRead;
@@ -910,8 +921,7 @@ function streamClaudeCli(
       const deltaJson = toolTraceDeltaJsonByBlock.get(blockIndex) || "";
       const parsedArgs = parseJsonObject(deltaJson);
       const finalArgs =
-        parsedArgs ??
-        (deltaJson.trim().length > 0 ? deltaJson : initialInput);
+        parsedArgs ?? (deltaJson.trim().length > 0 ? deltaJson : initialInput);
       const preview = formatToolArgsPreview(toolName, finalArgs);
       debugToolTraceEnd({
         source: "stream_event",
@@ -1319,6 +1329,8 @@ function streamClaudeCli(
           output.usage.cacheWrite;
       }
       if (!output.usage.cost.total) {
+        // Fallback stays zero because this provider does not infer cost components
+        // beyond what Claude Code headless mode reports directly.
         calculateCost(model, output.usage);
       }
       debugLog("done", {
@@ -1359,6 +1371,11 @@ export default function (pi: ExtensionAPI) {
     api: "claude-code-api",
 
     models: [
+      // Keep pricing components at zero on purpose.
+      // Claude Code headless mode gives us real token buckets plus an authoritative
+      // final `total_cost_usd`, but it does not expose an authoritative input/output/
+      // cache USD breakdown. Leaving these at zero prevents Pi from synthesizing a
+      // made-up component breakdown from external/public pricing tables.
       {
         id: "claude-code-sonnet-4-6",
         name: "Claude Code Sonnet 4.6",
