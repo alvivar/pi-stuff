@@ -50,9 +50,34 @@ Make Claude internal tool activity feel more native in Pi without modifying Pi c
 
 ### 6. Update docs
 
-- [x] Sync `CLAUDE_CODE_TRACKING.md`
 - [x] Document the cleaned-up verbose trace behavior
 - [x] Document that all tool types remain visible by default
+- [x] Move durable provider design/goal notes into `README.md`
+- [x] Retire `CLAUDE_CODE_TRACKING.md`
+
+### 7. Next priorities — preserve more authoritative Claude headless metadata
+
+- [ ] Preserve and/or explicitly log Claude cache tier split from headless mode:
+  - [ ] `cache_creation.ephemeral_5m_input_tokens`
+  - [ ] `cache_creation.ephemeral_1h_input_tokens`
+- [ ] Preserve and/or explicitly log final `modelUsage` from Claude result events
+- [ ] Preserve and/or explicitly log final `permission_denials` from Claude result events
+- [ ] Review whether any other result-level headless metadata should be normalized instead of left only inside raw `stdout_line` debug entries
+
+### 8. Usage/cost fidelity policy
+
+- [ ] Keep token accounting faithful to Claude headless mode output
+- [ ] Keep trusting Claude-reported `total_cost_usd` when available
+- [ ] Do not infer input/output/cache USD breakdown from external pricing tables
+- [ ] Document clearly which usage/cost fields are authoritative vs collapsed vs not propagated
+- [ ] Call out that Pi currently collapses Claude cache creation into one `cacheWrite` bucket even though Claude exposes tier split
+
+### 9. Docs simplification
+
+- [x] Reevaluate whether `CLAUDE_CODE_TRACKING.md` is still needed
+- [x] Prefer `TODO.md` + inline documentation in `agent/extensions/claude-code-provider/index.ts` for implementation details
+- [x] Prefer `README.md` for durable design goals and extension behavior notes
+- [x] Retire `CLAUDE_CODE_TRACKING.md` to avoid drift
 
 ## Preferred target UX
 
