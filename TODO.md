@@ -35,10 +35,10 @@ Make Claude internal tool activity feel more native in Pi without modifying Pi c
 
 ### 4. Defer spacing changes until after formatting cleanup
 
-- [ ] Do not add new artificial newline hacks first
+- [x] Do not add new artificial newline hacks first
 - [ ] Validate whether cleaner verbose formatting already fixes most UX issues
-- [ ] Only if still needed, keep trace + nearby prose in the same rendered text block when possible
-- [ ] Continue avoiding block-boundary `\n\n` tricks and invisible spacer hacks
+- [x] Only if still needed, keep trace + nearby prose in the same rendered text block when possible
+- [x] Continue avoiding block-boundary `\n\n` tricks and invisible spacer hacks
 
 ### 5. Validate UX with real streams
 

@@ -669,6 +669,7 @@ function streamClaudeCli(
     const toolTraceSequenceByBlock = new Map<number, number>();
     const toolTraceInitialInputByBlock = new Map<number, unknown>();
     const toolTraceDeltaJsonByBlock = new Map<number, string>();
+    let pendingTraceJoinContentIndex: number | undefined;
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
     let latestRateLimitInfo: RateLimitInfoLike | undefined;
@@ -738,9 +739,35 @@ function streamClaudeCli(
       args.push("--resume", rememberedSessionId);
     }
 
+    const closeTextContentIndex = (contentIndex: number) => {
+      const block = output.content[contentIndex] as {
+        type: "text";
+        text: string;
+      };
+      stream.push({
+        type: "text_end",
+        contentIndex,
+        content: block.text,
+        partial: output,
+      });
+    };
+
+    const flushPendingTraceJoin = () => {
+      if (pendingTraceJoinContentIndex === undefined) return;
+      closeTextContentIndex(pendingTraceJoinContentIndex);
+      pendingTraceJoinContentIndex = undefined;
+    };
+
     const beginTextForBlock = (blockKey: number): number => {
       const existingContentIndex = textIndexByBlock.get(blockKey);
       if (existingContentIndex !== undefined) return existingContentIndex;
+
+      if (pendingTraceJoinContentIndex !== undefined) {
+        const contentIndex = pendingTraceJoinContentIndex;
+        pendingTraceJoinContentIndex = undefined;
+        textIndexByBlock.set(blockKey, contentIndex);
+        return contentIndex;
+      }
 
       output.content.push({ type: "text", text: "" });
       const contentIndex = output.content.length - 1;
@@ -796,20 +823,12 @@ function streamClaudeCli(
     const endTextBlock = (blockKey: number) => {
       const contentIndex = textIndexByBlock.get(blockKey);
       if (contentIndex === undefined) return;
-      const block = output.content[contentIndex] as {
-        type: "text";
-        text: string;
-      };
-      stream.push({
-        type: "text_end",
-        contentIndex,
-        content: block.text,
-        partial: output,
-      });
+      closeTextContentIndex(contentIndex);
       textIndexByBlock.delete(blockKey);
     };
 
     const endAllTextBlocks = () => {
+      flushPendingTraceJoin();
       for (const blockKey of Array.from(textIndexByBlock.keys())) {
         endTextBlock(blockKey);
       }
@@ -1055,6 +1074,7 @@ function streamClaudeCli(
             typeof streamEvent.index === "number"
           ) {
             if (streamEvent.content_block?.type === "thinking") {
+              flushPendingTraceJoin();
               beginThinking(streamEvent.index);
               return;
             }
@@ -1071,6 +1091,7 @@ function streamClaudeCli(
               streamEvent.content_block?.type === "tool_use" &&
               useRenderSource("stream_event")
             ) {
+              flushPendingTraceJoin();
               const rawToolName =
                 typeof streamEvent.content_block.name === "string"
                   ? streamEvent.content_block.name
@@ -1137,7 +1158,11 @@ function streamClaudeCli(
               toolTraceNameByBlock.has(streamEvent.index)
             ) {
               endToolTrace(streamEvent.index);
-              endTextBlock(streamEvent.index);
+              const contentIndex = textIndexByBlock.get(streamEvent.index);
+              if (contentIndex !== undefined) {
+                textIndexByBlock.delete(streamEvent.index);
+                pendingTraceJoinContentIndex = contentIndex;
+              }
               return;
             }
 
