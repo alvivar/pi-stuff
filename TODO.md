@@ -24,9 +24,14 @@ Make Claude internal tool activity feel more native in Pi without modifying Pi c
 ### 3. Improve visual style without hiding tools
 
 - [ ] Add or refine `formatToolTraceLine(...)` helper
+- [ ] Use the target one-line format:
+  - [ ] `↳ read — file=src/index.ts`
+  - [ ] `↳ edit — file=src/index.ts old=158c new=163c`
 - [ ] Prefer lighter prefixes like `↳ tool — summary`
 - [ ] Keep all tool types visible, including low-value tools
 - [ ] Avoid raw JSON dumps in assistant text when a compact preview is possible
+- [ ] Remove numbering from tool traces
+- [ ] Remove separator lines from tool traces
 
 ### 4. Defer spacing changes until after formatting cleanup
 
@@ -56,9 +61,10 @@ Example:
 ```text
 I found the particle size constants.
 
-↳ edit — SdlGame/Constants.cs (158c → 163c)
+↳ read — file=src/index.ts
+↳ edit — file=src/index.ts old=158c new=163c
 
-I’ve halved both values.
+I’ve updated the file.
 ```
 
 ## Notes
