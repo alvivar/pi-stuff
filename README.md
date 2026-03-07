@@ -12,13 +12,12 @@ Registers a `claude-code` provider that lets Pi use your locally installed `clau
 
 - Provider id: `claude-code`
 - Model ids:
-    - `claude-code-sonnet-4-6`
-    - `claude-code-opus-4-6`
-    - `claude-code-haiku-4-5`
-    - (removed) the older `...-chat` / `...-agent` model ids are no longer registered
+  - `claude-code-sonnet-4-6`
+  - `claude-code-opus-4-6`
+  - `claude-code-haiku-4-5`
 - Includes a command to clear the provider’s internal resume/session cache: `claude-code-new-session`
 - Propagates Pi thinking level to Claude CLI via `--effort` (low/medium/high)
-- Propagates Pi system prompt via `--append-system-prompt`
+- Forwards Pi/global system prompt instructions to Claude CLI via `--system-prompt` / `--append-system-prompt` as appropriate
 
 #### Design goals / important behavior
 
@@ -60,7 +59,7 @@ Registers a `claude-code` provider that lets Pi use your locally installed `clau
   - rate-limit events
   - run metadata (`duration_ms`, `num_turns`)
   - `system:init` details for `/claude-code-info`
-  - tool trace lifecycle entries (`tool_trace_start`, `tool_trace_end`)
+  - tool trace lifecycle information
 - Response-end guards ignore late stdout lines after the final result to prevent post-final render contamination.
 
 Environment variables supported by this extension include:
