@@ -1,56 +1,56 @@
 # TODO — Improve Claude Code provider without Pi core changes
 
 ## Goal
+
 Make Claude internal tool activity feel more native in Pi without modifying Pi core.
 
 ## Plan
 
-### 1. Replace trace lifecycle with one-line summaries
-- [ ] Make `beginToolTrace(...)` collect metadata only
-- [ ] Make `endToolTrace(...)` emit at most one concise line
-- [ ] Apply the same summary-only behavior to snapshot tool traces
-- [ ] Stop showing tool `start` lines by default
-- [ ] Remove unnecessary separators and numbering by default
-- [ ] Keep raw details in `debug.log`, not assistant prose
+### 1. Simplify trace structure while keeping verbose output
 
-### 2. Add trace verbosity control
-- [ ] Add a simple provider env toggle for trace verbosity
-- [ ] Suggested env var: `CLAUDE_CODE_TRACE_MODE`
-- [ ] Modes:
-  - [ ] `minimal`: show only `edit`, `write`, `bash`
-  - [ ] `normal`: concise summaries with selective read/search visibility
-  - [ ] `verbose`: full debug-style trace behavior
+- [ ] Keep verbose tool visibility by default
+- [ ] Remove provider-side verbosity control work
+- [ ] Keep raw details available in `debug.log`
+- [ ] Preserve enough inline detail to stay transparent and debuggable
 
-### 3. Add filtering for low-value tools
-- [ ] Add `shouldShowToolTrace(toolName, preview, mode)` helper
-- [ ] Suppress or collapse `TodoWrite` by default
-- [ ] Suppress repetitive `read` / `grep` / `find` / `ls` when low-value
-- [ ] Always show meaningful state-changing tools like `edit`, `write`, `bash`
+### 2. Replace the current heavy lifecycle formatting
 
-### 4. Improve visual style
-- [ ] Add `formatToolTraceLine(toolName, preview)` helper
-- [ ] Replace heavy `[tool #N start/end]` style with lighter inline summaries
-- [ ] Prefer prefixes like `↳ tool — summary` or `• tool — summary`
-- [ ] Avoid raw JSON and overly verbose previews in assistant text
+- [ ] Rework `beginToolTrace(...)` / `endToolTrace(...)` formatting
+- [ ] Apply the same formatting cleanup to snapshot tool traces
+- [ ] Replace heavy `[tool #N start/end]` formatting with a cleaner verbose style
+- [ ] Reevaluate whether numbering is actually helping readability
+- [ ] Remove or reduce visual noise from separator lines if they feel non-native
 
-### 5. Defer spacing changes until after trace simplification
+### 3. Improve visual style without hiding tools
+
+- [ ] Add or refine `formatToolTraceLine(...)` helper
+- [ ] Prefer lighter prefixes like `↳ tool — summary`
+- [ ] Keep all tool types visible, including low-value tools
+- [ ] Avoid raw JSON dumps in assistant text when a compact preview is possible
+
+### 4. Defer spacing changes until after formatting cleanup
+
 - [ ] Do not add new artificial newline hacks first
-- [ ] Validate whether quieter trace output already fixes most UX issues
+- [ ] Validate whether cleaner verbose formatting already fixes most UX issues
 - [ ] Only if still needed, keep trace + nearby prose in the same rendered text block when possible
 - [ ] Continue avoiding block-boundary `\n\n` tricks and invisible spacer hacks
 
-### 6. Validate UX with real streams
+### 5. Validate UX with real streams
+
 - [ ] Test long interactive streams
 - [ ] Check prose ↔ trace transitions
 - [ ] Verify no ordering regressions
 - [ ] Verify output feels closer to native Pi
+- [ ] Verify verbose traces remain readable during long tool-heavy runs
 
-### 7. Update docs
+### 6. Update docs
+
 - [ ] Sync `agent/extensions/claude-code-provider/CLAUDE_CODE_TRACKING.md`
-- [ ] Document summary-only trace behavior
-- [ ] Document trace mode behavior and hidden/collapsed noisy tools
+- [ ] Document the cleaned-up verbose trace behavior
+- [ ] Document that all tool types remain visible by default
 
 ## Preferred target UX
+
 Example:
 
 ```text
@@ -62,6 +62,7 @@ I’ve halved both values.
 ```
 
 ## Notes
+
 - Do not use Pi native `toolCall` for Claude internal tools
 - Do not add more artificial newline hacks
 - Prefer smaller provider-only diffs in `agent/extensions/claude-code-provider/index.ts`
