@@ -8,30 +8,30 @@ Make Claude internal tool activity feel more native in Pi without modifying Pi c
 
 ### 1. Simplify trace structure while keeping verbose output
 
-- [ ] Keep verbose tool visibility by default
-- [ ] Remove provider-side verbosity control work
-- [ ] Keep raw details available in `debug.log`
-- [ ] Preserve enough inline detail to stay transparent and debuggable
+- [x] Keep verbose tool visibility by default
+- [x] Remove provider-side verbosity control work
+- [x] Keep raw details available in `debug.log`
+- [x] Preserve enough inline detail to stay transparent and debuggable
 
 ### 2. Replace the current heavy lifecycle formatting
 
-- [ ] Rework `beginToolTrace(...)` / `endToolTrace(...)` formatting
-- [ ] Apply the same formatting cleanup to snapshot tool traces
-- [ ] Replace heavy `[tool #N start/end]` formatting with a cleaner verbose style
-- [ ] Reevaluate whether numbering is actually helping readability
-- [ ] Remove or reduce visual noise from separator lines if they feel non-native
+- [x] Rework `beginToolTrace(...)` / `endToolTrace(...)` formatting
+- [x] Apply the same formatting cleanup to snapshot tool traces
+- [x] Replace heavy `[tool #N start/end]` formatting with a cleaner verbose style
+- [x] Reevaluate whether numbering is actually helping readability
+- [x] Remove or reduce visual noise from separator lines if they feel non-native
 
 ### 3. Improve visual style without hiding tools
 
-- [ ] Add or refine `formatToolTraceLine(...)` helper
-- [ ] Use the target one-line format:
-  - [ ] `↳ read — file=src/index.ts`
-  - [ ] `↳ edit — file=src/index.ts old=158c new=163c`
-- [ ] Prefer lighter prefixes like `↳ tool — summary`
-- [ ] Keep all tool types visible, including low-value tools
-- [ ] Avoid raw JSON dumps in assistant text when a compact preview is possible
-- [ ] Remove numbering from tool traces
-- [ ] Remove separator lines from tool traces
+- [x] Add or refine `formatToolTraceLine(...)` helper
+- [x] Use the target one-line format:
+  - [x] `↳ read — file=src/index.ts`
+  - [x] `↳ edit — file=src/index.ts old=158c new=163c`
+- [x] Prefer lighter prefixes like `↳ tool — summary`
+- [x] Keep all tool types visible, including low-value tools
+- [x] Avoid raw JSON dumps in assistant text when a compact preview is possible
+- [x] Remove numbering from tool traces
+- [x] Remove separator lines from tool traces
 
 ### 4. Defer spacing changes until after formatting cleanup
 

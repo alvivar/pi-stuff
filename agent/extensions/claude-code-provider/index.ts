@@ -552,6 +552,40 @@ function formatToolArgsPreview(
   return formatGenericToolArgsPreview(input);
 }
 
+type ToolTraceLogSource = "stream_event" | "assistant_snapshot";
+
+type ToolTraceLogPayload = {
+  source: ToolTraceLogSource;
+  toolName: string;
+  preview?: string;
+  blockIndex?: number;
+  toolId?: string;
+  sequence?: number;
+  initialInput?: unknown;
+  finalInput?: unknown;
+  rawDeltaJson?: string;
+};
+
+function debugToolTraceStart(payload: ToolTraceLogPayload): void {
+  debugLog("tool_trace_start", {
+    ...payload,
+    normalizedToolName: normalizeTraceToolName(payload.toolName),
+  });
+}
+
+function debugToolTraceEnd(payload: ToolTraceLogPayload): void {
+  debugLog("tool_trace_end", {
+    ...payload,
+    normalizedToolName: normalizeTraceToolName(payload.toolName),
+  });
+}
+
+function formatToolTraceLine(toolName: string, input: unknown): string {
+  const normalizedToolName = normalizeTraceToolName(toolName);
+  const preview = formatToolArgsPreview(normalizedToolName, input);
+  return `↳ ${normalizedToolName}${preview ? ` — ${preview}` : ""}`;
+}
+
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
@@ -832,10 +866,14 @@ function streamClaudeCli(
       toolTraceInitialInputByBlock.set(blockIndex, initialInput);
       toolTraceDeltaJsonByBlock.set(blockIndex, "");
       const initialPreview = formatToolArgsPreview(toolName, initialInput);
-      appendTraceLine(
-        `[tool #${sequence} start] ${toolName}${initialPreview ? ` — ${initialPreview}` : ""}`,
+      debugToolTraceStart({
+        source: "stream_event",
+        toolName,
+        preview: initialPreview,
         blockIndex,
-      );
+        sequence,
+        initialInput,
+      });
     };
 
     const appendToolTraceDelta = (blockIndex: number, delta: string) => {
@@ -849,19 +887,24 @@ function streamClaudeCli(
       const toolName = toolTraceNameByBlock.get(blockIndex);
       if (!toolName) return;
       const sequence = toolTraceSequenceByBlock.get(blockIndex);
+      const initialInput = toolTraceInitialInputByBlock.get(blockIndex);
       const deltaJson = toolTraceDeltaJsonByBlock.get(blockIndex) || "";
       const parsedArgs = parseJsonObject(deltaJson);
       const finalArgs =
         parsedArgs ??
-        (deltaJson.trim().length > 0
-          ? deltaJson
-          : toolTraceInitialInputByBlock.get(blockIndex));
+        (deltaJson.trim().length > 0 ? deltaJson : initialInput);
       const preview = formatToolArgsPreview(toolName, finalArgs);
-      appendTraceLine(
-        `[tool #${sequence ?? "?"} end] ${toolName}${preview ? ` — ${preview}` : ""}`,
+      debugToolTraceEnd({
+        source: "stream_event",
+        toolName,
+        preview,
         blockIndex,
-      );
-      appendTraceLine("────────", blockIndex);
+        sequence,
+        initialInput,
+        finalInput: finalArgs,
+        rawDeltaJson: deltaJson || undefined,
+      });
+      appendTraceLine(formatToolTraceLine(toolName, finalArgs), blockIndex);
       toolTraceNameByBlock.delete(blockIndex);
       toolTraceSequenceByBlock.delete(blockIndex);
       toolTraceInitialInputByBlock.delete(blockIndex);
@@ -878,9 +921,14 @@ function streamClaudeCli(
       snapshotToolById.set(id, { name, input });
       snapshotToolSequenceById.set(id, sequence);
       const preview = formatToolArgsPreview(name, input);
-      appendTraceLine(
-        `[tool #${sequence} start] ${name}${preview ? ` — ${preview}` : ""}`,
-      );
+      debugToolTraceStart({
+        source: "assistant_snapshot",
+        toolName: name,
+        preview,
+        toolId: id,
+        sequence,
+        initialInput: input,
+      });
     };
 
     const endSnapshotToolTrace = (id: string) => {
@@ -888,10 +936,15 @@ function streamClaudeCli(
       if (!snapshot) return;
       const sequence = snapshotToolSequenceById.get(id);
       const preview = formatToolArgsPreview(snapshot.name, snapshot.input);
-      appendTraceLine(
-        `[tool #${sequence ?? "?"} end] ${snapshot.name}${preview ? ` — ${preview}` : ""}`,
-      );
-      appendTraceLine("────────");
+      debugToolTraceEnd({
+        source: "assistant_snapshot",
+        toolName: snapshot.name,
+        preview,
+        toolId: id,
+        sequence,
+        finalInput: snapshot.input,
+      });
+      appendTraceLine(formatToolTraceLine(snapshot.name, snapshot.input));
       snapshotToolById.delete(id);
       snapshotToolSequenceById.delete(id);
     };
