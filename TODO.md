@@ -36,7 +36,7 @@ Make Claude internal tool activity feel more native in Pi without modifying Pi c
 ### 4. Defer spacing changes until after formatting cleanup
 
 - [x] Do not add new artificial newline hacks first
-- [ ] Validate whether cleaner verbose formatting already fixes most UX issues
+- [x] Validate whether cleaner verbose formatting already fixes most UX issues
 - [x] Only if still needed, keep trace + nearby prose in the same rendered text block when possible
 - [x] Continue avoiding block-boundary `\n\n` tricks and invisible spacer hacks
 
@@ -45,14 +45,14 @@ Make Claude internal tool activity feel more native in Pi without modifying Pi c
 - [ ] Test long interactive streams
 - [ ] Check prose ↔ trace transitions
 - [ ] Verify no ordering regressions
-- [ ] Verify output feels closer to native Pi
+- [x] Verify output feels closer to native Pi
 - [ ] Verify verbose traces remain readable during long tool-heavy runs
 
 ### 6. Update docs
 
-- [ ] Sync `agent/extensions/claude-code-provider/CLAUDE_CODE_TRACKING.md`
-- [ ] Document the cleaned-up verbose trace behavior
-- [ ] Document that all tool types remain visible by default
+- [x] Sync `CLAUDE_CODE_TRACKING.md`
+- [x] Document the cleaned-up verbose trace behavior
+- [x] Document that all tool types remain visible by default
 
 ## Preferred target UX
 
