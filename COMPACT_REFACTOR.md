@@ -266,10 +266,22 @@ Recommendation: **Option A for V1**.
 
 Likely minimal additions:
 
-- `pendingBootstrapSummaryByStreamKey: Map<string, string>`
-  - stores the carry-forward summary to inject into the next fresh session turn
+- in-memory cache for fast access during the current process, e.g. `pendingBootstrapSummaryByStreamKey: Map<string, string>`
+- persisted pending-bootstrap state in the Pi session via `custom` session entries
 - optional: `pendingBootstrapSourceByStreamKey` / metadata if we want debugging
 - optional: `isCompactingSessionByStreamKey` if needed to guard concurrency
+
+Recommended persisted state model:
+
+- append a `custom` session entry when `/compact` creates a pending bootstrap summary
+- append another `custom` session entry when that pending bootstrap summary is consumed/cleared
+- reconstruct pending state on reload by scanning session entries
+
+Why this shape fits Pi well:
+
+- Pi session state is append-only
+- `custom` entries are explicitly intended for extension-specific persisted state
+- `custom` entries do not participate in LLM context
 
 `streamKey` should likely stay aligned with the current provider scheme:
 
@@ -292,7 +304,7 @@ Proposed new behavior when provider is `claude-code` and a remembered Claude ses
 3. Parse the returned summary text
 4. Store that summary as the compaction result returned to Pi
 5. Clear the remembered session ID for that stream key
-6. Save the summary in `pendingBootstrapSummaryByStreamKey`
+6. Save the summary in in-memory pending state and persist it as a session `custom` entry
 
 If anything fails:
 
@@ -309,18 +321,19 @@ Recommendation for V1:
 In `streamClaudeCli(...)`:
 
 1. Compute `streamKey`
-2. Check whether there is a pending bootstrap summary for this key
+2. Reconstruct pending bootstrap state from session `custom` entries if needed, then check whether there is a pending bootstrap summary for this key
 3. If yes **and** there is no remembered session ID being resumed:
    - prepend the bootstrap summary to the user prompt
    - start a fresh Claude session without `--resume`
 4. Once a successful response yields a new `session_id`:
    - save it in `sessionMap`
-   - clear the pending bootstrap summary for that key
+   - append a session `custom` entry marking the pending bootstrap summary as consumed/cleared
+   - clear the in-memory pending bootstrap summary for that key
 
 Important:
 
 - only consume the bootstrap summary once the fresh session actually starts successfully
-- avoid clearing it too early
+- do not clear it too early and risk losing the checkpoint if the first fresh turn fails
 
 ---
 
@@ -436,9 +449,12 @@ Recommendation:
 
 ## Remaining implementation questions
 
-1. **Where should the pending bootstrap summary live?**
-   - In-memory only may be too fragile if Pi restarts, extensions reload, or the user does not send the next message immediately.
-   - We likely need to decide between memory-only state vs some persisted session/provider state.
+1. **Pending bootstrap summary persistence**
+   - Decision/recommendation: persist it in the Pi session as a `custom` session entry, with optional in-memory caching for the active process.
+   - Reason: in-memory only is too fragile if Pi restarts, extensions reload, or the user does not send the next message immediately.
+   - A `custom` session entry is a good fit because Pi explicitly supports it for extension state that survives reloads and does **not** participate in LLM context.
+   - Avoid `custom_message` here because that would participate in context.
+   - Avoid a separate provider-owned file unless session-backed state proves insufficient.
 
 2. **What should `/compact` do if there is no remembered Claude session yet?**
    - Example: the provider is selected, but there is no current `--resume` session to checkpoint/rebase.
