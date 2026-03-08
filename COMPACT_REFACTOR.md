@@ -264,16 +264,75 @@ Show a clear notice such as:
 
 ---
 
-## Minimal implementation plan
+## Preferred implementation order
 
-1. Add a helper to request a compact summary from the current Claude session
-2. Use `session_before_compact` to run that helper for `claude-code`
-3. Return the resulting summary as Pi's compaction artifact
-4. Clear the old remembered Claude session id
-5. Persist a `pending-bootstrap` custom entry
-6. On the next turn, prepend the bootstrap wrapper when appropriate
-7. After the first successful fresh-session turn, persist a `pending-bootstrap-consumed` entry
-8. Add debug logging for compact start / success / consume events
+Build this as a thin vertical slice with small diffs, mostly in `agent/extensions/claude-code-provider/index.ts`.
+
+### Phase 1 — state helpers
+
+Add the smallest possible helper layer for pending bootstrap state:
+
+1. `streamKey` helper reuse/alignment
+2. constants for:
+   - `claude-code-provider/pending-bootstrap`
+   - `claude-code-provider/pending-bootstrap-consumed`
+3. helpers to:
+   - append pending-bootstrap custom entry
+   - append consumed custom entry
+   - restore pending bootstrap state for a `streamKey`
+
+Keep this minimal. Optional/debug-only state should wait unless implementation proves it is needed.
+
+### Phase 2 — `/compact` happy path
+
+In `session_before_compact`:
+
+1. keep non-`claude-code` behavior unchanged
+2. if no remembered Claude session exists:
+   - show the "no active Claude Code session to compact yet" notice
+   - do not attempt rebase compaction
+3. if a remembered Claude session exists:
+   - run the internal **no-tools** summarization request against that resumed session
+   - return the summary as Pi's compaction artifact
+   - clear the old remembered Claude session id
+   - persist the pending-bootstrap custom entry
+   - show the success notice
+
+### Phase 3 — next-turn bootstrap injection
+
+In the normal Claude request path:
+
+1. compute `streamKey`
+2. restore pending bootstrap state if needed
+3. if pending bootstrap exists **and** there is no remembered Claude session id:
+   - wrap the next user request with the bootstrap wrapper
+   - start a fresh Claude session without `--resume`
+
+### Phase 4 — consume after successful fresh-session start
+
+In the response/session-id success path:
+
+1. once the fresh turn succeeds and yields a usable new `session_id`:
+   - save the new `session_id`
+   - append the `pending-bootstrap-consumed` custom entry
+   - clear any in-memory pending state
+
+### Phase 5 — logging and docs
+
+After the happy path works:
+
+1. add compact-specific `debugLog(...)` entries for start / success / consume
+2. update docs to match actual behavior:
+   - `CLAUDE_CODE_TRACKING.md`
+   - `COMPACT_REFACTOR.md`
+   - `TODO.md` only if still needed
+
+### Implementation guardrails
+
+- Prefer one-file code changes in `agent/extensions/claude-code-provider/index.ts`
+- Avoid broad provider refactors during V1
+- Do not add auto-compaction behavior in this pass
+- Do not over-design concurrency/failure handling before the happy path exists
 
 ---
 
