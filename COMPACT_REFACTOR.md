@@ -188,14 +188,33 @@ Reason:
 
 ## Recommended prompt style
 
-The summarization prompt should be explicit that the output is a carry-forward checkpoint for a fresh Claude Code session.
+Use a **Claude-session-specific summarization prompt** that is strongly derived from Pi's compaction structure, rather than reusing Pi's current compaction prompt verbatim.
 
-Example direction:
+Recommendation:
+
+- keep Pi's section structure / output shape
+- rewrite the instructions for the actual job here: creating a carry-forward checkpoint for a **fresh Claude Code session**
+
+Why:
+
+- Pi's current compaction prompt is transcript-oriented and tuned for summarizing Pi's serialized local history
+- this provider needs a handoff/checkpoint prompt aimed at rebasing the **current resumed Claude session**
+- the source of truth here is Claude's active session, not Pi's display transcript
+
+So the target prompt should explicitly tell Claude:
 
 - summarize the active work so a fresh Claude Code session can continue seamlessly
-- preserve exact file paths, function names, errors, and pending work
+- preserve exact file paths, function names, errors, decisions, constraints, and pending work
+- include modified files and especially relevant/read files when helpful
+- preserve unresolved questions, assumptions, and next steps
 - do not continue the task
 - output only the structured summary
+
+In short:
+
+- **reuse Pi's summary format**
+- **do not reuse Pi's compaction prompt text verbatim**
+- prefer a shorter Claude-session-specific variant with Pi-compatible headings
 
 ---
 
@@ -419,7 +438,8 @@ Recommendation:
 
 ## Open questions
 
-1. Should the summarization prompt be based directly on Pi's current compaction prompt text, or be a shorter Claude-session-specific variant?
+1. Summarization prompt shape:
+   - Recommendation: use a **shorter Claude-session-specific variant** that keeps Pi's section structure but does not reuse Pi's compaction prompt text verbatim.
 2. On failure, should `/compact` fail hard or fall back to today's cheap stub?
 3. Should the bootstrap summary be injected into:
    - first user prompt only, or
