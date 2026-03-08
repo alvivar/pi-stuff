@@ -339,7 +339,7 @@ Important:
 
 - Log compact-start / compact-summary / compact-rebase events to `~/.pi/agent/debug.log`
 - Log whether post-compact turn used bootstrap summary
-- Log old and new session IDs, carefully and only where appropriate
+- Do not retain old session IDs after successful rebase unless we later decide a specific debug need justifies it
 
 ### Phase 3 — polish
 
@@ -448,7 +448,9 @@ Recommendation:
    - Do not use a one-time system prompt in V1.
 4. User-visible notice:
    - Decision: **yes**. Surface a visible notice that the Claude session was checkpointed/rebased.
-5. Should the old session ID be retained anywhere for debugging, or fully discarded after success?
+5. Old session ID retention:
+   - Decision: **fully discard after success**.
+   - If we later need extra debugging, add it deliberately rather than retaining old session IDs by default.
 6. Should a manual `/compact` immediately trigger a bootstrap turn, or simply prepare the next user turn to start fresh?
 
 Recommendation:
