@@ -119,6 +119,134 @@ const HAIKU45_CLI_MODEL =
 
 const GLOBAL_APPEND_SYSTEM_PROMPT = process.env.CLAUDE_CLI_APPEND_SYSTEM_PROMPT;
 
+const PENDING_BOOTSTRAP_CUSTOM_TYPE = "claude-code-provider/pending-bootstrap";
+const PENDING_BOOTSTRAP_CONSUMED_CUSTOM_TYPE =
+  "claude-code-provider/pending-bootstrap-consumed";
+
+type PendingBootstrapEntryData = {
+  version: 1;
+  streamKey: string;
+  compactionEntryId: string;
+  summary: string;
+  createdAt: string;
+};
+
+type PendingBootstrapConsumedEntryData = {
+  version: 1;
+  streamKey: string;
+  compactionEntryId: string;
+  consumedAt: string;
+};
+
+type PendingBootstrapState = PendingBootstrapEntryData;
+
+type EntryAppender = {
+  appendEntry<T = unknown>(customType: string, data?: T): void;
+};
+
+type SessionBranchReader = {
+  getBranch(fromId?: string): Array<any>;
+};
+
+function getClaudeSessionStreamKey(
+  modelId: string,
+  options?: SimpleStreamOptions,
+): string {
+  return `${options?.sessionId || "default"}:${modelId}`;
+}
+
+function isPendingBootstrapEntryData(
+  value: unknown,
+): value is PendingBootstrapEntryData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  return (
+    data.version === 1 &&
+    typeof data.streamKey === "string" &&
+    typeof data.compactionEntryId === "string" &&
+    typeof data.summary === "string" &&
+    typeof data.createdAt === "string"
+  );
+}
+
+function isPendingBootstrapConsumedEntryData(
+  value: unknown,
+): value is PendingBootstrapConsumedEntryData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  return (
+    data.version === 1 &&
+    typeof data.streamKey === "string" &&
+    typeof data.compactionEntryId === "string" &&
+    typeof data.consumedAt === "string"
+  );
+}
+
+function appendPendingBootstrapEntry(
+  pi: EntryAppender,
+  streamKey: string,
+  compactionEntryId: string,
+  summary: string,
+): PendingBootstrapEntryData {
+  const data: PendingBootstrapEntryData = {
+    version: 1,
+    streamKey,
+    compactionEntryId,
+    summary,
+    createdAt: new Date().toISOString(),
+  };
+  pi.appendEntry(PENDING_BOOTSTRAP_CUSTOM_TYPE, data);
+  return data;
+}
+
+function appendPendingBootstrapConsumedEntry(
+  pi: EntryAppender,
+  streamKey: string,
+  compactionEntryId: string,
+): PendingBootstrapConsumedEntryData {
+  const data: PendingBootstrapConsumedEntryData = {
+    version: 1,
+    streamKey,
+    compactionEntryId,
+    consumedAt: new Date().toISOString(),
+  };
+  pi.appendEntry(PENDING_BOOTSTRAP_CONSUMED_CUSTOM_TYPE, data);
+  return data;
+}
+
+function restorePendingBootstrapStateForStreamKey(
+  sessionManager: SessionBranchReader,
+  streamKey: string,
+): PendingBootstrapState | undefined {
+  let pending: PendingBootstrapState | undefined;
+
+  for (const entry of sessionManager.getBranch()) {
+    if (!entry || typeof entry !== "object" || entry.type !== "custom") {
+      continue;
+    }
+
+    if (
+      entry.customType === PENDING_BOOTSTRAP_CUSTOM_TYPE &&
+      isPendingBootstrapEntryData(entry.data) &&
+      entry.data.streamKey === streamKey
+    ) {
+      pending = entry.data;
+      continue;
+    }
+
+    if (
+      entry.customType === PENDING_BOOTSTRAP_CONSUMED_CUSTOM_TYPE &&
+      isPendingBootstrapConsumedEntryData(entry.data) &&
+      entry.data.streamKey === streamKey &&
+      pending?.compactionEntryId === entry.data.compactionEntryId
+    ) {
+      pending = undefined;
+    }
+  }
+
+  return pending;
+}
+
 function parseJsonLine(line: string): any | undefined {
   const trimmed = line.trim();
   if (!trimmed) return undefined;
@@ -704,7 +832,7 @@ function streamClaudeCli(
     >();
     const snapshotToolSequenceById = new Map<string, number>();
 
-    const streamKey = `${options?.sessionId || "default"}:${model.id}`;
+    const streamKey = getClaudeSessionStreamKey(model.id, options);
     const rememberedSessionId = sessionMap.get(streamKey);
 
     const cli = DEFAULT_CLAUDE_CLI;
