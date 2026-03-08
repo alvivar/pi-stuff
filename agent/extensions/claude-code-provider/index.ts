@@ -151,8 +151,9 @@ type SessionBranchReader = {
 function getClaudeSessionStreamKey(
   modelId: string,
   options?: SimpleStreamOptions,
+  sessionIdOverride?: string,
 ): string {
-  return `${options?.sessionId || "default"}:${modelId}`;
+  return `${sessionIdOverride || options?.sessionId || "default"}:${modelId}`;
 }
 
 function isPendingBootstrapEntryData(
@@ -1803,7 +1804,11 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", (_event, ctx) => {
     if (ctx.model?.provider !== "claude-code") return;
 
-    const streamKey = getClaudeSessionStreamKey(ctx.model.id);
+    const streamKey = getClaudeSessionStreamKey(
+      ctx.model.id,
+      undefined,
+      ctx.sessionManager.getSessionId(),
+    );
     if (pendingBootstrapStateByStreamKey.has(streamKey)) return;
 
     const restored = restorePendingBootstrapStateForStreamKey(
@@ -1823,7 +1828,11 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_before_compact", async (event, ctx) => {
     if (ctx.model?.provider !== "claude-code") return undefined;
 
-    const streamKey = getClaudeSessionStreamKey(ctx.model.id);
+    const streamKey = getClaudeSessionStreamKey(
+      ctx.model.id,
+      undefined,
+      ctx.sessionManager.getSessionId(),
+    );
     const rememberedSessionId = sessionMap.get(streamKey);
 
     if (!rememberedSessionId) {
