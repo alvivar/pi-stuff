@@ -279,16 +279,28 @@ Show a clear notice such as:
   - If a remembered Claude session exists, the provider sends a **no-tools** internal summarization request to the resumed Claude session
   - The returned summary is used as Pi's compaction artifact
   - After compaction completes, the provider persists a `pending-bootstrap` custom entry, clears the old remembered Claude session id, mirrors the pending state in memory, and shows the checkpoint notice
+- **Phase 3 — next-turn bootstrap injection**
+  - The normal Claude request path now checks for pending bootstrap state for the current `streamKey`
+  - If pending bootstrap exists and there is no remembered Claude session id, the provider wraps the next user prompt with the bootstrap wrapper and starts fresh without `--resume`
+  - Pending bootstrap state is also restored from persisted session `custom` entries on `before_agent_start` when needed
+- **Phase 4 — consume after successful fresh-session start**
+  - After the first fresh-session turn succeeds and yields a new usable `session_id`, the provider persists a `pending-bootstrap-consumed` entry
+  - In-memory pending bootstrap state is cleared only after that success condition is met
 
 ### Not implemented yet
 
-- **Phase 3 — next-turn bootstrap injection**
-- **Phase 4 — consume after successful fresh-session start**
-- **Phase 5 — logging/docs polish** beyond the minimal logging already added for the compact path
+- **Phase 5 — logging/docs polish** beyond the minimal logging already added for the compact + bootstrap path
 
-### Current partial behavior
+### Current behavior
 
-Right now `/compact` can checkpoint the current Claude session and persist the pending bootstrap summary, but the next normal user turn does **not yet** consume that summary automatically. That wiring is still part of Phase 3 and Phase 4.
+The happy-path manual rebase flow is now wired end-to-end:
+
+1. `/compact` summarizes the current resumed Claude session
+2. Pi stores that summary as the compaction artifact
+3. the old remembered Claude session id is cleared
+4. the summary is persisted as pending bootstrap state
+5. the next normal user turn starts a fresh Claude session with the bootstrap wrapper in the first user prompt
+6. once that turn succeeds and yields a new `session_id`, the pending bootstrap state is marked consumed
 
 ---
 

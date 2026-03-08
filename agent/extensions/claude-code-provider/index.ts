@@ -997,6 +997,7 @@ async function requestCompactSummaryFromClaudeSession(
 function streamClaudeCli(
   sessionMap: Map<string, string>,
   pendingBootstrapStateByStreamKey: Map<string, PendingBootstrapState>,
+  entryAppender: EntryAppender,
   initState: InitState,
   model: Model<Api>,
   context: Context,
@@ -1057,6 +1058,9 @@ function streamClaudeCli(
     const streamKey = getClaudeSessionStreamKey(model.id, options);
     const rememberedSessionId = sessionMap.get(streamKey);
     const pendingBootstrap = pendingBootstrapStateByStreamKey.get(streamKey);
+    const usingPendingBootstrap = Boolean(
+      pendingBootstrap && !rememberedSessionId,
+    );
 
     const cli = DEFAULT_CLAUDE_CLI;
     const timeoutMs =
@@ -1067,7 +1071,7 @@ function streamClaudeCli(
     const cliModel = cliModelFor(model.id);
     const userPrompt = getLastUserText(context);
     const prompt =
-      pendingBootstrap && !rememberedSessionId
+      usingPendingBootstrap && pendingBootstrap
         ? buildBootstrapUserPrompt(pendingBootstrap.summary, userPrompt)
         : userPrompt;
     const piSystemPrompt = getPiSystemPrompt(context);
@@ -1341,9 +1345,9 @@ function streamClaudeCli(
       effort,
       resumeSessionId: rememberedSessionId,
       streamKey,
-      usedPendingBootstrap: Boolean(pendingBootstrap && !rememberedSessionId),
+      usedPendingBootstrap: usingPendingBootstrap,
       pendingBootstrapCompactionEntryId:
-        pendingBootstrap && !rememberedSessionId
+        usingPendingBootstrap && pendingBootstrap
           ? pendingBootstrap.compactionEntryId
           : undefined,
     });
@@ -1636,6 +1640,20 @@ function streamClaudeCli(
 
       if (latestSessionId) {
         sessionMap.set(streamKey, latestSessionId);
+
+        if (usingPendingBootstrap && pendingBootstrap) {
+          appendPendingBootstrapConsumedEntry(
+            entryAppender,
+            streamKey,
+            pendingBootstrap.compactionEntryId,
+          );
+          pendingBootstrapStateByStreamKey.delete(streamKey);
+          debugLog("bootstrap_state_consumed", {
+            streamKey,
+            previousCompactionEntryId: pendingBootstrap.compactionEntryId,
+            newSessionId: latestSessionId,
+          });
+        }
       }
 
       if (!sawProseContent && fallbackResultText.trim()) {
@@ -1777,6 +1795,7 @@ export default function (pi: ExtensionAPI) {
       null,
       sessionMap,
       pendingBootstrapStateByStreamKey,
+      pi,
       initState,
     ),
   });
