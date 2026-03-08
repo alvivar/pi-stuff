@@ -451,12 +451,10 @@ Recommendation:
 5. Old session ID retention:
    - Decision: **fully discard after success**.
    - If we later need extra debugging, add it deliberately rather than retaining old session IDs by default.
-6. Should a manual `/compact` immediately trigger a bootstrap turn, or simply prepare the next user turn to start fresh?
-
-Recommendation:
-
-- do **not** auto-send a bootstrap turn in V1
-- prepare the next user turn to start fresh
+6. Post-compact bootstrap timing:
+   - Decision: **do not** auto-send a bootstrap turn in V1.
+   - Prepare the **next user turn** to start fresh instead.
+   - Reason: this keeps `/compact` as a prep/reset action rather than an implicit extra model turn, avoids surprise token spend, and keeps V1 easier to reason about.
 
 ---
 
