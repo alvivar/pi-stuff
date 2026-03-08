@@ -348,14 +348,10 @@ function asNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-// Claude Code headless / `claude -p` gives us authoritative token buckets and a final
-// total cost (`total_cost_usd`), but not an authoritative per-bucket USD breakdown.
-// Be faithful to what the CLI actually reports: ingest token counts and the reported
-// total, but do not invent input/output/cache cost components from external pricing.
-function extractUsage(event: any): UsageLike | undefined {
-  if (!event || typeof event !== "object") return undefined;
-
-  const usage = event.usage ?? event.metadata?.usage ?? event.result?.usage;
+function normalizeUsageLike(
+  usage: any,
+  event?: any,
+): UsageLike | undefined {
   if (!usage || typeof usage !== "object") return undefined;
 
   const input = asNumber(usage.input ?? usage.input_tokens);
@@ -377,10 +373,45 @@ function extractUsage(event: any): UsageLike | undefined {
     usage.cost?.total ??
       usage.total_cost ??
       usage.total_cost_usd ??
-      event.total_cost_usd,
+      event?.total_cost_usd,
   );
 
   return { input, output, cacheRead, cacheWrite, totalTokens, costTotal };
+}
+
+// Claude Code headless / `claude -p` gives us authoritative token buckets and a final
+// total cost (`total_cost_usd`), but not an authoritative per-bucket USD breakdown.
+// Be faithful to what the CLI actually reports: ingest token counts and the reported
+// total, but do not invent input/output/cache cost components from external pricing.
+function extractUsage(event: any): UsageLike | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  return normalizeUsageLike(
+    event.usage ?? event.metadata?.usage ?? event.result?.usage,
+    event,
+  );
+}
+
+function extractTopLevelAssistantStepUsage(event: any): UsageLike | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  if (event.parent_tool_use_id != null) return undefined;
+
+  if (event.type === "assistant") {
+    return normalizeUsageLike(event.message?.usage, event);
+  }
+
+  if (event.type !== "stream_event") return undefined;
+  const streamEvent = event.event;
+  if (!streamEvent || typeof streamEvent !== "object") return undefined;
+
+  if (streamEvent.type === "message_start") {
+    return normalizeUsageLike(streamEvent.message?.usage, streamEvent);
+  }
+
+  if (streamEvent.type === "message_delta") {
+    return normalizeUsageLike(streamEvent.usage, streamEvent);
+  }
+
+  return undefined;
 }
 
 function applyUsage(
@@ -1053,6 +1084,7 @@ function streamClaudeCli(
     let latestRateLimitInfo: RateLimitInfoLike | undefined;
     let latestObservedUsage: UsageLike | undefined;
     let finalResultUsage: UsageLike | undefined;
+    let latestTopLevelAssistantStepUsage: UsageLike | undefined;
     let runDurationMs: number | undefined;
     let runNumTurns: number | undefined;
     const stderrChunks: string[] = [];
@@ -1445,6 +1477,19 @@ function streamClaudeCli(
             debugLog("usage", usage);
           }
 
+          const topLevelAssistantStepUsage =
+            extractTopLevelAssistantStepUsage(parsed);
+          if (topLevelAssistantStepUsage) {
+            latestTopLevelAssistantStepUsage = topLevelAssistantStepUsage;
+            debugLog("context_usage_candidate", {
+              streamKey,
+              usage: topLevelAssistantStepUsage,
+              sourceType: parsed.type,
+              streamEventType:
+                parsed.type === "stream_event" ? parsed.event?.type : undefined,
+            });
+          }
+
           const rateLimitInfo = extractRateLimitInfo(parsed);
           if (rateLimitInfo) {
             latestRateLimitInfo = rateLimitInfo;
@@ -1719,6 +1764,20 @@ function streamClaudeCli(
             usage: latestObservedUsage,
           });
         }
+      }
+
+      if (latestTopLevelAssistantStepUsage) {
+        output.usage.totalTokens =
+          latestTopLevelAssistantStepUsage.totalTokens ??
+          (latestTopLevelAssistantStepUsage.input ?? 0) +
+            (latestTopLevelAssistantStepUsage.output ?? 0) +
+            (latestTopLevelAssistantStepUsage.cacheRead ?? 0) +
+            (latestTopLevelAssistantStepUsage.cacheWrite ?? 0);
+        debugLog("context_usage_applied", {
+          streamKey,
+          usage: latestTopLevelAssistantStepUsage,
+          totalTokens: output.usage.totalTokens,
+        });
       }
 
       const rateLimitNotice = formatRateLimitNotice(latestRateLimitInfo);
