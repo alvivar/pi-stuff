@@ -838,13 +838,28 @@ ${currentUserRequest.trim()}
 }
 
 function extractCompactSummaryText(response: any): string | undefined {
+  if (Array.isArray(response)) {
+    for (let i = response.length - 1; i >= 0; i -= 1) {
+      const text = extractCompactSummaryText(response[i]);
+      if (text) return text;
+    }
+    return undefined;
+  }
+
   if (!response || typeof response !== "object") return undefined;
-  const candidates = [response.result, response.output, response.text];
-  for (const candidate of candidates) {
+
+  const directCandidates = [response.result, response.output, response.text];
+  for (const candidate of directCandidates) {
     if (typeof candidate === "string" && candidate.trim().length > 0) {
       return candidate.trim();
     }
   }
+
+  if (response.type === "assistant") {
+    const messageText = extractAssistantSnapshotText(response)?.text;
+    if (messageText?.trim()) return messageText.trim();
+  }
+
   return undefined;
 }
 
