@@ -128,6 +128,7 @@ type PendingBootstrapEntryData = {
   streamKey: string;
   compactionEntryId: string;
   summary: string;
+  compactCostTotalUsd?: number;
   createdAt: string;
 };
 
@@ -166,6 +167,8 @@ function isPendingBootstrapEntryData(
     typeof data.streamKey === "string" &&
     typeof data.compactionEntryId === "string" &&
     typeof data.summary === "string" &&
+    (data.compactCostTotalUsd === undefined ||
+      typeof data.compactCostTotalUsd === "number") &&
     typeof data.createdAt === "string"
   );
 }
@@ -188,12 +191,14 @@ function appendPendingBootstrapEntry(
   streamKey: string,
   compactionEntryId: string,
   summary: string,
+  compactCostTotalUsd?: number,
 ): PendingBootstrapEntryData {
   const data: PendingBootstrapEntryData = {
     version: 1,
     streamKey,
     compactionEntryId,
     summary,
+    compactCostTotalUsd,
     createdAt: new Date().toISOString(),
   };
   pi.appendEntry(PENDING_BOOTSTRAP_CUSTOM_TYPE, data);
@@ -348,10 +353,7 @@ function asNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-function normalizeUsageLike(
-  usage: any,
-  event?: any,
-): UsageLike | undefined {
+function normalizeUsageLike(usage: any, event?: any): UsageLike | undefined {
   if (!usage || typeof usage !== "object") return undefined;
 
   const input = asNumber(usage.input ?? usage.input_tokens);
@@ -894,13 +896,25 @@ function extractCompactSummaryText(response: any): string | undefined {
   return undefined;
 }
 
+function extractCompactResponseUsage(response: any): UsageLike | undefined {
+  if (Array.isArray(response)) {
+    for (let i = response.length - 1; i >= 0; i -= 1) {
+      const usage = extractCompactResponseUsage(response[i]);
+      if (usage) return usage;
+    }
+    return undefined;
+  }
+
+  return extractUsage(response);
+}
+
 async function requestCompactSummaryFromClaudeSession(
   model: Model<Api>,
   rememberedSessionId: string,
   customInstructions?: string,
   signal?: AbortSignal,
   cwd = process.cwd(),
-): Promise<string> {
+): Promise<{ summary: string; costTotalUsd?: number }> {
   const cli = DEFAULT_CLAUDE_CLI;
   const timeoutMs =
     Number.isFinite(DEFAULT_TIMEOUT_SECONDS) && DEFAULT_TIMEOUT_SECONDS > 0
@@ -1033,12 +1047,15 @@ async function requestCompactSummaryFromClaudeSession(
     );
   }
 
+  const usage = extractCompactResponseUsage(parsed);
+
   debugLog("compact_cli_done", {
     resumeSessionId: rememberedSessionId,
     summaryLength: summary.length,
+    costTotalUsd: usage?.costTotal,
   });
 
-  return summary;
+  return { summary, costTotalUsd: usage?.costTotal };
 }
 
 function streamClaudeCli(
@@ -1087,6 +1104,7 @@ function streamClaudeCli(
     let latestTopLevelAssistantStepUsage: UsageLike | undefined;
     let runDurationMs: number | undefined;
     let runNumTurns: number | undefined;
+    let consumedPendingBootstrap = false;
     const stderrChunks: string[] = [];
     let lineBuffer = "";
     let timeoutId: NodeJS.Timeout | undefined;
@@ -1716,10 +1734,12 @@ function streamClaudeCli(
             pendingBootstrap.compactionEntryId,
           );
           pendingBootstrapStateByStreamKey.delete(streamKey);
+          consumedPendingBootstrap = true;
           debugLog("bootstrap_state_consumed", {
             streamKey,
             previousCompactionEntryId: pendingBootstrap.compactionEntryId,
             newSessionId: latestSessionId,
+            compactCostTotalUsd: pendingBootstrap.compactCostTotalUsd,
           });
         }
       }
@@ -1777,6 +1797,19 @@ function streamClaudeCli(
           streamKey,
           usage: latestTopLevelAssistantStepUsage,
           totalTokens: output.usage.totalTokens,
+        });
+      }
+
+      if (
+        consumedPendingBootstrap &&
+        typeof pendingBootstrap?.compactCostTotalUsd === "number"
+      ) {
+        output.usage.cost.total += pendingBootstrap.compactCostTotalUsd;
+        debugLog("compact_cost_applied_to_next_turn", {
+          streamKey,
+          compactionEntryId: pendingBootstrap.compactionEntryId,
+          compactCostTotalUsd: pendingBootstrap.compactCostTotalUsd,
+          resultingCostTotal: output.usage.cost.total,
         });
       }
 
@@ -1841,7 +1874,7 @@ export default function (pi: ExtensionAPI) {
   >();
   const pendingBootstrapAwaitingCompactionBySession = new Map<
     string,
-    { streamKey: string; summary: string }
+    { streamKey: string; summary: string; compactCostTotalUsd?: number }
   >();
 
   pi.registerProvider("claude-code", {
@@ -1942,7 +1975,7 @@ export default function (pi: ExtensionAPI) {
         rememberedSessionId,
       });
 
-      const summary = await requestCompactSummaryFromClaudeSession(
+      const compactResult = await requestCompactSummaryFromClaudeSession(
         ctx.model,
         rememberedSessionId,
         event.customInstructions,
@@ -1952,19 +1985,21 @@ export default function (pi: ExtensionAPI) {
 
       pendingBootstrapAwaitingCompactionBySession.set(sessionPersistenceKey, {
         streamKey,
-        summary,
+        summary: compactResult.summary,
+        compactCostTotalUsd: compactResult.costTotalUsd,
       });
 
       debugLog("compact_summary_ready", {
         streamKey,
         sessionPersistenceKey,
-        summaryLength: summary.length,
+        summaryLength: compactResult.summary.length,
+        costTotalUsd: compactResult.costTotalUsd,
       });
 
       const { preparation } = event;
       return {
         compaction: {
-          summary,
+          summary: compactResult.summary,
           firstKeptEntryId: preparation.firstKeptEntryId,
           tokensBefore: preparation.tokensBefore,
         },
@@ -2001,6 +2036,7 @@ export default function (pi: ExtensionAPI) {
       pending.streamKey,
       event.compactionEntry.id,
       pending.summary,
+      pending.compactCostTotalUsd,
     );
     pendingBootstrapStateByStreamKey.set(pending.streamKey, persisted);
 
