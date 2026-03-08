@@ -220,11 +220,13 @@ In short:
 
 ## How to inject the summary into the fresh session
 
-There are two plausible options.
+Bootstrap context should be injected into the **first user prompt only**.
+
+There are two plausible options in general, but for this plan V1 is explicitly:
 
 ### Option A — Prepend bootstrap context to the first user prompt
 
-This is the recommended V1.
+This is the chosen approach for V1.
 
 Shape:
 
@@ -441,9 +443,9 @@ Recommendation:
 1. Summarization prompt shape:
    - Recommendation: use a **shorter Claude-session-specific variant** that keeps Pi's section structure but does not reuse Pi's compaction prompt text verbatim.
 2. On failure, should `/compact` fail hard or fall back to today's cheap stub?
-3. Should the bootstrap summary be injected into:
-   - first user prompt only, or
-   - one-time system prompt?
+3. Bootstrap summary injection:
+   - Decision: inject it into the **first user prompt only**.
+   - Do not use a one-time system prompt in V1.
 4. Should we surface a user-visible notice that the Claude session was reset/rebased?
 5. Should the old session ID be retained anywhere for debugging, or fully discarded after success?
 6. Should a manual `/compact` immediately trigger a bootstrap turn, or simply prepare the next user turn to start fresh?
