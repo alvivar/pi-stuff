@@ -364,9 +364,8 @@ Important:
 
 ### Phase 3 — polish
 
-- Add a dedicated user-visible info message or notification explaining:
-  - old Claude session was checkpointed
-  - the next turn will start or has started a fresh Claude session
+- Add a dedicated user-visible info message or notification immediately after `/compact` succeeds:
+  - `Claude session checkpointed. Your next message will start a fresh Claude session from the compacted context.`
 
 ---
 
@@ -487,10 +486,9 @@ Recommendation:
    - We should verify that the bootstrap summary is tied to the correct unit of continuity (session/branch/model/provider stream).
 
 7. **What should the user-visible notice say, and when should it appear?**
-   - Possible notices:
-     - after `/compact`: old Claude session checkpointed; next message will start a fresh Claude session
-     - after first fresh turn: fresh Claude session started from compacted context
-   - We can decide later whether we want one notice or both.
+   - Decision: show **one clear notice immediately after `/compact` succeeds**.
+   - Recommended text: `Claude session checkpointed. Your next message will start a fresh Claude session from the compacted context.`
+   - Do not add a second notice after the first fresh turn in V1 unless later testing shows it is needed.
 
 ---
 
