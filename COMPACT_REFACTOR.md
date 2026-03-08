@@ -286,9 +286,17 @@ Why this shape fits Pi well:
 - `custom` entries are explicitly intended for extension-specific persisted state
 - `custom` entries do not participate in LLM context
 
-`streamKey` should likely stay aligned with the current provider scheme:
+`streamKey` should stay aligned with the current provider scheme for V1:
 
 - `${options?.sessionId || "default"}:${model.id}`
+
+The persisted pending-bootstrap entry should also carry enough metadata for validation/reconstruction, such as:
+
+- `provider`
+- `modelId`
+- `streamKey`
+- `compactionEntryId`
+- `createdAt`
 
 ---
 
@@ -483,7 +491,9 @@ Recommendation:
    - We may want to revisit or special-case this once the manual rebase flow exists.
 
 6. **Is the current `streamKey` the right identity for pending rebases?**
-   - We should verify that the bootstrap summary is tied to the correct unit of continuity (session/branch/model/provider stream).
+   - Decision: **yes, for V1 use the existing Claude-session `streamKey`** as the identity for pending rebases.
+   - The pending bootstrap summary should belong to the same continuity slot that the provider already uses for Claude session reuse.
+   - Persist provider/model metadata alongside it (for example `provider`, `modelId`, `streamKey`, `compactionEntryId`, `createdAt`) for validation and reconstruction.
 
 7. **What should the user-visible notice say, and when should it appear?**
    - Decision: show **one clear notice immediately after `/compact` succeeds**.
