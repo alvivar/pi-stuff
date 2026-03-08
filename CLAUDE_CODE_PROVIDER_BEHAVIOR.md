@@ -160,6 +160,7 @@ Currently implemented provider-specific commands:
   - clears remembered Claude session ids
   - clears pending bootstrap state and pending compaction staging state
   - clears cached init metadata
+  - advances internal session-generation state so older in-flight Claude runs cannot write stale session ids back into provider memory after a reset
 
 ## Important State / Helpers
 
@@ -167,6 +168,7 @@ Key helper/state areas currently in use inside `agent/extensions/claude-code-pro
 
 - session continuity:
   - `sessionMap`
+  - `sessionState.generation`
   - `getClaudeSessionStreamKey(...)`
 - pending compaction/bootstrap:
   - `PENDING_BOOTSTRAP_CUSTOM_TYPE`
@@ -185,6 +187,7 @@ Key helper/state areas currently in use inside `agent/extensions/claude-code-pro
   - `debugToolTraceStart(...)`
   - `debugToolTraceEnd(...)`
 - usage/context/cost:
+  - `sumUsageTokenBuckets(...)`
   - `normalizeUsageLike(...)`
   - `extractUsage(...)`
   - `extractTopLevelAssistantStepUsage(...)`
@@ -199,6 +202,7 @@ Relevant events in `~/.pi/agent/debug.log`:
   - `session_id`
   - `bootstrap_state_restored`
   - `bootstrap_state_consumed`
+  - `session_state_writeback_skipped`
 - compaction:
   - `compact_start`
   - `compact_cli_start`
