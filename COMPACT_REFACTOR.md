@@ -349,47 +349,21 @@ Important:
 
 ---
 
-## Recommended fallback behavior
+## Failure policy
 
-There are two reasonable choices.
+Defer this decision for now.
 
-### Fallback A — strict
+If summary generation or rebase steps fail, we will decide the exact `/compact` behavior when we get to implementation/testing.
 
-If summary generation from the current Claude session fails:
+For now, this design document does **not** lock in either of these behaviors:
 
-- fail `/compact`
-- tell the user the Claude session checkpoint failed
+- fail `/compact` immediately
+- fall back to today's cheap local stub compact
 
-Pros:
+Reason:
 
-- honest
-- no hidden semantic downgrade
-
-Cons:
-
-- more disruptive
-
-### Fallback B — degrade to today's local stub compact
-
-If summary generation fails:
-
-- return today's cheap local stub compaction instead
-- do not clear the old Claude session
-
-Pros:
-
-- safer operationally
-- user still gets some Pi-local cleanup
-
-Cons:
-
-- semantic mismatch remains
-- could surprise the user if not made visible
-
-Recommendation for V1:
-
-- either strict failure, or fallback with explicit notification/logging
-- avoid silent downgrade
+- we want to settle the main rebase flow first
+- failure handling is easier to choose once the happy path exists and we can see real failure modes
 
 ---
 
@@ -442,7 +416,9 @@ Recommendation:
 
 1. Summarization prompt shape:
    - Recommendation: use a **shorter Claude-session-specific variant** that keeps Pi's section structure but does not reuse Pi's compaction prompt text verbatim.
-2. On failure, should `/compact` fail hard or fall back to today's cheap stub?
+2. Failure policy:
+   - Decision: defer for now.
+   - We will choose between hard failure vs stub fallback later, once the happy path exists and we can evaluate real failure modes.
 3. Bootstrap summary injection:
    - Decision: inject it into the **first user prompt only**.
    - Do not use a one-time system prompt in V1.
