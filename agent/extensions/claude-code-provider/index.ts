@@ -80,6 +80,10 @@ type InitState = {
   latest?: SystemInitInfoLike;
 };
 
+type SessionState = {
+  generation: number;
+};
+
 const REASONING_TO_EFFORT: Partial<
   Record<NonNullable<SimpleStreamOptions["reasoning"]>, CliEffort>
 > = {
@@ -353,6 +357,24 @@ function asNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+function sumUsageTokenBuckets(usage: {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}): number | undefined {
+  const { input, output, cacheRead, cacheWrite } = usage;
+  if (
+    input === undefined &&
+    output === undefined &&
+    cacheRead === undefined &&
+    cacheWrite === undefined
+  ) {
+    return undefined;
+  }
+  return (input ?? 0) + (output ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
+}
+
 function normalizeUsageLike(usage: any, event?: any): UsageLike | undefined {
   if (!usage || typeof usage !== "object") return undefined;
 
@@ -366,11 +388,9 @@ function normalizeUsageLike(usage: any, event?: any): UsageLike | undefined {
       usage.cache_write_tokens ??
       usage.cache_creation_input_tokens,
   );
-  const totalTokens = asNumber(
-    usage.totalTokens ??
-      usage.total_tokens ??
-      (input ?? 0) + (output ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0),
-  );
+  const totalTokens =
+    asNumber(usage.totalTokens ?? usage.total_tokens) ??
+    sumUsageTokenBuckets({ input, output, cacheRead, cacheWrite });
   const costTotal = asNumber(
     usage.cost?.total ??
       usage.total_cost ??
@@ -435,10 +455,8 @@ function applyUsage(
   output.usage.cacheWrite = usage.cacheWrite ?? output.usage.cacheWrite;
   output.usage.totalTokens =
     usage.totalTokens ??
-    output.usage.input +
-      output.usage.output +
-      output.usage.cacheRead +
-      output.usage.cacheWrite;
+    sumUsageTokenBuckets(output.usage) ??
+    output.usage.totalTokens;
 
   if (typeof usage.costTotal === "number") {
     output.usage.cost.total = usage.costTotal;
@@ -563,8 +581,6 @@ function normalizeTraceToolName(name: string): string {
     case "write":
     case "bash":
     case "grep":
-    case "find":
-    case "ls":
       return normalized;
     default:
       return name;
@@ -1060,6 +1076,7 @@ async function requestCompactSummaryFromClaudeSession(
 
 function streamClaudeCli(
   sessionMap: Map<string, string>,
+  sessionState: SessionState,
   pendingBootstrapStateByStreamKey: Map<string, PendingBootstrapState>,
   entryAppender: EntryAppender,
   initState: InitState,
@@ -1124,6 +1141,7 @@ function streamClaudeCli(
     const snapshotToolSequenceById = new Map<string, number>();
 
     const streamKey = getClaudeSessionStreamKey(model.id, options);
+    const sessionGenerationAtStart = sessionState.generation;
     const rememberedSessionId = sessionMap.get(streamKey);
     const pendingBootstrap = pendingBootstrapStateByStreamKey.get(streamKey);
     const usingPendingBootstrap = Boolean(
@@ -1725,21 +1743,31 @@ function streamClaudeCli(
       if (timeoutId) clearTimeout(timeoutId);
 
       if (latestSessionId) {
-        sessionMap.set(streamKey, latestSessionId);
+        if (sessionGenerationAtStart === sessionState.generation) {
+          sessionMap.set(streamKey, latestSessionId);
 
-        if (usingPendingBootstrap && pendingBootstrap) {
-          appendPendingBootstrapConsumedEntry(
-            entryAppender,
+          if (usingPendingBootstrap && pendingBootstrap) {
+            appendPendingBootstrapConsumedEntry(
+              entryAppender,
+              streamKey,
+              pendingBootstrap.compactionEntryId,
+            );
+            pendingBootstrapStateByStreamKey.delete(streamKey);
+            consumedPendingBootstrap = true;
+            debugLog("bootstrap_state_consumed", {
+              streamKey,
+              previousCompactionEntryId: pendingBootstrap.compactionEntryId,
+              newSessionId: latestSessionId,
+              compactCostTotalUsd: pendingBootstrap.compactCostTotalUsd,
+            });
+          }
+        } else {
+          debugLog("session_state_writeback_skipped", {
             streamKey,
-            pendingBootstrap.compactionEntryId,
-          );
-          pendingBootstrapStateByStreamKey.delete(streamKey);
-          consumedPendingBootstrap = true;
-          debugLog("bootstrap_state_consumed", {
-            streamKey,
-            previousCompactionEntryId: pendingBootstrap.compactionEntryId,
-            newSessionId: latestSessionId,
-            compactCostTotalUsd: pendingBootstrap.compactCostTotalUsd,
+            sessionGenerationAtStart,
+            currentSessionGeneration: sessionState.generation,
+            latestSessionId,
+            usingPendingBootstrap,
           });
         }
       }
@@ -1789,10 +1817,8 @@ function streamClaudeCli(
       if (latestTopLevelAssistantStepUsage) {
         output.usage.totalTokens =
           latestTopLevelAssistantStepUsage.totalTokens ??
-          (latestTopLevelAssistantStepUsage.input ?? 0) +
-            (latestTopLevelAssistantStepUsage.output ?? 0) +
-            (latestTopLevelAssistantStepUsage.cacheRead ?? 0) +
-            (latestTopLevelAssistantStepUsage.cacheWrite ?? 0);
+          sumUsageTokenBuckets(latestTopLevelAssistantStepUsage) ??
+          output.usage.totalTokens;
         debugLog("context_usage_applied", {
           streamKey,
           usage: latestTopLevelAssistantStepUsage,
@@ -1825,14 +1851,18 @@ function streamClaudeCli(
 
       endAllTextBlocks();
       output.stopReason = "stop";
-      if (!output.usage.totalTokens) {
-        output.usage.totalTokens =
-          output.usage.input +
-          output.usage.output +
-          output.usage.cacheRead +
-          output.usage.cacheWrite;
+      const fallbackTotalTokens = sumUsageTokenBuckets(output.usage);
+      if (output.usage.totalTokens === 0 && fallbackTotalTokens !== undefined) {
+        output.usage.totalTokens = fallbackTotalTokens;
       }
-      if (!output.usage.cost.total) {
+      if (
+        output.usage.cost.total === 0 &&
+        typeof usageToApply?.costTotal !== "number" &&
+        !(
+          consumedPendingBootstrap &&
+          typeof pendingBootstrap?.compactCostTotalUsd === "number"
+        )
+      ) {
         // Fallback stays zero because this provider does not infer cost components
         // beyond what Claude Code headless mode reports directly.
         calculateCost(model, output.usage);
@@ -1867,6 +1897,7 @@ function streamClaudeCli(
 
 export default function (pi: ExtensionAPI) {
   const sessionMap = new Map<string, string>();
+  const sessionState: SessionState = { generation: 0 };
   const initState: InitState = {};
   const pendingBootstrapStateByStreamKey = new Map<
     string,
@@ -1920,6 +1951,7 @@ export default function (pi: ExtensionAPI) {
     streamSimple: streamClaudeCli.bind(
       null,
       sessionMap,
+      sessionState,
       pendingBootstrapStateByStreamKey,
       pi,
       initState,
@@ -1983,6 +2015,7 @@ export default function (pi: ExtensionAPI) {
         ctx.cwd,
       );
 
+      pendingBootstrapAwaitingCompactionBySession.delete(sessionPersistenceKey);
       pendingBootstrapAwaitingCompactionBySession.set(sessionPersistenceKey, {
         streamKey,
         summary: compactResult.summary,
@@ -2088,6 +2121,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("claude-code-new-session", {
     description: "Clear stored Claude CLI session IDs to start a fresh session",
     handler: async (_args, ctx) => {
+      sessionState.generation += 1;
       sessionMap.clear();
       pendingBootstrapStateByStreamKey.clear();
       pendingBootstrapAwaitingCompactionBySession.clear();

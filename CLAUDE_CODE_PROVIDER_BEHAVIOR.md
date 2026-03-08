@@ -1,6 +1,6 @@
-# Claude Code Provider Tracking
+# Claude Code Provider Behavior
 
-This file tracks the current behavior of `agent/extensions/claude-code-provider/index.ts`.
+This file documents the current behavior of `agent/extensions/claude-code-provider/index.ts`.
 
 ## Current Status
 
@@ -8,6 +8,7 @@ The provider currently supports:
 
 - Claude CLI session continuity via `--resume`
 - stream-keyed session continuity using the current Pi session id + model id
+- reset-safe session continuity so `/claude-code-new-session` cannot be silently undone by an older in-flight stream finishing later
 - Pi-native streaming with linear/as-it-arrives rendering protections
 - visible inline tool traces in compact one-line form
 - manual `/compact` session rebasing for the upstream Claude session
@@ -114,6 +115,7 @@ Important distinction:
 
 - `usage.input/output/cacheRead/cacheWrite/cost.total` are used for accounting
 - `usage.totalTokens` is now primarily used to drive Pi's context meter and may intentionally differ from cumulative run accounting
+- missing usage data is no longer normalized into a synthetic `totalTokens: 0`; bucket summation is only used when at least one real usage bucket is present
 
 ### Money fidelity
 
