@@ -264,6 +264,34 @@ Show a clear notice such as:
 
 ---
 
+## Implementation status
+
+### Completed
+
+- **Phase 1 — state helpers**
+  - Added shared `streamKey` helper reuse
+  - Added pending-bootstrap custom entry constants/types
+  - Added helpers to append pending-bootstrap and consumed entries
+  - Added helper to restore pending bootstrap state for a `streamKey`
+- **Phase 2 — `/compact` happy path**
+  - `session_before_compact` now intercepts `claude-code` compaction requests
+  - If no remembered Claude session exists, `/compact` shows a clear notice and cancels
+  - If a remembered Claude session exists, the provider sends a **no-tools** internal summarization request to the resumed Claude session
+  - The returned summary is used as Pi's compaction artifact
+  - After compaction completes, the provider persists a `pending-bootstrap` custom entry, clears the old remembered Claude session id, mirrors the pending state in memory, and shows the checkpoint notice
+
+### Not implemented yet
+
+- **Phase 3 — next-turn bootstrap injection**
+- **Phase 4 — consume after successful fresh-session start**
+- **Phase 5 — logging/docs polish** beyond the minimal logging already added for the compact path
+
+### Current partial behavior
+
+Right now `/compact` can checkpoint the current Claude session and persist the pending bootstrap summary, but the next normal user turn does **not yet** consume that summary automatically. That wiring is still part of Phase 3 and Phase 4.
+
+---
+
 ## Preferred implementation order
 
 Build this as a thin vertical slice with small diffs, mostly in `agent/extensions/claude-code-provider/index.ts`.

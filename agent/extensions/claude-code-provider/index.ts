@@ -773,6 +773,210 @@ function cliModelFor(modelId: string): string {
   return SONNET46_CLI_MODEL; // default: Sonnet 4.6
 }
 
+function buildCompactSummaryPrompt(customInstructions?: string): string {
+  const basePrompt = `Summarize the active work in this Claude Code session so a fresh Claude Code session can continue it seamlessly after compaction/rebase.
+
+This is a carry-forward checkpoint, not a user-facing response. Do not continue the task. Do not ask follow-up questions. Do not use tools. Output only the structured summary below.
+
+Use this exact format:
+
+## Goal
+[What the user is trying to accomplish]
+
+## Constraints & Preferences
+- [User requirements, preferences, constraints]
+
+## Progress
+### Done
+- [x] [Completed work]
+
+### In Progress
+- [ ] [Current work]
+
+### Blocked
+- [Blocking issues, if any]
+
+## Key Decisions
+- **[Decision]**: [Brief rationale]
+
+## Next Steps
+1. [Most likely next action]
+2. [Next action]
+3. [Next action]
+
+## Critical Context
+- [Exact file paths, function/class names, errors, assumptions, unresolved questions, important modified/read files, or other details needed to continue]
+
+Requirements:
+- Preserve exact file paths, function names, error messages, and pending work when important.
+- Include modified files and especially relevant/read files when helpful.
+- Preserve unresolved questions, assumptions, and next steps.
+- Keep the summary concise but continuation-ready.
+- Output only the summary in the format above.`;
+
+  const extra = customInstructions?.trim();
+  if (!extra) return basePrompt;
+  return `${basePrompt}\n\nAdditional compaction instructions:\n${extra}`;
+}
+
+function extractCompactSummaryText(response: any): string | undefined {
+  if (!response || typeof response !== "object") return undefined;
+  const candidates = [response.result, response.output, response.text];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
+}
+
+async function requestCompactSummaryFromClaudeSession(
+  model: Model<Api>,
+  rememberedSessionId: string,
+  customInstructions?: string,
+  signal?: AbortSignal,
+  cwd = process.cwd(),
+): Promise<string> {
+  const cli = DEFAULT_CLAUDE_CLI;
+  const timeoutMs =
+    Number.isFinite(DEFAULT_TIMEOUT_SECONDS) && DEFAULT_TIMEOUT_SECONDS > 0
+      ? Math.floor(DEFAULT_TIMEOUT_SECONDS * 1000)
+      : 240_000;
+  const cliModel = cliModelFor(model.id);
+  const prompt = buildCompactSummaryPrompt(customInstructions);
+  const args = [
+    "-p",
+    "--input-format",
+    "text",
+    "--output-format",
+    "json",
+    "--model",
+    cliModel,
+    "--resume",
+    rememberedSessionId,
+  ];
+
+  debugLog("compact_cli_start", {
+    cli,
+    args,
+    model: model.id,
+    cliModel,
+    resumeSessionId: rememberedSessionId,
+  });
+
+  let timeoutId: NodeJS.Timeout | undefined;
+  let proc: ReturnType<typeof spawn> | undefined;
+  let gotAbort = false;
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+
+  const exitCode = await new Promise<number>((resolve) => {
+    proc = spawn(cli, args, {
+      cwd,
+      env: process.env,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let resolved = false;
+    const resolveOnce = (code: number) => {
+      if (resolved) return;
+      resolved = true;
+      if (signal) signal.removeEventListener("abort", killProc);
+      resolve(code);
+    };
+
+    const killProc = () => {
+      if (!proc) return;
+      gotAbort = true;
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+        // ignore
+      }
+      setTimeout(() => {
+        if (!proc || proc.killed) return;
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+      }, 3000);
+    };
+
+    if (timeoutMs > 0) {
+      timeoutId = setTimeout(killProc, timeoutMs);
+    }
+    if (signal) {
+      if (signal.aborted) killProc();
+      signal.addEventListener("abort", killProc);
+    }
+
+    try {
+      proc.stdin?.end(prompt);
+    } catch {
+      // ignore stdin write errors; process error/exit handlers cover failures
+    }
+
+    proc.stdout.on("data", (chunk) => {
+      stdoutChunks.push(chunk.toString("utf8"));
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      const text = chunk.toString("utf8");
+      stderrChunks.push(text);
+      debugLog("compact_stderr", { text: text.trim() });
+    });
+
+    proc.on("error", (err) => {
+      stderrChunks.push(`${err.message}\n`);
+      resolveOnce(1);
+    });
+
+    proc.on("close", (code) => {
+      resolveOnce(code ?? 0);
+    });
+  });
+
+  if (timeoutId) clearTimeout(timeoutId);
+
+  if (exitCode !== 0) {
+    const trimmedStderr = stderrChunks.join("").trim();
+    throw new Error(
+      trimmedStderr ||
+        (gotAbort || signal?.aborted
+          ? "Claude CLI compact-summary request aborted"
+          : `Claude CLI compact-summary request exited with code ${exitCode}`),
+    );
+  }
+
+  const rawStdout = stdoutChunks.join("").trim();
+  if (!rawStdout) {
+    throw new Error("Claude CLI compact-summary request returned empty output");
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(rawStdout);
+  } catch {
+    throw new Error("Claude CLI compact-summary request returned invalid JSON");
+  }
+
+  const summary = extractCompactSummaryText(parsed);
+  if (!summary) {
+    throw new Error(
+      "Claude CLI compact-summary request did not return a usable summary",
+    );
+  }
+
+  debugLog("compact_cli_done", {
+    resumeSessionId: rememberedSessionId,
+    summaryLength: summary.length,
+  });
+
+  return summary;
+}
+
 function streamClaudeCli(
   sessionMap: Map<string, string>,
   initState: InitState,
@@ -1492,6 +1696,14 @@ function streamClaudeCli(
 export default function (pi: ExtensionAPI) {
   const sessionMap = new Map<string, string>();
   const initState: InitState = {};
+  const pendingBootstrapStateByStreamKey = new Map<
+    string,
+    PendingBootstrapState
+  >();
+  const pendingBootstrapAwaitingCompactionBySession = new Map<
+    string,
+    { streamKey: string; summary: string }
+  >();
 
   pi.registerProvider("claude-code", {
     baseUrl: "claude://local-cli",
@@ -1537,30 +1749,99 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
-    // Only intercept when the active model belongs to this provider.
-    // Other providers (Anthropic, OpenAI, etc.) should compact normally.
     if (ctx.model?.provider !== "claude-code") return undefined;
 
-    // Pi's conversation history is display-only when using the Claude Code provider.
-    // Real memory (file context, tool history, prompt caching) lives in the Claude
-    // Code CLI session via --resume. Invoking Claude Code just to compact Pi's
-    // display log would be wasteful — return a cheap stub summary instead.
-    const { preparation } = event;
-    return {
-      compaction: {
-        summary: [
-          "## Goal",
-          "Ongoing conversation via Claude Code provider.",
-          "",
-          "## Critical Context",
-          "- Conversation memory is managed by the Claude Code CLI session (--resume).",
-          "- Pi conversation history is display-only; the provider only sends the last user message.",
-          "- Switching to another provider will expose the full Pi Q&A history naturally.",
-        ].join("\n"),
-        firstKeptEntryId: preparation.firstKeptEntryId,
-        tokensBefore: preparation.tokensBefore,
-      },
-    };
+    const streamKey = getClaudeSessionStreamKey(ctx.model.id);
+    const rememberedSessionId = sessionMap.get(streamKey);
+
+    if (!rememberedSessionId) {
+      ctx.ui.notify("No active Claude Code session to compact yet.", "info");
+      return { cancel: true };
+    }
+
+    const sessionPersistenceKey =
+      ctx.sessionManager.getSessionFile() || ctx.sessionManager.getSessionId();
+
+    try {
+      debugLog("compact_start", {
+        streamKey,
+        sessionPersistenceKey,
+        rememberedSessionId,
+      });
+
+      const summary = await requestCompactSummaryFromClaudeSession(
+        ctx.model,
+        rememberedSessionId,
+        event.customInstructions,
+        event.signal,
+        ctx.cwd,
+      );
+
+      pendingBootstrapAwaitingCompactionBySession.set(sessionPersistenceKey, {
+        streamKey,
+        summary,
+      });
+
+      debugLog("compact_summary_ready", {
+        streamKey,
+        sessionPersistenceKey,
+        summaryLength: summary.length,
+      });
+
+      const { preparation } = event;
+      return {
+        compaction: {
+          summary,
+          firstKeptEntryId: preparation.firstKeptEntryId,
+          tokensBefore: preparation.tokensBefore,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      pendingBootstrapAwaitingCompactionBySession.delete(sessionPersistenceKey);
+      debugLog("compact_error", {
+        streamKey,
+        sessionPersistenceKey,
+        message,
+      });
+      ctx.ui.notify(`Claude Code compact failed: ${message}`, "error");
+      return { cancel: true };
+    }
+  });
+
+  pi.on("session_compact", (event, ctx) => {
+    if (ctx.model?.provider !== "claude-code") return;
+    if (!event.fromExtension) return;
+
+    const sessionPersistenceKey =
+      ctx.sessionManager.getSessionFile() || ctx.sessionManager.getSessionId();
+    const pending = pendingBootstrapAwaitingCompactionBySession.get(
+      sessionPersistenceKey,
+    );
+    if (!pending) return;
+
+    pendingBootstrapAwaitingCompactionBySession.delete(sessionPersistenceKey);
+    sessionMap.delete(pending.streamKey);
+
+    const persisted = appendPendingBootstrapEntry(
+      pi,
+      pending.streamKey,
+      event.compactionEntry.id,
+      pending.summary,
+    );
+    pendingBootstrapStateByStreamKey.set(pending.streamKey, persisted);
+
+    debugLog("compact_checkpointed", {
+      streamKey: pending.streamKey,
+      sessionPersistenceKey,
+      compactionEntryId: event.compactionEntry.id,
+      summaryLength: pending.summary.length,
+    });
+
+    ctx.ui.notify(
+      "Claude session checkpointed. Your next message will start a fresh Claude session from the compacted context.",
+      "info",
+    );
   });
 
   pi.registerCommand("claude-code-info", {
@@ -1599,6 +1880,8 @@ export default function (pi: ExtensionAPI) {
     description: "Clear stored Claude CLI session IDs to start a fresh session",
     handler: async (_args, ctx) => {
       sessionMap.clear();
+      pendingBootstrapStateByStreamKey.clear();
+      pendingBootstrapAwaitingCompactionBySession.clear();
       initState.latest = undefined;
       ctx.ui.notify("claude-code session map cleared", "info");
     },
