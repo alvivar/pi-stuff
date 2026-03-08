@@ -335,7 +335,7 @@ In `streamClaudeCli(...)`:
 
 Important:
 
-- only consume the bootstrap summary once the fresh session actually starts successfully
+- only consume/clear the bootstrap summary after the first fresh-session turn succeeds and establishes the new Claude session
 - do not clear it too early and risk losing the checkpoint if the first fresh turn fails
 
 ---
@@ -469,7 +469,8 @@ Recommendation:
    - Wrap the actual user message in `<current-user-request>...</current-user-request>` so the user's real request remains primary.
 
 4. **When should the pending bootstrap summary be cleared?**
-   - Strong preference: only clear it after the first fresh-session turn succeeds.
+   - Decision: clear it **only after the first fresh-session turn succeeds**.
+   - In practice, that means the fresh turn completed successfully enough to establish the new Claude session and yield a new usable `session_id`.
    - Do not clear it too early and risk losing the checkpoint if the first fresh turn fails.
 
 5. **What should we do about auto-compaction in the meantime?**
