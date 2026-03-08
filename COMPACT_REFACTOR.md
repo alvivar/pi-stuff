@@ -324,6 +324,43 @@ Recommended persisted state model:
 - append another `custom` session entry when that pending bootstrap summary is consumed/cleared
 - reconstruct pending state on reload by scanning session entries
 
+Recommended `customType` / data schema:
+
+### Pending bootstrap entry
+
+```ts
+customType: "claude-code-provider/pending-bootstrap"
+data: {
+  version: 1,
+  provider: "claude-code",
+  modelId: "...",
+  streamKey: "...",
+  compactionEntryId: "...",
+  summary: "...",
+  createdAt: "..."
+}
+```
+
+### Consumed bootstrap entry
+
+```ts
+customType: "claude-code-provider/pending-bootstrap-consumed"
+data: {
+  version: 1,
+  provider: "claude-code",
+  modelId: "...",
+  streamKey: "...",
+  compactionEntryId: "...",
+  consumedAt: "..."
+}
+```
+
+Recommended reconstruction rule:
+
+- find the latest relevant `pending-bootstrap` entry for the current `streamKey`
+- if there is a later matching `pending-bootstrap-consumed` entry, treat it as no longer pending
+- otherwise it is still pending and should be restored into in-memory state
+
 Why this shape fits Pi well:
 
 - Pi session state is append-only
@@ -514,6 +551,10 @@ Recommendation:
    - A `custom` session entry is a good fit because Pi explicitly supports it for extension state that survives reloads and does **not** participate in LLM context.
    - Avoid `custom_message` here because that would participate in context.
    - Avoid a separate provider-owned file unless session-backed state proves insufficient.
+   - Recommended append-only schema:
+     - `claude-code-provider/pending-bootstrap`
+     - `claude-code-provider/pending-bootstrap-consumed`
+   - Include `version`, `provider`, `modelId`, `streamKey`, `compactionEntryId`, and timestamps; include `summary` on the pending entry.
 
 2. **What should `/compact` do if there is no remembered Claude session yet?**
    - Decision: do **not** attempt Claude-session rebase compaction in this case.
