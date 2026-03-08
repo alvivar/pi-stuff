@@ -67,19 +67,6 @@ type RunMetadataLike = {
   numTurns?: number;
 };
 
-type SystemInitInfoLike = {
-  sessionId?: string;
-  model?: string;
-  claudeCodeVersion?: string;
-  tools: string[];
-  mcpServers: { name: string; status: string }[];
-  capturedAtMs: number;
-};
-
-type InitState = {
-  latest?: SystemInitInfoLike;
-};
-
 type SessionState = {
   generation: number;
 };
@@ -494,72 +481,6 @@ function extractRunMetadata(event: any): RunMetadataLike | undefined {
   const numTurns = asNumber(source.num_turns ?? source.numTurns);
   if (durationMs === undefined && numTurns === undefined) return undefined;
   return { durationMs, numTurns };
-}
-
-function isRateLimitNotable(info?: RateLimitInfoLike): boolean {
-  if (!info) return false;
-  if (info.status && info.status !== "allowed") return true;
-  if (info.overageStatus && info.overageStatus !== "allowed") return true;
-  return info.isUsingOverage === true;
-}
-
-function formatRateLimitNotice(info?: RateLimitInfoLike): string | undefined {
-  if (!isRateLimitNotable(info)) return undefined;
-  const parts: string[] = [];
-  if (info?.status) parts.push(`status=${info.status}`);
-  if (info?.rateLimitType) parts.push(`type=${info.rateLimitType}`);
-  if (info?.isUsingOverage) parts.push("using overage");
-  if (info?.overageStatus && info.overageStatus !== "allowed")
-    parts.push(`overage=${info.overageStatus}`);
-  if (typeof info?.resetsAt === "number")
-    parts.push(`resets=${new Date(info.resetsAt * 1000).toISOString()}`);
-  if (typeof info?.overageResetsAt === "number") {
-    parts.push(
-      `overageResets=${new Date(info.overageResetsAt * 1000).toISOString()}`,
-    );
-  }
-  return `[claude-code rate-limit: ${parts.join(", ")}]`;
-}
-
-function formatRunMetadata(
-  durationMs?: number,
-  numTurns?: number,
-): string | undefined {
-  if (durationMs === undefined && numTurns === undefined) return undefined;
-  const parts: string[] = [];
-  if (durationMs !== undefined)
-    parts.push(`duration=${(durationMs / 1000).toFixed(1)}s`);
-  if (numTurns !== undefined) parts.push(`turns=${numTurns}`);
-  return `[claude-code: ${parts.join(", ")}]`;
-}
-
-function extractSystemInitInfo(event: any): SystemInitInfoLike | undefined {
-  if (!event || typeof event !== "object") return undefined;
-  if (event.type !== "system" || event.subtype !== "init") return undefined;
-
-  const tools = Array.isArray(event.tools)
-    ? event.tools.filter(
-        (tool: unknown): tool is string => typeof tool === "string",
-      )
-    : [];
-  const mcpServers = Array.isArray(event.mcp_servers)
-    ? event.mcp_servers.map((server: any) => ({
-        name: typeof server?.name === "string" ? server.name : "unknown",
-        status: typeof server?.status === "string" ? server.status : "unknown",
-      }))
-    : [];
-
-  return {
-    sessionId: extractSessionId(event),
-    model: typeof event.model === "string" ? event.model : undefined,
-    claudeCodeVersion:
-      typeof event.claude_code_version === "string"
-        ? event.claude_code_version
-        : undefined,
-    tools,
-    mcpServers,
-    capturedAtMs: Date.now(),
-  };
 }
 
 function parseJsonObject(value: string): Record<string, any> | undefined {
@@ -1079,7 +1000,6 @@ function streamClaudeCli(
   sessionState: SessionState,
   pendingBootstrapStateByStreamKey: Map<string, PendingBootstrapState>,
   entryAppender: EntryAppender,
-  initState: InitState,
   model: Model<Api>,
   context: Context,
   options?: SimpleStreamOptions,
@@ -1115,12 +1035,9 @@ function streamClaudeCli(
     let pendingTraceJoinContentIndex: number | undefined;
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
-    let latestRateLimitInfo: RateLimitInfoLike | undefined;
     let latestObservedUsage: UsageLike | undefined;
     let finalResultUsage: UsageLike | undefined;
     let latestTopLevelAssistantStepUsage: UsageLike | undefined;
-    let runDurationMs: number | undefined;
-    let runNumTurns: number | undefined;
     let consumedPendingBootstrap = false;
     const stderrChunks: string[] = [];
     let lineBuffer = "";
@@ -1528,21 +1445,12 @@ function streamClaudeCli(
 
           const rateLimitInfo = extractRateLimitInfo(parsed);
           if (rateLimitInfo) {
-            latestRateLimitInfo = rateLimitInfo;
             debugLog("rate_limit", rateLimitInfo);
           }
 
           const runMetadata = extractRunMetadata(parsed);
           if (runMetadata) {
-            runDurationMs = runMetadata.durationMs ?? runDurationMs;
-            runNumTurns = runMetadata.numTurns ?? runNumTurns;
             debugLog("run_metadata", runMetadata);
-          }
-
-          const systemInitInfo = extractSystemInitInfo(parsed);
-          if (systemInitInfo) {
-            initState.latest = systemInitInfo;
-            debugLog("system_init", systemInitInfo);
           }
 
           const streamEvent =
@@ -1839,16 +1747,6 @@ function streamClaudeCli(
         });
       }
 
-      const rateLimitNotice = formatRateLimitNotice(latestRateLimitInfo);
-      if (rateLimitNotice) {
-        debugLog("rate_limit_notice", { notice: rateLimitNotice });
-      }
-
-      const runMetaNotice = formatRunMetadata(runDurationMs, runNumTurns);
-      if (runMetaNotice) {
-        debugLog("run_metadata_notice", { notice: runMetaNotice });
-      }
-
       endAllTextBlocks();
       output.stopReason = "stop";
       const fallbackTotalTokens = sumUsageTokenBuckets(output.usage);
@@ -1898,7 +1796,6 @@ function streamClaudeCli(
 export default function (pi: ExtensionAPI) {
   const sessionMap = new Map<string, string>();
   const sessionState: SessionState = { generation: 0 };
-  const initState: InitState = {};
   const pendingBootstrapStateByStreamKey = new Map<
     string,
     PendingBootstrapState
@@ -1954,7 +1851,6 @@ export default function (pi: ExtensionAPI) {
       sessionState,
       pendingBootstrapStateByStreamKey,
       pi,
-      initState,
     ),
   });
 
@@ -2086,38 +1982,6 @@ export default function (pi: ExtensionAPI) {
     );
   });
 
-  pi.registerCommand("claude-code-info", {
-    description:
-      "Show latest Claude Code init metadata (version/tools/MCP status)",
-    handler: async (_args, ctx) => {
-      const info = initState.latest;
-      if (!info) {
-        ctx.ui.notify(
-          "No Claude Code init metadata captured yet. Run a Claude Code prompt first.",
-          "warning",
-        );
-        return;
-      }
-
-      const toolsSummary =
-        info.tools.length > 0
-          ? `${info.tools.length} tools (${info.tools.slice(0, 8).join(", ")}${info.tools.length > 8 ? ", ..." : ""})`
-          : "0 tools";
-      const mcpSummary =
-        info.mcpServers.length > 0
-          ? info.mcpServers
-              .map((server) => `${server.name}:${server.status}`)
-              .join(", ")
-          : "none";
-      const capturedAt = new Date(info.capturedAtMs).toISOString();
-
-      ctx.ui.notify(
-        `claude-code info | version=${info.claudeCodeVersion || "unknown"} | model=${info.model || "unknown"} | ${toolsSummary} | mcp=${mcpSummary} | captured=${capturedAt}`,
-        "info",
-      );
-    },
-  });
-
   pi.registerCommand("claude-code-new-session", {
     description: "Clear stored Claude CLI session IDs to start a fresh session",
     handler: async (_args, ctx) => {
@@ -2125,7 +1989,6 @@ export default function (pi: ExtensionAPI) {
       sessionMap.clear();
       pendingBootstrapStateByStreamKey.clear();
       pendingBootstrapAwaitingCompactionBySession.clear();
-      initState.latest = undefined;
       ctx.ui.notify("claude-code session map cleared", "info");
     },
   });

@@ -15,7 +15,7 @@ The provider currently supports:
 - context-meter behavior tuned to better reflect Claude Code's current top-level assistant-step prompt footprint
 - total-cost capture from normal successful Claude turns
 - deferred `/compact` cost capture, applied to the next successful fresh turn after bootstrap consumption
-- helper commands for init diagnostics and clearing remembered Claude session state
+- a helper command for clearing remembered Claude session state
 
 ## Streaming / Rendering
 
@@ -153,13 +153,9 @@ Money accounting is still incomplete in a few edge cases:
 
 Currently implemented provider-specific commands:
 
-- `/claude-code-info`
-  - shows the latest captured Claude Code init metadata
-  - includes Claude Code version, model, tool summary, MCP summary, and capture timestamp
 - `/claude-code-new-session`
   - clears remembered Claude session ids
   - clears pending bootstrap state and pending compaction staging state
-  - clears cached init metadata
   - advances internal session-generation state so older in-flight Claude runs cannot write stale session ids back into provider memory after a reset
 
 ## Important State / Helpers
