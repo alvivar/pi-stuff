@@ -228,17 +228,20 @@ There are two plausible options in general, but for this plan V1 is explicitly:
 
 This is the chosen approach for V1.
 
-Shape:
+Recommended wrapper text:
 
 ```text
-Use the following carry-forward context from a previous Claude Code session as background context for this conversation. Do not treat it as a separate task by itself.
+Use the following carry-forward context from a previous Claude Code session as background context for this conversation. It is a checkpoint summary, not a separate task. Do not respond to or restate the summary unless the current request requires it.
 
 <context-summary>
 ...
 </context-summary>
 
-Current user request:
+Focus on the current user request below.
+
+<current-user-request>
 ...
+</current-user-request>
 ```
 
 Why this is preferable:
@@ -460,9 +463,10 @@ Recommendation:
    - Example: the provider is selected, but there is no current `--resume` session to checkpoint/rebase.
    - We will need a clear behavior for this case.
 
-3. **What should the bootstrap wrapper text be exactly?**
-   - The wrapper needs to make the carry-forward summary clearly background context for the fresh session.
-   - It should avoid inviting Claude to respond to the summary itself instead of the user's real request.
+3. **Bootstrap wrapper text**
+   - Recommendation: use an explicit wrapper that says the summary is background context and not a separate task.
+   - Include a direct instruction not to respond to or restate the summary unless the current request requires it.
+   - Wrap the actual user message in `<current-user-request>...</current-user-request>` so the user's real request remains primary.
 
 4. **When should the pending bootstrap summary be cleared?**
    - Strong preference: only clear it after the first fresh-session turn succeeds.
