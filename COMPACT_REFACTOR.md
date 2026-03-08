@@ -434,6 +434,39 @@ Recommendation:
 
 ---
 
+## Remaining implementation questions
+
+1. **Where should the pending bootstrap summary live?**
+   - In-memory only may be too fragile if Pi restarts, extensions reload, or the user does not send the next message immediately.
+   - We likely need to decide between memory-only state vs some persisted session/provider state.
+
+2. **What should `/compact` do if there is no remembered Claude session yet?**
+   - Example: the provider is selected, but there is no current `--resume` session to checkpoint/rebase.
+   - We will need a clear behavior for this case.
+
+3. **What should the bootstrap wrapper text be exactly?**
+   - The wrapper needs to make the carry-forward summary clearly background context for the fresh session.
+   - It should avoid inviting Claude to respond to the summary itself instead of the user's real request.
+
+4. **When should the pending bootstrap summary be cleared?**
+   - Strong preference: only clear it after the first fresh-session turn succeeds.
+   - Do not clear it too early and risk losing the checkpoint if the first fresh turn fails.
+
+5. **What should we do about auto-compaction in the meantime?**
+   - Current auto-compaction semantics remain somewhat misleading for `claude-code` because the visible context number is driven by Claude's resumed session, while current compaction is still mostly Pi-local.
+   - We may want to revisit or special-case this once the manual rebase flow exists.
+
+6. **Is the current `streamKey` the right identity for pending rebases?**
+   - We should verify that the bootstrap summary is tied to the correct unit of continuity (session/branch/model/provider stream).
+
+7. **What should the user-visible notice say, and when should it appear?**
+   - Possible notices:
+     - after `/compact`: old Claude session checkpointed; next message will start a fresh Claude session
+     - after first fresh turn: fresh Claude session started from compacted context
+   - We can decide later whether we want one notice or both.
+
+---
+
 ## Best V1 recommendation
 
 Implement **manual-only session rebasing** for `/compact`:
