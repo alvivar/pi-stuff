@@ -236,7 +236,7 @@ Primary implementation file:
 
 - `agent/extensions/claude-code-provider/index.ts`
 
-Related planning docs in this repo:
+Related notes/docs in this repo:
 
-- `COMPACT_REFACTOR.md`
+- `CLAUDE_CODE_PI_INTEGRATION_NOTES.md`
 - `TODO.md`
