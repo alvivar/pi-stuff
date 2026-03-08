@@ -343,9 +343,9 @@ Important:
 
 ### Phase 3 — polish
 
-- Possibly add a dedicated info message or notification explaining:
+- Add a dedicated user-visible info message or notification explaining:
   - old Claude session was checkpointed
-  - next turn started a fresh Claude session
+  - the next turn will start or has started a fresh Claude session
 
 ---
 
@@ -446,7 +446,8 @@ Recommendation:
 3. Bootstrap summary injection:
    - Decision: inject it into the **first user prompt only**.
    - Do not use a one-time system prompt in V1.
-4. Should we surface a user-visible notice that the Claude session was reset/rebased?
+4. User-visible notice:
+   - Decision: **yes**. Surface a visible notice that the Claude session was checkpointed/rebased.
 5. Should the old session ID be retained anywhere for debugging, or fully discarded after success?
 6. Should a manual `/compact` immediately trigger a bootstrap turn, or simply prepare the next user turn to start fresh?
 
