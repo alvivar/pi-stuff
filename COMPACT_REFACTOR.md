@@ -309,6 +309,11 @@ Proposed new behavior when provider is `claude-code` and a remembered Claude ses
 5. Clear the remembered session ID for that stream key
 6. Save the summary in in-memory pending state and persist it as a session `custom` entry
 
+If there is no remembered Claude session yet:
+
+- do not attempt session rebase compaction
+- show a clear user-visible notice that there is no active Claude Code session to compact yet
+
 If anything fails:
 
 - either abort compaction with a clear error
@@ -460,8 +465,9 @@ Recommendation:
    - Avoid a separate provider-owned file unless session-backed state proves insufficient.
 
 2. **What should `/compact` do if there is no remembered Claude session yet?**
-   - Example: the provider is selected, but there is no current `--resume` session to checkpoint/rebase.
-   - We will need a clear behavior for this case.
+   - Decision: do **not** attempt Claude-session rebase compaction in this case.
+   - Show a clear user-visible notice, e.g. that there is no active Claude Code session to compact yet.
+   - Do not silently fall back to a different compaction meaning in V1.
 
 3. **Bootstrap wrapper text**
    - Recommendation: use an explicit wrapper that says the summary is background context and not a separate task.
