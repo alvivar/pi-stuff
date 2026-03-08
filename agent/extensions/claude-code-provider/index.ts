@@ -1051,6 +1051,8 @@ function streamClaudeCli(
     let latestSessionId: string | undefined;
     let fallbackResultText = "";
     let latestRateLimitInfo: RateLimitInfoLike | undefined;
+    let latestObservedUsage: UsageLike | undefined;
+    let finalResultUsage: UsageLike | undefined;
     let runDurationMs: number | undefined;
     let runNumTurns: number | undefined;
     const stderrChunks: string[] = [];
@@ -1435,8 +1437,13 @@ function streamClaudeCli(
           }
 
           const usage = extractUsage(parsed);
-          if (usage) debugLog("usage", usage);
-          applyUsage(output, usage, model);
+          if (usage) {
+            latestObservedUsage = usage;
+            if (parsed.type === "result") {
+              finalResultUsage = usage;
+            }
+            debugLog("usage", usage);
+          }
 
           const rateLimitInfo = extractRateLimitInfo(parsed);
           if (rateLimitInfo) {
@@ -1701,6 +1708,17 @@ function streamClaudeCli(
       }
       for (const toolId of Array.from(snapshotToolById.keys())) {
         endSnapshotToolTrace(toolId);
+      }
+
+      const usageToApply = finalResultUsage ?? latestObservedUsage;
+      if (usageToApply) {
+        applyUsage(output, usageToApply, model);
+        if (!finalResultUsage && latestObservedUsage) {
+          debugLog("usage_applied_from_latest_observed", {
+            streamKey,
+            usage: latestObservedUsage,
+          });
+        }
       }
 
       const rateLimitNotice = formatRateLimitNotice(latestRateLimitInfo);
