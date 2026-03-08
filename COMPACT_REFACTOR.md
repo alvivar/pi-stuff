@@ -210,6 +210,50 @@ So the target prompt should explicitly tell Claude:
 - do not continue the task
 - output only the structured summary
 
+Recommended prompt text:
+
+```text
+Summarize the active work in this Claude Code session so a fresh Claude Code session can continue it seamlessly after compaction/rebase.
+
+This is a carry-forward checkpoint, not a user-facing response. Do not continue the task. Do not ask follow-up questions. Output only the structured summary below.
+
+Use this exact format:
+
+## Goal
+[What the user is trying to accomplish]
+
+## Constraints & Preferences
+- [User requirements, preferences, constraints]
+
+## Progress
+### Done
+- [x] [Completed work]
+
+### In Progress
+- [ ] [Current work]
+
+### Blocked
+- [Blocking issues, if any]
+
+## Key Decisions
+- **[Decision]**: [Brief rationale]
+
+## Next Steps
+1. [Most likely next action]
+2. [Next action]
+3. [Next action]
+
+## Critical Context
+- [Exact file paths, function/class names, errors, assumptions, unresolved questions, important modified/read files, or other details needed to continue]
+
+Requirements:
+- Preserve exact file paths, function names, error messages, and pending work when important.
+- Include modified files and especially relevant/read files when helpful.
+- Preserve unresolved questions, assumptions, and next steps.
+- Keep the summary concise but continuation-ready.
+- Output only the summary in the format above.
+```
+
 In short:
 
 - **reuse Pi's summary format**
