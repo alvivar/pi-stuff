@@ -404,7 +404,7 @@ If the upstream session is already near or over its limits, even asking for the 
 Implication:
 
 - manual compaction should ideally be used before catastrophic overflow
-- auto-compaction should wait until this manual path is proven reliable
+- auto-compaction should not be part of the `claude-code` rebase flow in V1
 
 ### 2. The summary is lossy
 
@@ -487,8 +487,9 @@ Recommendation:
    - Do not clear it too early and risk losing the checkpoint if the first fresh turn fails.
 
 5. **What should we do about auto-compaction in the meantime?**
-   - Current auto-compaction semantics remain somewhat misleading for `claude-code` because the visible context number is driven by Claude's resumed session, while current compaction is still mostly Pi-local.
-   - We may want to revisit or special-case this once the manual rebase flow exists.
+   - Decision/recommendation: for V1, treat **manual `/compact` as the only meaningful compaction path** for `claude-code`.
+   - Do not try to make auto-compaction perform session rebasing in V1.
+   - Prefer disabling or bypassing provider-specific auto-compaction behavior for `claude-code` rather than implying that current Pi-local auto-compaction meaningfully reduces Claude-side session memory.
 
 6. **Is the current `streamKey` the right identity for pending rebases?**
    - Decision: **yes, for V1 use the existing Claude-session `streamKey`** as the identity for pending rebases.
