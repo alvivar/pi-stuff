@@ -819,6 +819,23 @@ Requirements:
   return `${basePrompt}\n\nAdditional compaction instructions:\n${extra}`;
 }
 
+function buildBootstrapUserPrompt(
+  summary: string,
+  currentUserRequest: string,
+): string {
+  return `Use the following carry-forward context from a previous Claude Code session as background context for this conversation. It is a checkpoint summary, not a separate task. Do not respond to or restate the summary unless the current request requires it.
+
+<context-summary>
+${summary.trim()}
+</context-summary>
+
+Focus on the current user request below.
+
+<current-user-request>
+${currentUserRequest.trim()}
+</current-user-request>`;
+}
+
 function extractCompactSummaryText(response: any): string | undefined {
   if (!response || typeof response !== "object") return undefined;
   const candidates = [response.result, response.output, response.text];
@@ -979,6 +996,7 @@ async function requestCompactSummaryFromClaudeSession(
 
 function streamClaudeCli(
   sessionMap: Map<string, string>,
+  pendingBootstrapStateByStreamKey: Map<string, PendingBootstrapState>,
   initState: InitState,
   model: Model<Api>,
   context: Context,
@@ -1038,6 +1056,7 @@ function streamClaudeCli(
 
     const streamKey = getClaudeSessionStreamKey(model.id, options);
     const rememberedSessionId = sessionMap.get(streamKey);
+    const pendingBootstrap = pendingBootstrapStateByStreamKey.get(streamKey);
 
     const cli = DEFAULT_CLAUDE_CLI;
     const timeoutMs =
@@ -1046,7 +1065,11 @@ function streamClaudeCli(
         : 240_000;
 
     const cliModel = cliModelFor(model.id);
-    const prompt = getLastUserText(context);
+    const userPrompt = getLastUserText(context);
+    const prompt =
+      pendingBootstrap && !rememberedSessionId
+        ? buildBootstrapUserPrompt(pendingBootstrap.summary, userPrompt)
+        : userPrompt;
     const piSystemPrompt = getPiSystemPrompt(context);
     const effort = mapReasoningToCliEffort(options?.reasoning);
 
@@ -1318,6 +1341,11 @@ function streamClaudeCli(
       effort,
       resumeSessionId: rememberedSessionId,
       streamKey,
+      usedPendingBootstrap: Boolean(pendingBootstrap && !rememberedSessionId),
+      pendingBootstrapCompactionEntryId:
+        pendingBootstrap && !rememberedSessionId
+          ? pendingBootstrap.compactionEntryId
+          : undefined,
     });
 
     stream.push({ type: "start", partial: output });
@@ -1745,7 +1773,32 @@ export default function (pi: ExtensionAPI) {
       },
     ],
 
-    streamSimple: streamClaudeCli.bind(null, sessionMap, initState),
+    streamSimple: streamClaudeCli.bind(
+      null,
+      sessionMap,
+      pendingBootstrapStateByStreamKey,
+      initState,
+    ),
+  });
+
+  pi.on("before_agent_start", (_event, ctx) => {
+    if (ctx.model?.provider !== "claude-code") return;
+
+    const streamKey = getClaudeSessionStreamKey(ctx.model.id);
+    if (pendingBootstrapStateByStreamKey.has(streamKey)) return;
+
+    const restored = restorePendingBootstrapStateForStreamKey(
+      ctx.sessionManager,
+      streamKey,
+    );
+    if (!restored) return;
+
+    pendingBootstrapStateByStreamKey.set(streamKey, restored);
+    debugLog("bootstrap_state_restored", {
+      streamKey,
+      compactionEntryId: restored.compactionEntryId,
+      summaryLength: restored.summary.length,
+    });
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
