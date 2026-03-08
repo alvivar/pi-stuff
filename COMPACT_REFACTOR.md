@@ -588,14 +588,25 @@ Recommendation:
 
 ---
 
+## Final implementation clarifications
+
+- The internal summarization request used by `/compact` should be a **no-tools** request.
+  - Goal: keep compaction summarization side-effect-free, avoid extra tool traces during `/compact`, and make the checkpoint step more deterministic.
+- The internal summarization request/response should **not** be surfaced as a normal chat turn in Pi.
+  - Instead, persist the resulting compaction artifact, show the user-visible notice, and keep any additional diagnostics in `debug.log`.
+
+---
+
 ## Best V1 recommendation
 
 Implement **manual-only session rebasing** for `/compact`:
 
 - ask the current Claude session for a structured carry-forward summary
-- store it as Pi's compaction entry
+- do that summarization as a **no-tools** internal request
+- store the resulting summary as Pi's compaction entry
 - clear the old resumed Claude session
 - prepend the summary to the next user prompt in a fresh Claude session
 - store the new `session_id` and continue normally from there
+- do **not** surface the internal summarization request as a normal chat turn
 
 This is the cleanest path to making compaction actually meaningful for the Claude Code provider without assuming unsupported Claude APIs.
