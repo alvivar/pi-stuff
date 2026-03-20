@@ -8,9 +8,9 @@
 // daemon (= once per tab). Daemons auto-exit after 20min idle.
 //
 // Windows version: uses named pipes (//./pipe/cdp-<targetId>) for IPC
-// and a registry file (%TEMP%/cdp-daemons.json) for daemon discovery.
+// and per-daemon marker files (%TEMP%/cdp-daemon-<targetId>.json) for discovery.
 
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, readdirSync } from 'fs';
 import { resolve } from 'path';
 import { spawn } from 'child_process';
 import net from 'net';
@@ -25,9 +25,11 @@ const MIN_TARGET_PREFIX_LEN = 8;
 const TEMP_DIR = process.env.TEMP || process.env.TMP || process.env.USERPROFILE || '.';
 const SOCK_PREFIX = '//./pipe/cdp-';
 const PAGES_CACHE = resolve(TEMP_DIR, 'cdp-pages.json');
-const DAEMON_REGISTRY = resolve(TEMP_DIR, 'cdp-daemons.json');
+const DAEMON_FILE_PREFIX = 'cdp-daemon-';
+const DAEMON_FILE_SUFFIX = '.json';
 
 function sockPath(targetId) { return `${SOCK_PREFIX}${targetId}`; }
+function daemonFilePath(targetId) { return resolve(TEMP_DIR, `${DAEMON_FILE_PREFIX}${targetId}${DAEMON_FILE_SUFFIX}`); }
 
 function getWsUrl() {
   const portFile = resolve(process.env.LOCALAPPDATA, 'Google/Chrome/User Data/DevToolsActivePort');
@@ -38,59 +40,64 @@ function getWsUrl() {
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------
-// Daemon registry — tracks active daemons via a JSON file since Windows
-// named pipes can't be enumerated from Node without native addons.
+// Per-daemon marker files — each daemon writes its own file in %TEMP%:
+//   %TEMP%/cdp-daemon-<targetId>.json
+//   { "pipePath": "//./pipe/cdp-<targetId>", "pid": <number>, "startedAt": <epoch> }
 //
-// Format: { "<targetId>": { "pipePath": "//./pipe/cdp-<targetId>", "pid": <number>, "startedAt": <epoch> } }
+// Mirrors the Unix pattern where each .sock file IS the registration.
+// Here the .json marker file points to the named pipe (which lives in
+// kernel space and can't be enumerated from Node without native addons).
+// Liveness is checked by attempting to connect to the pipe, not by PID.
 // ---------------------------------------------------------------------------
 
-function readDaemonRegistry() {
-  try {
-    return JSON.parse(readFileSync(DAEMON_REGISTRY, 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
-function writeDaemonRegistry(registry) {
-  writeFileSync(DAEMON_REGISTRY, JSON.stringify(registry, null, 2));
-}
-
 function registerDaemon(targetId, pid) {
-  const registry = readDaemonRegistry();
-  registry[targetId] = { pipePath: sockPath(targetId), pid, startedAt: Date.now() };
-  writeDaemonRegistry(registry);
-}
-
-function unregisterDaemon(targetId) {
-  const registry = readDaemonRegistry();
-  delete registry[targetId];
-  writeDaemonRegistry(registry);
-}
-
-function listDaemonSockets() {
-  const registry = readDaemonRegistry();
-  return Object.entries(registry).map(([targetId, info]) => ({
-    targetId,
-    socketPath: info.pipePath,
-    pid: info.pid,
+  writeFileSync(daemonFilePath(targetId), JSON.stringify({
+    pipePath: sockPath(targetId), pid, startedAt: Date.now(),
   }));
 }
 
-// Prune daemons whose processes are no longer running
-function pruneStaleDaemons() {
-  const registry = readDaemonRegistry();
-  let changed = false;
-  for (const [targetId, info] of Object.entries(registry)) {
-    try {
-      // process.kill(pid, 0) throws if the process doesn't exist
-      process.kill(info.pid, 0);
-    } catch {
-      delete registry[targetId];
-      changed = true;
-    }
-  }
-  if (changed) writeDaemonRegistry(registry);
+function unregisterDaemon(targetId) {
+  try { unlinkSync(daemonFilePath(targetId)); } catch {}
+}
+
+/** Read all per-daemon marker files from %TEMP%. */
+function listDaemonEntries() {
+  let files;
+  try { files = readdirSync(TEMP_DIR); } catch { return []; }
+  return files
+    .filter(f => f.startsWith(DAEMON_FILE_PREFIX) && f.endsWith(DAEMON_FILE_SUFFIX))
+    .map(f => {
+      try {
+        const info = JSON.parse(readFileSync(resolve(TEMP_DIR, f), 'utf8'));
+        const targetId = f.slice(DAEMON_FILE_PREFIX.length, -DAEMON_FILE_SUFFIX.length);
+        return { targetId, socketPath: info.pipePath, pid: info.pid };
+      } catch { return null; }
+    })
+    .filter(Boolean);
+}
+
+/** Try to connect to a named pipe. Resolves true/false. */
+function checkPipeLive(pipePath, timeoutMs = 2000) {
+  return new Promise(resolve => {
+    const conn = net.connect(pipePath);
+    const timer = setTimeout(() => { conn.destroy(); resolve(false); }, timeoutMs);
+    conn.on('connect', () => { clearTimeout(timer); conn.end(); resolve(true); });
+    conn.on('error', () => { clearTimeout(timer); resolve(false); });
+  });
+}
+
+/** Remove marker files whose pipes are no longer reachable (parallel). */
+async function pruneStaleDaemons() {
+  const entries = listDaemonEntries();
+  if (entries.length === 0) return;
+  const results = await Promise.all(
+    entries.map(async (entry) => {
+      const alive = await checkPipeLive(entry.socketPath);
+      if (!alive) unregisterDaemon(entry.targetId);
+      return alive ? entry : null;
+    })
+  );
+  return results.filter(Boolean);
 }
 
 function resolvePrefix(prefix, candidates, noun = 'target', missingHint = '') {
@@ -500,8 +507,13 @@ async function runDaemon(targetId) {
     process.exit(1);
   }
 
-  // Register this daemon in the registry
+  // Register this daemon's marker file
   registerDaemon(targetId, process.pid);
+
+  // Best-effort cleanup: if the process exits for any reason (crash,
+  // unhandled exception, kill), remove the marker file. The 'exit' handler
+  // must be synchronous — unlinkSync is fine for a regular file.
+  process.on('exit', () => { unregisterDaemon(targetId); });
 
   // Shutdown helpers
   let alive = true;
@@ -509,6 +521,8 @@ async function runDaemon(targetId) {
     if (!alive) return;
     alive = false;
     server.close();
+    // unregisterDaemon will also run via the 'exit' handler, but calling
+    // it here explicitly is fine — the function is idempotent.
     unregisterDaemon(targetId);
     cdp.close();
     process.exit(0);
@@ -684,11 +698,11 @@ function sendCommand(conn, req) {
   });
 }
 
-// Find any running daemon pipe to reuse for list
+// Find any running daemon pipe to reuse for list.
+// Caller must have pruned stale daemons first.
 function findAnyDaemonSocket() {
-  pruneStaleDaemons();
-  const daemons = listDaemonSockets();
-  return daemons[0]?.socketPath || null;
+  const entries = listDaemonEntries();
+  return entries[0]?.socketPath || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -696,8 +710,7 @@ function findAnyDaemonSocket() {
 // ---------------------------------------------------------------------------
 
 async function stopDaemons(targetPrefix) {
-  pruneStaleDaemons();
-  const daemons = listDaemonSockets();
+  const daemons = listDaemonEntries();
 
   if (targetPrefix) {
     const targetId = resolvePrefix(targetPrefix, daemons.map(d => d.targetId), 'daemon');
@@ -706,7 +719,7 @@ async function stopDaemons(targetPrefix) {
       const conn = await connectToSocket(daemon.socketPath);
       await sendCommand(conn, { cmd: 'stop' });
     } catch {
-      // Daemon unreachable — just remove from registry
+      // Daemon unreachable — remove marker file
       unregisterDaemon(targetId);
     }
     return;
@@ -717,7 +730,7 @@ async function stopDaemons(targetPrefix) {
       const conn = await connectToSocket(daemon.socketPath);
       await sendCommand(conn, { cmd: 'stop' });
     } catch {
-      // Daemon unreachable — just remove from registry
+      // Daemon unreachable — remove marker file
       unregisterDaemon(daemon.targetId);
     }
   }
@@ -772,7 +785,7 @@ EVAL SAFETY NOTE
 
 DAEMON IPC (Windows named pipes)
   Each tab runs a persistent daemon at named pipe: //./pipe/cdp-<fullTargetId>
-  Active daemons are tracked in: ${DAEMON_REGISTRY}
+  Each daemon writes a marker file: %TEMP%/cdp-daemon-<targetId>.json
   Protocol: newline-delimited JSON (one JSON object per line, UTF-8).
     Request:  {"id":<number>, "cmd":"<command>", "args":["arg1","arg2",...]}
     Response: {"id":<number>, "ok":true,  "result":"<string>"}
@@ -797,10 +810,13 @@ async function main() {
     console.log(USAGE); process.exit(0);
   }
 
+  // Prune stale daemons once — all subsequent code can assume marker files
+  // correspond to live daemons (or will fail fast on pipe connect).
+  await pruneStaleDaemons();
+
   // List — use existing daemon if available, otherwise direct
   if (cmd === 'list' || cmd === 'ls') {
     let pages;
-    pruneStaleDaemons();
     const existingSock = findAnyDaemonSocket();
     if (existingSock) {
       try {
@@ -843,8 +859,7 @@ async function main() {
 
   // Resolve prefix → full targetId from cache or running daemon
   let targetId;
-  pruneStaleDaemons();
-  const daemonTargetIds = listDaemonSockets().map(d => d.targetId);
+  const daemonTargetIds = listDaemonEntries().map(d => d.targetId);
   const daemonMatches = daemonTargetIds.filter(id => id.toUpperCase().startsWith(targetPrefix.toUpperCase()));
 
   if (daemonMatches.length > 0) {

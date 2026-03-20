@@ -74,4 +74,4 @@ CSS px = screenshot image px / DPR
 - Prefer `snap --compact` over `html` for page structure.
 - Use `type` (not eval) to enter text in cross-origin iframes — `click`/`clickxy` to focus first, then `type`.
 - Chrome shows an "Allow debugging" modal once per tab on first access. A background daemon keeps the session alive so subsequent commands need no further approval. Daemons auto-exit after 20 minutes of inactivity.
-- On Windows, daemons use named pipes (`//./pipe/cdp-<targetId>`) instead of Unix sockets. A registry file at `%TEMP%/cdp-daemons.json` tracks active daemons.
+- On Windows, daemons use named pipes (`//./pipe/cdp-<targetId>`) instead of Unix sockets. Each daemon writes a marker file at `%TEMP%/cdp-daemon-<targetId>.json` for discovery.
