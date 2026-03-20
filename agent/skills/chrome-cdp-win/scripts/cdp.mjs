@@ -507,12 +507,10 @@ async function runDaemon(targetId) {
     process.exit(1);
   }
 
-  // Register this daemon's marker file
-  registerDaemon(targetId, process.pid);
-
   // Best-effort cleanup: if the process exits for any reason (crash,
   // unhandled exception, kill), remove the marker file. The 'exit' handler
   // must be synchronous — unlinkSync is fine for a regular file.
+  // Registered early so it covers any exit path after registerDaemon below.
   process.on('exit', () => { unregisterDaemon(targetId); });
 
   // Shutdown helpers
@@ -611,7 +609,14 @@ async function runDaemon(targetId) {
     });
   });
 
-  server.listen(sp);
+  // Start listening on the named pipe, then write the marker file.
+  // This order guarantees that by the time the marker is visible to other
+  // processes (via pruneStaleDaemons / listDaemonEntries), the pipe is
+  // already accepting connections — mirroring the Unix pattern where
+  // server.listen() atomically creates the socket file.
+  server.listen(sp, () => {
+    registerDaemon(targetId, process.pid);
+  });
 }
 
 // ---------------------------------------------------------------------------
