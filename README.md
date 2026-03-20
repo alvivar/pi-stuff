@@ -1,90 +1,33 @@
-# Pi agent extensions
+# .pi
 
-This directory contains extensions for the [Pi agent](http://pi.dev).
+My personal [Pi](http://pi.dev) config. Scrappy, opinionated, not meant for anyone else.
 
 ## Extensions
 
-### `claude-code-provider`
+**`claude-code-provider`** — The big one (~2k lines). Wraps the `claude` CLI so I can use Claude Code headless mode as a Pi model. Streams `stream-json` output, keeps Claude sessions alive across turns with `--resume`, renders Claude's internal tool calls as compact inline traces (not Pi toolCalls — those have the wrong semantics here), handles `/compact` by summarizing and restarting the Claude session, and so on. Logs everything to `agent/debug.log`.
 
-**Path:** `agent/extensions/claude-code-provider/index.ts`
+**`claude-subagent`** — Registers a `claude_subagent` tool so any model running in Pi can shell out to Claude Code for a subtask. Thread-based session reuse, `/claude <task>` shortcut.
 
-Registers a `claude-code` provider that lets Pi use your locally installed `claude` CLI as a model backend.
+## Skills
 
-- Provider id: `claude-code`
-- Model ids:
-  - `claude-code-sonnet-4-6`
-  - `claude-code-opus-4-6`
-  - `claude-code-haiku-4-5`
-- Includes a command to clear the provider’s internal resume/session cache: `claude-code-new-session`
-- Propagates Pi thinking level to Claude CLI via `--effort` (low/medium/high)
-- Forwards Pi/global system prompt instructions to Claude CLI via `--system-prompt` / `--append-system-prompt` as appropriate
+**`chrome-cdp-win`** — Windows fork of `pi-chrome-cdp`. The upstream skill uses Unix domain sockets for daemon IPC, which doesn't work on Windows. This fork uses named pipes (`//./pipe/cdp-<targetId>`), a registry file (`%TEMP%/cdp-daemons.json`) for daemon discovery, and fixes a bunch of other Windows-specific rough edges (screenshot paths, Chrome profile detection via `DevToolsActivePort`, help text). See its own `TODO.md` for known issues — registry file races, daemon crash cleanup, PID recycling.
 
-#### Design goals / important behavior
+## Docs
 
-- Use Claude Code headless mode faithfully: prefer metadata and usage fields actually emitted by `claude -p --output-format stream-json` over inferred provider-side guesses.
-- Preserve Claude CLI session continuity via `--resume`; Pi chat history is mainly display/UI state for this provider, while real conversational memory lives in the Claude CLI session.
-- Keep streamed output visually stable and chronological in Pi.
-- Make Claude internal tool activity feel native in Pi without pretending Pi executed those tools.
+- `CLAUDE_CODE_PI_INTEGRATION_NOTES.md` — why Claude tool events can't be Pi toolCalls, and other architectural decisions
+- `CLAUDE_CODE_PROVIDER_BEHAVIOR.md` — how the provider actually behaves (streaming, compaction, usage tracking, context meter)
+- `CHROME-CDP-WINDOWS-FIX.md` — the original Unix socket → named pipe fix I applied to `pi-chrome-cdp` before forking it into a standalone skill
+- `DEAD_KEY_BUG.md` — a dead key composition bug I hit in VSCode terminal
+- `TODO.md` — what's left to do on the provider
+- `agent/extensions/claude-code-headless.md` — reference for Claude Code's headless CLI API
 
-#### Streaming / rendering model
+## Also in here
 
-- The provider uses `--output-format stream-json --verbose --include-partial-messages`.
-- Canonical prose rendering comes from Claude `stream_event` text deltas.
-- Top-level assistant snapshots are used only as a monotonic suffix fallback when needed.
-- Rendering is locked to a single source per response (`stream_event` or `assistant_snapshot`) to avoid cross-channel ordering drift.
-- Claude internal `tool_use` events are rendered as inline assistant trace text, not Pi native `toolCall` blocks.
-  - Reason: Pi treats native `toolCall` as executable intent and renders them as separate tool UI components, which is the wrong semantic and visual model for Claude-internal tools.
-- Tool traces are always visible and currently use compact one-line summaries such as:
-  - `↳ read — file=src/index.ts`
-  - `↳ edit — file=src/index.ts old=158c new=163c`
-- A completed trace text block may remain open for the next prose block so spacing stays reliable without invisible spacer hacks or block-boundary newline tricks.
+- `agent/settings.json` — default model, theme, thinking level
+- `agent/bin/` — bundled `rg.exe`, `fd.exe`
+- `agent/sessions/` — session history (gitignored)
+- `agent/debug.log` — diagnostics (gitignored)
 
-#### Usage / cost fidelity policy
+## Setup
 
-- Token buckets are mapped directly from Claude CLI output when present:
-  - input
-  - output
-  - cache read
-  - cache creation/write
-- `total_cost_usd` from Claude CLI is treated as authoritative for `usage.cost.total` when present.
-- The provider intentionally does **not** infer per-bucket USD costs from external pricing tables.
-- Registered Pi model pricing for this provider remains zeroed on purpose so fallback Pi cost calculation does not invent a component breakdown Claude headless mode did not report.
-- Claude exposes more cache detail than Pi’s current `Usage` model can represent (for example `cache_creation.ephemeral_5m_input_tokens` vs `ephemeral_1h_input_tokens`). Today that detail is collapsed when mapped into Pi `cacheWrite`.
-
-#### Diagnostics / logging
-
-- Raw provider diagnostics are appended to `~/.pi/agent/debug.log`.
-- The provider captures/logs notable metadata including:
-  - usage snapshots
-  - rate-limit events
-  - run metadata (`duration_ms`, `num_turns`)
-  - `system:init` details for `/claude-code-info`
-  - tool trace lifecycle information
-- Response-end guards ignore late stdout lines after the final result to prevent post-final render contamination.
-
-Environment variables supported by this extension include:
-
-- `CLAUDE_CLI_PATH` (default: `claude`)
-- `CLAUDE_CLI_TIMEOUT_SECONDS` (default: `240`)
-- `CLAUDE_CLI_ALLOWED_TOOLS` (default: `Read,Edit,Write,Bash,Grep,Glob`)
-- `CLAUDE_CLI_MODEL_SONNET_46`, `CLAUDE_CLI_MODEL_OPUS_46`, `CLAUDE_CLI_MODEL_HAIKU_45`
-- `CLAUDE_CLI_APPEND_SYSTEM_PROMPT`
-
-### `claude-subagent`
-
-**Path:** `agent/extensions/claude-subagent/index.ts`
-
-Registers a `claude_subagent` tool that delegates a task to the local `claude` CLI (via `claude -p`) and returns the result back into Pi.
-
-- Tool name: `claude_subagent`
-- Supports session reuse via `thread` (maps to `--resume` behind the scenes)
-- Supports `--resume` / `--continue`, `--allowedTools`, and `--effort`
-- Registers a convenience command: `claude` (usage: `/claude <task>`), which prompts Pi to call `claude_subagent`
-
-## Configuration
-
-Model enablement happens via Pi settings (see `agent/settings.json`). For example, this repo’s settings enable the `claude-code/...` models so they can be selected in Pi.
-
-## Requirements
-
-These extensions expect the `claude` CLI to be installed and available on your `PATH` (or configured via `CLAUDE_CLI_PATH`).
+Needs the `claude` CLI on PATH (or set `CLAUDE_CLI_PATH`). Chrome CDP skill needs Chrome with remote debugging enabled.
