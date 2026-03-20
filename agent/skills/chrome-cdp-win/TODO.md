@@ -49,11 +49,11 @@ Replaced shared `cdp-daemons.json` with per-daemon marker files and pipe-connect
 
 - [x] **Force-kill hung daemons** — When `stop` can't reach a daemon's pipe, `process.kill(pid)` is attempted before removing the marker file. Prevents leaked processes.
 
-### Phase 3 — Error messages
+### Phase 3 ✅ — Error messages
 
-- [ ] **Friendly `getWsUrl()` errors** — Wrap with actionable messages:
-  - `ENOENT` on DevToolsActivePort → "No Chromium browser found with remote debugging enabled. Open chrome://inspect/#remote-debugging and toggle the switch."
-  - `ECONNREFUSED` on WebSocket → "Chrome is running but rejected the connection. Is another debugger already attached?"
+- [x] **Friendly `getWsUrl()` errors** — `ENOENT` on DevToolsActivePort gives actionable hint. `ECONNREFUSED` on WebSocket connect caught in both daemon and `list` direct-connect paths.
+
+## Remaining TODO
 
 ### Phase 4 — Multi-browser support
 

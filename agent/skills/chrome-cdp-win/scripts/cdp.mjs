@@ -33,7 +33,18 @@ function daemonFilePath(targetId) { return resolve(TEMP_DIR, `${DAEMON_FILE_PREF
 
 function getWsUrl() {
   const portFile = resolve(process.env.LOCALAPPDATA, 'Google/Chrome/User Data/DevToolsActivePort');
-  const lines = readFileSync(portFile, 'utf8').trim().split('\n');
+  let lines;
+  try {
+    lines = readFileSync(portFile, 'utf8').trim().split('\n');
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      throw new Error(
+        'Chrome DevToolsActivePort not found. Is Chrome running?\n' +
+        'Enable remote debugging: open chrome://inspect/#remote-debugging and toggle the switch.'
+      );
+    }
+    throw e;
+  }
   return `ws://127.0.0.1:${lines[0]}${lines[1]}`;
 }
 
@@ -490,10 +501,21 @@ async function runDaemon(targetId) {
   const sp = sockPath(targetId);
 
   const cdp = new CDP();
+  let wsUrl;
   try {
-    await cdp.connect(getWsUrl());
+    wsUrl = getWsUrl();
   } catch (e) {
-    process.stderr.write(`Daemon: cannot connect to Chrome: ${e.message}\n`);
+    process.stderr.write(`Daemon: ${e.message}\n`);
+    process.exit(1);
+  }
+  try {
+    await cdp.connect(wsUrl);
+  } catch (e) {
+    process.stderr.write(
+      `Daemon: cannot connect to Chrome.\n` +
+      `Is Chrome still running with remote debugging enabled?\n` +
+      `Enable it at chrome://inspect/#remote-debugging\n`
+    );
     process.exit(1);
   }
 
@@ -843,7 +865,15 @@ async function main() {
     if (!pages) {
       // No daemon running — connect directly (will trigger one Allow)
       const cdp = new CDP();
-      await cdp.connect(getWsUrl());
+      const wsUrl = getWsUrl(); // may throw with friendly ENOENT message
+      try {
+        await cdp.connect(wsUrl);
+      } catch (e) {
+        throw new Error(
+          'Cannot connect to Chrome. Is it still running with remote debugging enabled?\n' +
+          'Enable it at chrome://inspect/#remote-debugging'
+        );
+      }
       pages = await getPages(cdp);
       cdp.close();
     }
