@@ -724,7 +724,8 @@ async function stopDaemons(targetPrefix) {
       const conn = await connectToSocket(daemon.socketPath);
       await sendCommand(conn, { cmd: 'stop' });
     } catch {
-      // Daemon unreachable — remove marker file
+      // Daemon unreachable — force-kill if PID is still alive, then remove marker
+      try { process.kill(daemon.pid); } catch {}
       unregisterDaemon(targetId);
     }
     return;
@@ -735,7 +736,8 @@ async function stopDaemons(targetPrefix) {
       const conn = await connectToSocket(daemon.socketPath);
       await sendCommand(conn, { cmd: 'stop' });
     } catch {
-      // Daemon unreachable — remove marker file
+      // Daemon unreachable — force-kill if PID is still alive, then remove marker
+      try { process.kill(daemon.pid); } catch {}
       unregisterDaemon(daemon.targetId);
     }
   }
@@ -815,6 +817,14 @@ async function main() {
     console.log(USAGE); process.exit(0);
   }
 
+  // Stop — runs before prune so it can see marker files for daemons whose
+  // pipes are dead but whose processes may still be alive (hung daemons).
+  // stopDaemons handles its own cleanup (force-kill PID + remove marker).
+  if (cmd === 'stop') {
+    await stopDaemons(args[0]);
+    return;
+  }
+
   // Prune stale daemons once — all subsequent code can assume marker files
   // correspond to live daemons (or will fail fast on pipe connect).
   await pruneStaleDaemons();
@@ -840,12 +850,6 @@ async function main() {
     writeFileSync(PAGES_CACHE, JSON.stringify(pages));
     console.log(formatPageList(pages));
     setTimeout(() => process.exit(0), 100);
-    return;
-  }
-
-  // Stop
-  if (cmd === 'stop') {
-    await stopDaemons(args[0]);
     return;
   }
 

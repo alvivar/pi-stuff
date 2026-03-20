@@ -42,14 +42,12 @@ Replaced shared `cdp-daemons.json` with per-daemon marker files and pipe-connect
 
 - [x] **Registry file races** — Each daemon writes only its own file. Zero contention.
 - [x] **Daemon crash without cleanup** — `process.on('exit')` does best-effort `unlinkSync`. Stale files pruned on next CLI run via pipe-connect check.
-- [x] **PID recycling** — Pipe-connect is the liveness check. Dead daemon = dead pipe = instant `ENOENT`. PID stored in marker only for future `stop` force-kill (phase 2).
+- [x] **PID recycling** — Pipe-connect is the liveness check. Dead daemon = dead pipe = instant `ENOENT`. PID stored in marker only for `stop` force-kill.
 - [x] **Registry cleanup consolidation** — Single `await pruneStaleDaemons()` at top of `main()`.
 
-## Remaining TODO
+### Phase 2 ✅ — Graceful stop via PID
 
-### Phase 2 — Graceful stop via PID
-
-- [ ] **Force-kill hung daemons** — When `stop` can't reach a daemon's pipe but the per-daemon marker file has a PID, try `process.kill(pid)` before deleting the file. Prevents leaked processes.
+- [x] **Force-kill hung daemons** — When `stop` can't reach a daemon's pipe, `process.kill(pid)` is attempted before removing the marker file. Prevents leaked processes.
 
 ### Phase 3 — Error messages
 
