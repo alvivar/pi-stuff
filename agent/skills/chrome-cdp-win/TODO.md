@@ -53,16 +53,6 @@ Replaced shared `cdp-daemons.json` with per-daemon marker files and pipe-connect
 
 - [x] **Friendly `getWsUrl()` errors** — `ENOENT` on DevToolsActivePort gives actionable hint. `ECONNREFUSED` on WebSocket connect caught in both daemon and `list` direct-connect paths.
 
-## Remaining TODO
+### Phase 4 — Skipped
 
-### Phase 4 — Multi-browser support
-
-- [ ] **Chrome profile paths** — Scan known `%LOCALAPPDATA%` paths in order:
-  1. `Google\Chrome\User Data` (Chrome)
-  2. `Microsoft\Edge\User Data` (Edge — pre-installed on all Windows)
-  3. `Google\Chrome SxS\User Data` (Canary)
-  4. `Google\Chrome Beta\User Data` (Beta)
-  5. `BraveSoftware\Brave-Browser\User Data` (Brave)
-  6. `Chromium\User Data` (Chromium)
-  
-  First one with a `DevToolsActivePort` file wins. Allow override via `CDP_USER_DATA_DIR` env var for custom `--user-data-dir` setups.
+Multi-browser support (Edge, Brave, Canary, Chromium) not needed — Chrome-only use case.
