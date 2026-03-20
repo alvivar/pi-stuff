@@ -7,6 +7,7 @@ My personal [Pi](http://pi.dev) config. Scrappy, opinionated, not meant for anyo
 **`claude-code-provider`** — The big one (~2k lines). Wraps the `claude` CLI so I can use Claude Code headless mode as a Pi model. Streams `stream-json` output, keeps Claude sessions alive across turns with `--resume`, renders Claude's internal tool calls as compact inline traces (not Pi toolCalls — those have the wrong semantics here), handles `/compact` by summarizing and restarting the Claude session, and so on. Logs everything to `agent/debug.log`.
 
 Docs live next to the code:
+
 - `BEHAVIOR.md` — how the provider actually behaves (streaming, compaction, usage tracking, context meter)
 - `INTEGRATION.md` — why Claude tool events can't be Pi toolCalls, and other architectural decisions
 - `HEADLESS.md` — reference for Claude Code's headless CLI API
