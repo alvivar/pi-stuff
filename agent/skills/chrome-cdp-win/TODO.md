@@ -32,18 +32,41 @@ But left several things broken on Windows:
 
 ## Remaining TODO
 
-### High priority
+### Phase 1 — Per-daemon files + pipe-based liveness (solves 4 items)
 
-- [ ] **Registry file races** — Multiple daemon processes read/write `cdp-daemons.json` concurrently with plain `readFileSync`/`writeFileSync`. Two daemons starting at the same time can clobber each other's entries. Fix: atomic writes via write-to-temp + rename-over (`fs.renameSync` is atomic on NTFS).
-- [ ] **Daemon crash without cleanup** — If a daemon crashes (unhandled exception, `process.exit(1)` in error paths before `shutdown()`), `unregisterDaemon()` is never called. `pruneStaleDaemons()` catches this via PID check, but only when the next CLI invocation happens to call it. Add a top-level `process.on('uncaughtException')` and `process.on('exit')` handler in the daemon to always unregister.
-- [ ] **PID recycling** — `process.kill(pid, 0)` can return true for a completely unrelated process that reused the PID. The registry already stores `startedAt` — cross-check with the actual process creation time (via `wmic process where ProcessId=<pid> get CreationDate`), or better: attempt a pipe connect as the liveness check instead of PID. If the pipe doesn't respond to a ping, the daemon is dead regardless of what PID says.
+Replace single shared `cdp-daemons.json` with one file per daemon: `%TEMP%/cdp-daemon-<targetId>.json`.
+Each contains `{ "pipePath": "//./pipe/cdp-<targetId>", "pid": <number>, "startedAt": <epoch> }`.
 
-### Medium priority
+Replace `process.kill(pid, 0)` PID liveness check with pipe-connect liveness check:
+`net.connect(pipePath)` with a short timeout — if the pipe is gone, the daemon is dead.
 
-- [ ] **Graceful stop via PID** — When a daemon pipe is unreachable but PID is alive (hung daemon), try `process.kill(pid)` before just removing from registry. Currently a hung daemon leaks the process.
-- [ ] **Chrome profile paths** — Only supports default Chrome at `%LOCALAPPDATA%\Google\Chrome\User Data\`. Doesn't handle Chrome Beta (`Chrome Beta`), Canary (`Chrome SxS`), Chromium, Edge (`Microsoft\Edge\User Data`), Brave (`BraveSoftware\Brave-Browser\User Data`), or custom `--user-data-dir`. At minimum detect Edge since it's pre-installed on every Windows machine.
-- [ ] **Error messages** — `getWsUrl()` throws a raw `ENOENT` when `DevToolsActivePort` doesn't exist. Wrap with: "Chrome DevToolsActivePort not found. Is Chrome running? Enable remote debugging at chrome://inspect/#remote-debugging".
+Keep PID in the file only as a fallback for `stop` (to force-kill hung daemons in phase 2).
 
-### Low priority
+This resolves:
 
-- [ ] **Registry cleanup consolidation** — `pruneStaleDaemons()` is called in `findAnyDaemonSocket()`, `stopDaemons()`, `list`, and `main()` target resolution — four separate call sites. Consider a single entry point early in `main()` so it runs once per CLI invocation.
+- [ ] **Registry file races** — Each daemon writes only its own file. No read-modify-write on shared state. Zero contention.
+- [ ] **Daemon crash without cleanup** — Stale per-daemon file is harmless. Next `prune` tries the pipe, fails, deletes the file. No corrupted shared state. Add `process.on('exit')` as best-effort cleanup (synchronous `unlinkSync` works on regular files, unlike named pipes).
+- [ ] **PID recycling** — Pipe-connect is the liveness check. When a daemon dies, Windows destroys the named pipe immediately. `net.connect` gives `ENOENT`. No PID involved, no recycling problem.
+- [ ] **Registry cleanup consolidation** — `pruneStaleDaemons()` becomes: glob `%TEMP%/cdp-daemon-*.json`, try pipe-connect on each, delete stale files. One call at top of `main()`.
+
+### Phase 2 — Graceful stop via PID
+
+- [ ] **Force-kill hung daemons** — When `stop` can't reach a daemon's pipe but the per-daemon file has a PID, try `process.kill(pid)` before deleting the file. Prevents leaked processes.
+
+### Phase 3 — Error messages
+
+- [ ] **Friendly `getWsUrl()` errors** — Wrap with actionable messages:
+  - `ENOENT` on DevToolsActivePort → "No Chromium browser found with remote debugging enabled. Open chrome://inspect/#remote-debugging and toggle the switch."
+  - `ECONNREFUSED` on WebSocket → "Chrome is running but rejected the connection. Is another debugger already attached?"
+
+### Phase 4 — Multi-browser support
+
+- [ ] **Chrome profile paths** — Scan known `%LOCALAPPDATA%` paths in order:
+  1. `Google\Chrome\User Data` (Chrome)
+  2. `Microsoft\Edge\User Data` (Edge — pre-installed on all Windows)
+  3. `Google\Chrome SxS\User Data` (Canary)
+  4. `Google\Chrome Beta\User Data` (Beta)
+  5. `BraveSoftware\Brave-Browser\User Data` (Brave)
+  6. `Chromium\User Data` (Chromium)
+
+  First one with a `DevToolsActivePort` file wins. Allow override via `CDP_USER_DATA_DIR` env var for custom `--user-data-dir` setups.
