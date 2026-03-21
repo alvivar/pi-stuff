@@ -175,22 +175,13 @@ All three bugs interact: #2 triggers #1, and #3 is the other daemon-client relia
 - [x] **C3 (bonus): `resolve` shadow fixed** — `checkPipeLive` Promise parameter
   renamed to `res` (finding #13).
 
-### Batch D — Low-risk cleanups (findings #12, #13, #15)
+### Batch D ✅ — Low-risk cleanups (findings #12, #13, #15)
 
-Small independent changes with no interaction. Can be done in any order.
-
-- [ ] **D1: `Runtime.enable` once after attach** — Move from `evalStr` to `runDaemon`,
-  right after `attachToTarget` succeeds. Remove from `evalStr`.
-- [ ] **D2: Rename `resolve` → `res` in `checkPipeLive`** — One-line rename to avoid
-  shadowing `path.resolve`.
-- [ ] **D3: Optional timeout parameter on `CDP.send`** — Add `timeout = TIMEOUT` as
-  4th parameter. Pass longer timeouts from `snapshotStr` and `shotStr`.
-
-**How to test:**
-- D1: Run `eval`, `html`, `net`, `loadall`, `shot` — all should still work (Runtime was
-  already enabled by the daemon at attach time).
-- D2: Syntax check only.
-- D3: Test with a heavy page where `snap` previously timed out at 15s.
+- [x] **D1: `Runtime.enable` once after attach** — Moved to `runDaemon` right after
+  `attachToTarget`. Removed from `evalStr`. Verified: `eval`, `html`, `net` all work.
+- [x] **D2: `resolve` shadow** — Already fixed in Batch C (`checkPipeLive` → `res`).
+- [x] **D3: Per-call timeout on `CDP.send`** — Added `timeout = TIMEOUT` as 4th param.
+  `snapshotStr` and `shotStr` now use `NAVIGATION_TIMEOUT` (30s) for their heavy CDP calls.
 
 ### Finding #10 — `readdirSync(TEMP_DIR)` performance
 

@@ -164,7 +164,7 @@ class CDP {
     });
   }
 
-  send(method, params = {}, sessionId) {
+  send(method, params = {}, sessionId, timeout = TIMEOUT) {
     const id = ++this.#id;
     return new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
@@ -176,7 +176,7 @@ class CDP {
           this.#pending.delete(id);
           reject(new Error(`Timeout: ${method}`));
         }
-      }, TIMEOUT);
+      }, timeout);
     });
   }
 
@@ -281,7 +281,7 @@ function orderedAxChildren(node, nodesById, childrenByParent) {
 }
 
 async function snapshotStr(cdp, sid, compact = false) {
-  const { nodes } = await cdp.send('Accessibility.getFullAXTree', {}, sid);
+  const { nodes } = await cdp.send('Accessibility.getFullAXTree', {}, sid, NAVIGATION_TIMEOUT);
   const nodesById = new Map(nodes.map(node => [node.nodeId, node]));
   const childrenByParent = new Map();
   for (const node of nodes) {
@@ -309,7 +309,6 @@ async function snapshotStr(cdp, sid, compact = false) {
 }
 
 async function evalStr(cdp, sid, expression) {
-  await cdp.send('Runtime.enable', {}, sid);
   const result = await cdp.send('Runtime.evaluate', {
     expression, returnByValue: true, awaitPromise: true,
   }, sid);
@@ -328,7 +327,7 @@ async function shotStr(cdp, sid, filePath) {
     if (parsed > 0) dpr = parsed;
   } catch {}
 
-  const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' }, sid);
+  const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' }, sid, NAVIGATION_TIMEOUT);
   const out = filePath || DEFAULT_SCREENSHOT_PATH;
   writeFileSync(out, Buffer.from(data, 'base64'));
 
@@ -508,6 +507,7 @@ async function runDaemon(targetId) {
   try {
     const res = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
     sessionId = res.sessionId;
+    await cdp.send('Runtime.enable', {}, sessionId);
   } catch (e) {
     process.stderr.write(`Daemon: attach failed: ${e.message}\n`);
     cdp.close();
