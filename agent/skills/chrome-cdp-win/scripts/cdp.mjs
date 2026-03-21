@@ -71,7 +71,10 @@ function unregisterDaemon(targetId) {
   try { unlinkSync(daemonFilePath(targetId)); } catch {}
 }
 
-/** Read all per-daemon marker files from %TEMP%. */
+/** Read all per-daemon marker files from %TEMP%.
+ *  Note: readdirSync reads the entire TEMP dir (potentially thousands of files)
+ *  then filters for our prefix. Fine in practice (<1ms), but could use
+ *  globSync('cdp-daemon-*.json', { cwd: TEMP_DIR }) if it ever matters. */
 function listDaemonEntries() {
   let files;
   try { files = readdirSync(TEMP_DIR); } catch { return []; }
