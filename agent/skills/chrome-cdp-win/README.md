@@ -1,7 +1,7 @@
 # chrome-cdp-win
 
-A Windows-only fork of `pi-chrome-cdp`. Every command works the same — this
-just makes them actually work on Windows.
+A Windows-only fork of [`pi-chrome-cdp`](https://github.com/pasky/chrome-cdp-skill).
+Every command works the same — this just makes them actually work on Windows.
 
 ## Prerequisites
 
