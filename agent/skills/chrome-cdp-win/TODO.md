@@ -148,26 +148,19 @@ All three bugs interact: #2 triggers #1, and #3 is the other daemon-client relia
 - A3: Connected to a pipe server that never responds → timed out after ~3s with
   descriptive error message.
 
-### Batch B — Simplify command plumbing (findings #4, #5, #7, #8, #14)
+### Batch B ✅ — Simplify command plumbing (findings #4, #5, #7, #8, #14)
 
-Pure refactors, no behavior change. Safe to do together.
-
-- [ ] **B1: Simplify `shotStr` DPR** — Delete the `Page.getLayoutMetrics` / `Emulation.getDeviceMetricsOverride` attempts. Keep only `window.devicePixelRatio`.
-- [ ] **B2: Deduplicate `stopDaemons`** — Filter list, single `for` loop.
-- [ ] **B3: `pruneStaleDaemons` returns void** — Remove unused return value.
-  OR: use its return value in `main()` and drop the later `findAnyDaemonSocket()` /
-  `listDaemonEntries()` calls. Pick whichever is simpler.
-- [ ] **B4: Use module-level `defaultScreenshotPath` in `shotStr`** — Delete the
-  local redeclaration.
-- [ ] **B5: Command dispatch table** — Replace `NEEDS_TARGET` Set + `handleCommand`
-  switch with a single `Map<string, { needsTarget: boolean, handler }>`. Aliases
-  (`snap`/`snapshot`, `shot`/`screenshot`, etc.) map to the same entry.
-
-**How to test:**
-- `shot` still prints correct DPR (compare before/after).
-- `stop <target>` and `stop` (all) still work.
-- `list` still reuses existing daemon.
-- All commands still resolve correctly (snap, eval, shot, html, nav, etc.).
+- [x] **B1: Simplify `shotStr` DPR** — Deleted `Page.getLayoutMetrics` and
+  `Emulation.getDeviceMetricsOverride` attempts. Uses only `window.devicePixelRatio`.
+- [x] **B2: Deduplicate `stopDaemons`** — Filter-then-loop, one `for` block.
+- [x] **B3: Use `pruneStaleDaemons` return value** — `main()` stores `liveDaemons`,
+  reuses for `list` socket and target resolution. Removed `findAnyDaemonSocket()`.
+- [x] **B4: `DEFAULT_SCREENSHOT_PATH` constant** — Single module-level constant
+  used in both `shotStr` and USAGE string.
+- [x] **B5: Command dispatch table** — `handleCommand` uses a `Map` of
+  `{ handler, needsTarget }` entries. Aliases share the same entry.
+  `NEEDS_TARGET` kept as static Set for `main()` (runs before daemon) with
+  a comment linking it to the dispatch table.
 
 ### Batch C — Client-side robustness (findings #9, #11)
 

@@ -98,9 +98,10 @@ function checkPipeLive(pipePath, timeoutMs = 2000) {
 }
 
 /** Remove marker files whose pipes are no longer reachable (parallel). */
+/** Remove stale marker files, return live daemon entries. */
 async function pruneStaleDaemons() {
   const entries = listDaemonEntries();
-  if (entries.length === 0) return;
+  if (entries.length === 0) return [];
   const results = await Promise.all(
     entries.map(async (entry) => {
       const alive = await checkPipeLive(entry.socketPath);
@@ -320,31 +321,15 @@ async function evalStr(cdp, sid, expression) {
 }
 
 async function shotStr(cdp, sid, filePath) {
-  // Get device scale factor so we can report coordinate mapping
   let dpr = 1;
   try {
-    const metrics = await cdp.send('Page.getLayoutMetrics', {}, sid);
-    dpr = metrics.visualViewport?.clientWidth
-      ? metrics.cssVisualViewport?.clientWidth
-        ? Math.round((metrics.visualViewport.clientWidth / metrics.cssVisualViewport.clientWidth) * 100) / 100
-        : 1
-      : 1;
-    // Simpler: deviceScaleFactor is on the root Page metrics
-    const { deviceScaleFactor } = await cdp.send('Emulation.getDeviceMetricsOverride', {}, sid).catch(() => ({}));
-    if (deviceScaleFactor) dpr = deviceScaleFactor;
+    const raw = await evalStr(cdp, sid, 'window.devicePixelRatio');
+    const parsed = parseFloat(raw);
+    if (parsed > 0) dpr = parsed;
   } catch {}
-  // Fallback: try to get DPR from JS
-  if (dpr === 1) {
-    try {
-      const raw = await evalStr(cdp, sid, 'window.devicePixelRatio');
-      const parsed = parseFloat(raw);
-      if (parsed > 0) dpr = parsed;
-    } catch {}
-  }
 
   const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' }, sid);
-  const defaultScreenshotPath = resolve(TEMP_DIR, 'screenshot.png');
-  const out = filePath || defaultScreenshotPath;
+  const out = filePath || DEFAULT_SCREENSHOT_PATH;
   writeFileSync(out, Buffer.from(data, 'base64'));
 
   const lines = [out];
@@ -565,36 +550,39 @@ async function runDaemon(targetId) {
     idleTimer = setTimeout(shutdown, IDLE_TIMEOUT);
   }
 
-  // Handle a command
+  // Command dispatch — single source of truth for command names and handlers.
+  // COMMANDS (module-level) maps canonical names to { handler, needsTarget }.
+  // Aliases (snapshot→snap, screenshot→shot, etc.) are also in the map.
+  const sid = sessionId;
+  const dispatch = new Map([
+    ['list',       { handler: async () => formatPageList(await getPages(cdp)) }],
+    ['list_raw',   { handler: async () => JSON.stringify(await getPages(cdp)) }],
+    ['snap',       { handler: async (a) => snapshotStr(cdp, sid, true), needsTarget: true }],
+    ['eval',       { handler: async (a) => evalStr(cdp, sid, a[0]), needsTarget: true }],
+    ['shot',       { handler: async (a) => shotStr(cdp, sid, a[0]), needsTarget: true }],
+    ['html',       { handler: async (a) => htmlStr(cdp, sid, a[0]), needsTarget: true }],
+    ['nav',        { handler: async (a) => navStr(cdp, sid, a[0]), needsTarget: true }],
+    ['net',        { handler: async (a) => netStr(cdp, sid), needsTarget: true }],
+    ['click',      { handler: async (a) => clickStr(cdp, sid, a[0]), needsTarget: true }],
+    ['clickxy',    { handler: async (a) => clickXyStr(cdp, sid, a[0], a[1]), needsTarget: true }],
+    ['type',       { handler: async (a) => typeStr(cdp, sid, a[0]), needsTarget: true }],
+    ['loadall',    { handler: async (a) => loadAllStr(cdp, sid, a[0], a[1] ? parseInt(a[1]) : 1500), needsTarget: true }],
+    ['evalraw',    { handler: async (a) => evalRawStr(cdp, sid, a[0], a[1]), needsTarget: true }],
+  ]);
+  // Aliases
+  dispatch.set('snapshot', dispatch.get('snap'));
+  dispatch.set('screenshot', dispatch.get('shot'));
+  dispatch.set('navigate', dispatch.get('nav'));
+  dispatch.set('network', dispatch.get('net'));
+  dispatch.set('ls', dispatch.get('list'));
+
   async function handleCommand({ cmd, args }) {
     resetIdle();
+    if (cmd === 'stop') return { ok: true, result: '', stopAfter: true };
+    const entry = dispatch.get(cmd);
+    if (!entry) return { ok: false, error: `Unknown command: ${cmd}` };
     try {
-      let result;
-      switch (cmd) {
-        case 'list': {
-          const pages = await getPages(cdp);
-          result = formatPageList(pages);
-          break;
-        }
-        case 'list_raw': {
-          const pages = await getPages(cdp);
-          result = JSON.stringify(pages);
-          break;
-        }
-        case 'snap': case 'snapshot': result = await snapshotStr(cdp, sessionId, true); break;
-        case 'eval': result = await evalStr(cdp, sessionId, args[0]); break;
-        case 'shot': case 'screenshot': result = await shotStr(cdp, sessionId, args[0]); break;
-        case 'html': result = await htmlStr(cdp, sessionId, args[0]); break;
-        case 'nav': case 'navigate': result = await navStr(cdp, sessionId, args[0]); break;
-        case 'net': case 'network': result = await netStr(cdp, sessionId); break;
-        case 'click': result = await clickStr(cdp, sessionId, args[0]); break;
-        case 'clickxy': result = await clickXyStr(cdp, sessionId, args[0], args[1]); break;
-        case 'type': result = await typeStr(cdp, sessionId, args[0]); break;
-        case 'loadall': result = await loadAllStr(cdp, sessionId, args[0], args[1] ? parseInt(args[1]) : 1500); break;
-        case 'evalraw': result = await evalRawStr(cdp, sessionId, args[0], args[1]); break;
-        case 'stop': return { ok: true, result: '', stopAfter: true };
-        default: return { ok: false, error: `Unknown command: ${cmd}` };
-      }
+      const result = await entry.handler(args || []);
       return { ok: true, result: result ?? '' };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -718,35 +706,17 @@ function sendCommand(conn, req, timeoutMs = NAVIGATION_TIMEOUT) {
   });
 }
 
-// Find any running daemon pipe to reuse for list.
-// Caller must have pruned stale daemons first.
-function findAnyDaemonSocket() {
-  const entries = listDaemonEntries();
-  return entries[0]?.socketPath || null;
-}
-
 // ---------------------------------------------------------------------------
 // Stop daemons
 // ---------------------------------------------------------------------------
 
 async function stopDaemons(targetPrefix) {
   const daemons = listDaemonEntries();
+  const targets = targetPrefix
+    ? [daemons.find(d => d.targetId === resolvePrefix(targetPrefix, daemons.map(d => d.targetId), 'daemon'))]
+    : daemons;
 
-  if (targetPrefix) {
-    const targetId = resolvePrefix(targetPrefix, daemons.map(d => d.targetId), 'daemon');
-    const daemon = daemons.find(d => d.targetId === targetId);
-    try {
-      const conn = await connectToSocket(daemon.socketPath);
-      await sendCommand(conn, { cmd: 'stop' });
-    } catch {
-      // Daemon unreachable — force-kill if PID is still alive, then remove marker
-      try { process.kill(daemon.pid); } catch {}
-      unregisterDaemon(targetId);
-    }
-    return;
-  }
-
-  for (const daemon of daemons) {
+  for (const daemon of targets) {
     try {
       const conn = await connectToSocket(daemon.socketPath);
       await sendCommand(conn, { cmd: 'stop' });
@@ -762,7 +732,7 @@ async function stopDaemons(targetPrefix) {
 // Main
 // ---------------------------------------------------------------------------
 
-const defaultScreenshotPath = resolve(TEMP_DIR, 'screenshot.png');
+const DEFAULT_SCREENSHOT_PATH = resolve(TEMP_DIR, 'screenshot.png');
 
 const USAGE = `cdp - lightweight Chrome DevTools Protocol CLI for Windows (no Puppeteer)
 
@@ -771,7 +741,7 @@ Usage: cdp <command> [args]
   list                              List open pages (shows unique target prefixes)
   snap  <target>                    Accessibility tree snapshot
   eval  <target> <expr>             Evaluate JS expression
-  shot  <target> [file]             Screenshot (default: ${defaultScreenshotPath}); prints coordinate mapping
+  shot  <target> [file]             Screenshot (default: ${DEFAULT_SCREENSHOT_PATH}); prints coordinate mapping
   html  <target> [selector]         Get HTML (full page or CSS selector)
   nav   <target> <url>              Navigate to URL and wait for load completion
   net   <target>                    Network performance entries
@@ -817,6 +787,8 @@ DAEMON IPC (Windows named pipes)
   The pipe disappears after 20 min of inactivity or when the tab closes.
 `;
 
+// Commands that require a target prefix. Must match the needsTarget entries
+// in the dispatch table inside runDaemon (and their aliases).
 const NEEDS_TARGET = new Set([
   'snap','snapshot','eval','shot','screenshot','html','nav','navigate',
   'net','network','click','clickxy','type','loadall','evalraw',
@@ -840,14 +812,13 @@ async function main() {
     return;
   }
 
-  // Prune stale daemons once — all subsequent code can assume marker files
-  // correspond to live daemons (or will fail fast on pipe connect).
-  await pruneStaleDaemons();
+  // Prune stale daemons once — returns live entries for reuse below.
+  const liveDaemons = await pruneStaleDaemons();
 
   // List — use existing daemon if available, otherwise direct
   if (cmd === 'list' || cmd === 'ls') {
     let pages;
-    const existingSock = findAnyDaemonSocket();
+    const existingSock = liveDaemons[0]?.socketPath;
     if (existingSock) {
       try {
         const conn = await connectToSocket(existingSock);
@@ -891,7 +862,7 @@ async function main() {
 
   // Resolve prefix → full targetId from cache or running daemon
   let targetId;
-  const daemonTargetIds = listDaemonEntries().map(d => d.targetId);
+  const daemonTargetIds = liveDaemons.map(d => d.targetId);
   const daemonMatches = daemonTargetIds.filter(id => id.toUpperCase().startsWith(targetPrefix.toUpperCase()));
 
   if (daemonMatches.length > 0) {
