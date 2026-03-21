@@ -162,21 +162,18 @@ All three bugs interact: #2 triggers #1, and #3 is the other daemon-client relia
   `NEEDS_TARGET` kept as static Set for `main()` (runs before daemon) with
   a comment linking it to the dispatch table.
 
-### Batch C — Client-side robustness (findings #9, #11)
+### Batch C ✅ — Client-side robustness (findings #9, #11, #13)
 
-Both improve the CLI process's ability to exit cleanly.
-
-- [ ] **C1: Remove `setTimeout(exit, 100)` hack in `list`** — Just let `main()` return.
-  The event loop drains naturally. If the WebSocket keeps it alive, call `cdp.close()`
-  (already done). Verify: `cdp list` exits promptly without the hack.
-- [ ] **C2: Detect early daemon death in `getOrStartTabDaemon`** — Don't detach+ignore
-  stdio. Keep `child` reference, listen for `'exit'` event. If child exits during the
-  poll loop, reject immediately with a descriptive error instead of waiting 30s.
-
-**How to test:**
-- C1: `time cdp list` — should exit in <1s, not hang.
-- C2: Close Chrome, then run `cdp eval <target> "1"`. Should fail fast (~1s) with
-  "Daemon failed to start" instead of waiting 30s.
+- [x] **C1: Clean process exit** — Replaced `setTimeout(exit, 100)` hack with
+  `main().then(() => process.exit(0))`. Fixed `conn.end()` → `conn.destroy()` in
+  `sendCommand` and `checkPipeLive` to release socket handles. Added
+  `return new Promise(() => {})` in `runDaemon` so daemon mode isn't killed
+  by the `.then()` handler.
+- [x] **C2: Early daemon death detection** — `getOrStartTabDaemon` listens for
+  child `'exit'` event. If daemon dies during poll loop, rejects immediately
+  (~1.5s) instead of waiting 30s.
+- [x] **C3 (bonus): `resolve` shadow fixed** — `checkPipeLive` Promise parameter
+  renamed to `res` (finding #13).
 
 ### Batch D — Low-risk cleanups (findings #12, #13, #15)
 

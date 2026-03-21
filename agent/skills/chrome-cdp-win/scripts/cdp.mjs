@@ -89,11 +89,11 @@ function listDaemonEntries() {
 
 /** Try to connect to a named pipe. Resolves true/false. */
 function checkPipeLive(pipePath, timeoutMs = 2000) {
-  return new Promise(resolve => {
+  return new Promise(res => {
     const conn = net.connect(pipePath);
-    const timer = setTimeout(() => { conn.destroy(); resolve(false); }, timeoutMs);
-    conn.on('connect', () => { clearTimeout(timer); conn.end(); resolve(true); });
-    conn.on('error', () => { clearTimeout(timer); resolve(false); });
+    const timer = setTimeout(() => { conn.destroy(); res(false); }, timeoutMs);
+    conn.on('connect', () => { clearTimeout(timer); conn.destroy(); res(true); });
+    conn.on('error', () => { clearTimeout(timer); res(false); });
   });
 }
 
@@ -636,6 +636,11 @@ async function runDaemon(targetId) {
     registered = true;
     registerDaemon(targetId, process.pid);
   });
+
+  // Keep the async function pending forever — the daemon runs until
+  // shutdown() calls process.exit(). Without this, the resolved promise
+  // would trigger the process.exit(0) in main()'s .then() handler.
+  return new Promise(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -662,9 +667,14 @@ async function getOrStartTabDaemon(targetId) {
   });
   child.unref();
 
+  // Detect early daemon death (e.g. Chrome closed, attach failed).
+  let childDead = false;
+  child.on('exit', () => { childDead = true; });
+
   // Wait for named pipe (includes time for user to click Allow)
   for (let i = 0; i < DAEMON_CONNECT_RETRIES; i++) {
     await sleep(DAEMON_CONNECT_DELAY);
+    if (childDead) throw new Error('Daemon exited immediately — is Chrome running with remote debugging enabled?');
     try { return await connectToSocket(sp); } catch {}
   }
   throw new Error('Daemon failed to start — did you click Allow in Chrome?');
@@ -694,7 +704,7 @@ function sendCommand(conn, req, timeoutMs = NAVIGATION_TIMEOUT) {
       if (idx === -1) return;
       settle(() => {
         resolve(JSON.parse(buf.slice(0, idx)));
-        conn.end();
+        conn.destroy();
       });
     });
 
@@ -843,7 +853,6 @@ async function main() {
     }
     writeFileSync(PAGES_CACHE, JSON.stringify(pages));
     console.log(formatPageList(pages));
-    setTimeout(() => process.exit(0), 100);
     return;
   }
 
@@ -910,4 +919,7 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error(e.message); process.exit(1); });
+main().then(
+  () => process.exit(0),
+  (e) => { console.error(e.message); process.exit(1); }
+);
