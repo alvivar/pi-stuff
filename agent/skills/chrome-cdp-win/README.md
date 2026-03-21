@@ -21,6 +21,8 @@ the code harder to follow than just writing a clean Windows version.
 
 ## What's different for users
 
+- Full feature parity — `list`, `snap`, `eval`, `shot`, `html`, `nav`, `net`,
+  `click`, `clickxy`, `type`, `loadall`, `evalraw`, `stop` all work identically
 - Everything after `list` actually works (discovery, stop, cleanup were broken)
 - Screenshots land in `%TEMP%\screenshot.png` by default
 - Dead targets fail in ~1.5s instead of making you wait 30s
