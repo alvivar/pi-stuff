@@ -130,25 +130,23 @@ Multi-browser support (Edge, Brave, Canary, Chromium) not needed — Chrome-only
 
 ## Fix Plan
 
-### Batch A — Daemon safety (bugs #1, #2, #3)
+### Batch A ✅ — Daemon safety (bugs #1, #2, #3)
 
 All three bugs interact: #2 triggers #1, and #3 is the other daemon-client reliability gap.
-Fix together, test together.
 
-- [ ] **A1: `registered` flag in `runDaemon`** — Add `let registered = false`. Set `true` after
-  `registerDaemon()`. Exit handler: `if (registered) unregisterDaemon(targetId)`.
-- [ ] **A2: `server.on('error')` handler** — `server.on('error', () => process.exit(1))`.
-  With A1, the exit handler is now safe (won't unregister since `registered` is still false).
-- [ ] **A3: `sendCommand` timeout** — Add `setTimeout` that rejects after 30s.
-  Fold into the simplification of `sendCommand` (finding #6): use `conn.once()`,
-  merge `onEnd`/`onClose`, add timeout timer.
+- [x] **A1: `registered` flag in `runDaemon`** — Exit handler only unregisters if
+  `registered === true`. Set after `registerDaemon()` in `server.listen` callback.
+- [x] **A2: `server.on('error')` handler** — Logs error, closes CDP, exits.
+  Exit handler safe because `registered` is still false.
+- [x] **A3: `sendCommand` timeout + simplification** — 30s default timeout (matches
+  `NAVIGATION_TIMEOUT`). Simplified from 4 handlers + `settled` flag + `cleanup()` to
+  single `settle()` helper + `removeAllListeners()`. Merged `onEnd`/`onClose`.
 
-**How to test:**
-- A1+A2: Spawn two daemons for the same targetId simultaneously. Second one should fail
-  gracefully (EADDRINUSE) without deleting the first daemon's marker file. Verify first
-  daemon is still reachable.
-- A3: Send a command to a daemon, have the daemon delay artificially (or freeze it with
-  `SIGSTOP` equivalent). Verify CLI exits with timeout error after ~30s instead of hanging.
+**Tested:**
+- A1+A2: Spawned second `_daemon` for same targetId → EADDRINUSE, exited cleanly,
+  original daemon's marker file intact, original daemon still responded to commands.
+- A3: Connected to a pipe server that never responds → timed out after ~3s with
+  descriptive error message.
 
 ### Batch B — Simplify command plumbing (findings #4, #5, #7, #8, #14)
 

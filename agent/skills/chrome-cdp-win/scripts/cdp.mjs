@@ -530,10 +530,11 @@ async function runDaemon(targetId) {
   }
 
   // Best-effort cleanup: if the process exits for any reason (crash,
-  // unhandled exception, kill), remove the marker file. The 'exit' handler
-  // must be synchronous — unlinkSync is fine for a regular file.
-  // Registered early so it covers any exit path after registerDaemon below.
-  process.on('exit', () => { unregisterDaemon(targetId); });
+  // unhandled exception, kill), remove the marker file. Only unregister
+  // if we actually registered — avoids deleting another daemon's marker
+  // when server.listen fails with EADDRINUSE.
+  let registered = false;
+  process.on('exit', () => { if (registered) unregisterDaemon(targetId); });
 
   // Shutdown helpers
   let alive = true;
@@ -541,9 +542,7 @@ async function runDaemon(targetId) {
     if (!alive) return;
     alive = false;
     server.close();
-    // unregisterDaemon will also run via the 'exit' handler, but calling
-    // it here explicitly is fine — the function is idempotent.
-    unregisterDaemon(targetId);
+    if (registered) unregisterDaemon(targetId);
     cdp.close();
     process.exit(0);
   }
@@ -631,12 +630,22 @@ async function runDaemon(targetId) {
     });
   });
 
+  // Handle listen errors (e.g. EADDRINUSE if another daemon already owns
+  // this pipe). With the `registered` flag, the exit handler won't delete
+  // the other daemon's marker file.
+  server.on('error', (e) => {
+    process.stderr.write(`Daemon: pipe listen failed: ${e.message}\n`);
+    cdp.close();
+    process.exit(1);
+  });
+
   // Start listening on the named pipe, then write the marker file.
   // This order guarantees that by the time the marker is visible to other
   // processes (via pruneStaleDaemons / listDaemonEntries), the pipe is
   // already accepting connections — mirroring the Unix pattern where
   // server.listen() atomically creates the socket file.
   server.listen(sp, () => {
+    registered = true;
     registerDaemon(targetId, process.pid);
   });
 }
@@ -673,53 +682,37 @@ async function getOrStartTabDaemon(targetId) {
   throw new Error('Daemon failed to start — did you click Allow in Chrome?');
 }
 
-function sendCommand(conn, req) {
+function sendCommand(conn, req, timeoutMs = NAVIGATION_TIMEOUT) {
   return new Promise((resolve, reject) => {
     let buf = '';
-    let settled = false;
+    let done = false;
 
-    const cleanup = () => {
-      conn.off('data', onData);
-      conn.off('error', onError);
-      conn.off('end', onEnd);
-      conn.off('close', onClose);
-    };
+    function settle(fn) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      conn.removeAllListeners();
+      fn();
+    }
 
-    const onData = (chunk) => {
+    const timer = setTimeout(() => settle(() => {
+      conn.destroy();
+      reject(new Error(`Command timed out after ${timeoutMs}ms: ${req.cmd}`));
+    }), timeoutMs);
+
+    conn.on('data', (chunk) => {
       buf += chunk.toString();
       const idx = buf.indexOf('\n');
       if (idx === -1) return;
-      settled = true;
-      cleanup();
-      resolve(JSON.parse(buf.slice(0, idx)));
-      conn.end();
-    };
+      settle(() => {
+        resolve(JSON.parse(buf.slice(0, idx)));
+        conn.end();
+      });
+    });
 
-    const onError = (error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    };
+    conn.on('error', (error) => settle(() => reject(error)));
+    conn.on('close', () => settle(() => reject(new Error('Connection closed before response'))));
 
-    const onEnd = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error('Connection closed before response'));
-    };
-
-    const onClose = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error('Connection closed before response'));
-    };
-
-    conn.on('data', onData);
-    conn.on('error', onError);
-    conn.on('end', onEnd);
-    conn.on('close', onClose);
     req.id = 1;
     conn.write(JSON.stringify(req) + '\n');
   });
