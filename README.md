@@ -17,7 +17,7 @@ Docs live next to the code:
 
 ## Skills
 
-**`chrome-cdp-win`** — Windows fork of `pi-chrome-cdp`. The upstream skill uses Unix domain sockets for daemon IPC, which doesn't work on Windows. This fork uses named pipes, a registry file for daemon discovery, and fixes other Windows rough edges. Has its own `TODO.md` for known issues and `HISTORY.md` for the original fix.
+**`chrome-cdp-win`** — Windows fork of `pi-chrome-cdp`. The upstream skill uses Unix domain sockets for daemon IPC, which doesn't work on Windows. This fork uses named pipes and per-daemon marker files for discovery. `HISTORY.md` has the backstory.
 
 ## Other docs
 
