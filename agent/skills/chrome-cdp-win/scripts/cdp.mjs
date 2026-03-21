@@ -15,10 +15,10 @@ import { resolve } from 'path';
 import { spawn } from 'child_process';
 import net from 'net';
 
-const TIMEOUT = 15000;
-const NAVIGATION_TIMEOUT = 30000;
+const TIMEOUT = 15000;              // Default CDP method timeout
+const NAVIGATION_TIMEOUT = 30000;   // For slow ops: nav, screenshot, a11y tree, sendCommand
 const IDLE_TIMEOUT = 20 * 60 * 1000;
-const DAEMON_CONNECT_RETRIES = 60;
+const DAEMON_CONNECT_RETRIES = 60;  // × DAEMON_CONNECT_DELAY = 30s max wait for daemon pipe
 const DAEMON_CONNECT_DELAY = 500;
 const MIN_TARGET_PREFIX_LEN = 8;
 
@@ -100,7 +100,6 @@ function checkPipeLive(pipePath, timeoutMs = 2000) {
   });
 }
 
-/** Remove marker files whose pipes are no longer reachable (parallel). */
 /** Remove stale marker files, return live daemon entries. */
 async function pruneStaleDaemons() {
   const entries = listDaemonEntries();
@@ -553,9 +552,8 @@ async function runDaemon(targetId) {
     idleTimer = setTimeout(shutdown, IDLE_TIMEOUT);
   }
 
-  // Command dispatch — single source of truth for command names and handlers.
-  // COMMANDS (module-level) maps canonical names to { handler, needsTarget }.
-  // Aliases (snapshot→snap, screenshot→shot, etc.) are also in the map.
+  // Command dispatch table — canonical names + aliases → { handler, needsTarget }.
+  // Must stay in sync with NEEDS_TARGET (module-level) used by main().
   const sid = sessionId;
   const dispatch = new Map([
     ['list',       { handler: async () => formatPageList(await getPages(cdp)) }],
