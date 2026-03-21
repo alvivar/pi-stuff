@@ -5,7 +5,7 @@ Every command works the same — this just makes them actually work on Windows.
 
 ## Prerequisites
 
-- Windows
+- **Windows only** — on Linux/macOS use the [original extension](https://github.com/pasky/chrome-cdp-skill)
 - Node.js 22+ (built-in WebSocket)
 - Chrome with remote debugging on (`chrome://inspect/#remote-debugging`)
 
