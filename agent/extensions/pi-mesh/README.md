@@ -190,7 +190,17 @@ Client A            Hub              Client B
 
 ## LLM Tools
 
-The extension registers three tools that the LLM can invoke during agent runs:
+The extension registers three tools that the LLM can invoke during agent runs.
+
+### Which tool should I use?
+
+| Tool | Behavior | Returns |
+| --- | --- | --- |
+| `mesh_send` | Send a message to another terminal, optionally triggering its LLM turn | Send/delivery status only |
+| `mesh_prompt` | Ask another terminal to run a prompt and wait for completion | The remote terminal's assistant response text |
+| `mesh_list` | List currently connected terminals | The current terminal directory/status listing |
+
+Use **`mesh_send`** to notify or steer another terminal. Use **`mesh_prompt`** when you need the other terminal's answer back in the current tool result.
 
 ### `mesh_send`
 
@@ -204,7 +214,11 @@ Send a fire-and-forget chat message to a specific terminal or broadcast to all.
 
 When `triggerTurn` is enabled, the message is delivered via `pi.sendMessage` with `deliverAs: "steer"`, causing the remote agent to kick off an LLM turn.
 
+**Returns:** send/delivery status only. It does **not** return the recipient's LLM response, even when `triggerTurn: true`.
+
 > **Broadcast note:** Sending to `"*"` delivers to **all other terminals** - the sender is excluded.
+
+> **Important:** `triggerTurn: true` makes the remote terminal act on the message, but any response stays on that terminal unless you separately use `mesh_prompt`.
 
 The tool **pre-validates** the target name against the local terminal list before sending, catching typos and definitely-absent names early. On the hub, delivery confirmation is **authoritative** (the hub knows all connections). On clients, delivery is **optimistic** - the message is sent to the hub for routing, and the hub handles errors via protocol-level responses.
 
@@ -216,6 +230,8 @@ Send a prompt to a remote terminal and **wait** for the LLM's response (synchron
 | --------- | -------- | -------------------- |
 | `to`      | `string` | Target terminal name |
 | `prompt`  | `string` | Prompt text to send  |
+
+**Returns:** the remote terminal's actual assistant reply text as the tool result.
 
 - The remote terminal processes the prompt via `pi.sendUserMessage()` - as if a user typed it.
 - Returns the **last assistant message** text from the remote agent run.
