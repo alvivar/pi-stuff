@@ -181,46 +181,55 @@ export default function (pi: ExtensionAPI) {
     if (excludeName !== terminalName) handleIncoming(msg);
   }
 
+  /** Hub: send a message to a specific terminal by name. */
+  function hubSendTo(target: string, msg: MeshMessage) {
+    if (target === terminalName) {
+      handleIncoming(msg);
+    } else {
+      for (const [clientWs, name] of hubClients) {
+        if (name === target) {
+          clientWs.send(JSON.stringify(msg));
+          return;
+        }
+      }
+    }
+  }
+
   /** Route a message to its destination. Works in both hub and client roles. */
   function routeMessage(msg: ChatMsg | PromptRequestMsg | PromptResponseMsg) {
     if (role === "hub") {
       if (msg.to === "*") {
         hubBroadcast(msg, msg.from);
-      } else if (msg.to === terminalName) {
-        handleIncoming(msg);
+      } else if (msg.to === terminalName || hubClientByName(msg.to)) {
+        hubSendTo(msg.to, msg);
       } else {
-        // Find the target client
-        let found = false;
-        for (const [clientWs, name] of hubClients) {
-          if (name === msg.to) {
-            clientWs.send(JSON.stringify(msg));
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          const errText = `Terminal "${msg.to}" not found`;
-          // If we sent it, notify locally; otherwise send error back to sender
-          if (msg.from === terminalName) {
-            ctx?.ui.notify(errText, "warning");
-          } else {
-            for (const [clientWs, name] of hubClients) {
-              if (name === msg.from) {
-                clientWs.send(
-                  JSON.stringify({
-                    type: "error",
-                    message: errText,
-                  } satisfies ErrorMsg),
-                );
-                break;
-              }
-            }
-          }
+        // Target not found — notify the sender
+        const errText = `Terminal "${msg.to}" not found`;
+        if (msg.type === "prompt_request") {
+          // Synthesize a prompt_response with error so the sender resolves immediately
+          hubSendTo(msg.from, {
+            type: "prompt_response",
+            id: msg.id,
+            from: terminalName,
+            to: msg.from,
+            response: "",
+            error: errText,
+          });
+        } else {
+          hubSendTo(msg.from, { type: "error", message: errText });
         }
       }
     } else if (role === "client" && ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
     }
+  }
+
+  /** Hub: find a client WebSocket by name. */
+  function hubClientByName(name: string): WebSocket | undefined {
+    for (const [clientWs, n] of hubClients) {
+      if (n === name) return clientWs;
+    }
+    return undefined;
   }
 
   // ── Incoming message handler (runs on every terminal) ────────────────────
@@ -624,6 +633,14 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
+      // Pre-validate target exists (fast-path, avoids round-trip to hub)
+      if (params.to !== "*" && !connectedTerminals.includes(params.to)) {
+        return {
+          content: [{ type: "text", text: `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}` }],
+          details: { to: params.to, error: "not_found" },
+        };
+      }
+
       routeMessage({
         type: "chat",
         from: terminalName,
@@ -684,6 +701,14 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: "Not connected to mesh" }],
           details: {},
+        };
+      }
+
+      // Pre-validate target exists (fast-path, avoids waiting for hub round-trip)
+      if (!connectedTerminals.includes(params.to)) {
+        return {
+          content: [{ type: "text", text: `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}` }],
+          details: { to: params.to, error: "not_found" },
         };
       }
 
