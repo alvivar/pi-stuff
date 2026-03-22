@@ -131,12 +131,14 @@ export default function (pi: ExtensionAPI) {
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   function updateStatus() {
+    if (!ctx) return;
+    const theme = ctx.ui.theme;
     const count = connectedTerminals.length;
     const info =
       role === "disconnected"
         ? "mesh: offline"
         : `mesh: ${terminalName} (${role}) · ${count} terminal${count !== 1 ? "s" : ""}`;
-    ctx?.ui.setStatus("mesh", info);
+    ctx.ui.setStatus("mesh", theme.fg("dim", info));
   }
 
   function allTerminalNames(): Set<string> {
@@ -308,10 +310,12 @@ export default function (pi: ExtensionAPI) {
           clearTimeout(pending.timeout);
           pendingPromptResponses.delete(msg.id);
           if (msg.error) {
-            pending.resolve(textResult(
-              `Error from "${msg.from}": ${msg.error}`,
-              { from: msg.from, error: msg.error },
-            ));
+            pending.resolve(
+              textResult(`Error from "${msg.from}": ${msg.error}`, {
+                from: msg.from,
+                error: msg.error,
+              }),
+            );
           } else {
             pending.resolve(textResult(msg.response, { from: msg.from }));
           }
@@ -635,18 +639,25 @@ export default function (pi: ExtensionAPI) {
 
       const target = params.to === "*" ? "all terminals" : `"${params.to}"`;
       if (!delivered) {
-        return textResult(`Failed to send to ${target}`, { to: params.to, error: "not_delivered" });
+        return textResult(`Failed to send to ${target}`, {
+          to: params.to,
+          error: "not_delivered",
+        });
       }
       // Hub delivery is authoritative; client delivery is optimistic (hub routes)
       const verb = role === "hub" ? "Sent to" : "Sent to hub for delivery to";
-      return textResult(`${verb} ${target}`, { to: params.to, triggerTurn: params.triggerTurn ?? false });
+      return textResult(`${verb} ${target}`, {
+        to: params.to,
+        triggerTurn: params.triggerTurn ?? false,
+      });
     },
 
     renderCall(args, theme) {
       const target = args.to === "*" ? "broadcast" : args.to;
-      const preview = typeof args.message === "string"
-        ? truncatePreview(args.message)
-        : "...";
+      const preview =
+        typeof args.message === "string"
+          ? truncatePreview(args.message)
+          : "...";
       let text = theme.fg("toolTitle", theme.bold("mesh_send "));
       text += theme.fg("accent", target);
       if (args.triggerTurn) text += theme.fg("warning", " (trigger)");
@@ -687,10 +698,12 @@ export default function (pi: ExtensionAPI) {
       return new Promise((resolve) => {
         const timeout = setTimeout(() => {
           pendingPromptResponses.delete(requestId);
-          resolve(textResult(
-            `Prompt to "${params.to}" timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
-            { to: params.to, error: "timeout" },
-          ));
+          resolve(
+            textResult(
+              `Prompt to "${params.to}" timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
+              { to: params.to, error: "timeout" },
+            ),
+          );
         }, PROMPT_TIMEOUT_MS);
 
         pendingPromptResponses.set(requestId, { resolve, timeout });
@@ -701,7 +714,12 @@ export default function (pi: ExtensionAPI) {
           () => {
             clearTimeout(timeout);
             pendingPromptResponses.delete(requestId);
-            resolve(textResult("Prompt request aborted", { to: params.to, error: "aborted" }));
+            resolve(
+              textResult("Prompt request aborted", {
+                to: params.to,
+                error: "aborted",
+              }),
+            );
           },
           { once: true },
         );
@@ -717,18 +735,19 @@ export default function (pi: ExtensionAPI) {
         if (!delivered && pendingPromptResponses.has(requestId)) {
           clearTimeout(timeout);
           pendingPromptResponses.delete(requestId);
-          resolve(textResult(
-            `Failed to send prompt to "${params.to}"`,
-            { to: params.to, error: "not_delivered" },
-          ));
+          resolve(
+            textResult(`Failed to send prompt to "${params.to}"`, {
+              to: params.to,
+              error: "not_delivered",
+            }),
+          );
         }
       });
     },
 
     renderCall(args, theme) {
-      const preview = typeof args.prompt === "string"
-        ? truncatePreview(args.prompt)
-        : "...";
+      const preview =
+        typeof args.prompt === "string" ? truncatePreview(args.prompt) : "...";
       let text = theme.fg("toolTitle", theme.bold("mesh_prompt "));
       text += theme.fg("accent", args.to ?? "...");
       text += "\n  " + theme.fg("dim", preview);
@@ -747,8 +766,7 @@ export default function (pi: ExtensionAPI) {
       }
       const from = details?.from ?? "unknown";
       const response = txt?.type === "text" ? txt.text : "";
-      const preview =
-        truncatePreview(response, 200);
+      const preview = truncatePreview(response, 200);
       return new Text(
         theme.fg("success", "✓ ") +
           theme.fg("accent", `[${from}] `) +
@@ -777,7 +795,9 @@ export default function (pi: ExtensionAPI) {
         .join("\n");
 
       return textResult(`Connected terminals:\n${list}`, {
-        terminals: connectedTerminals, self: terminalName, role,
+        terminals: connectedTerminals,
+        self: terminalName,
+        role,
       });
     },
 
@@ -903,7 +923,8 @@ export default function (pi: ExtensionAPI) {
   // ── Message renderer ─────────────────────────────────────────────────────
 
   pi.registerMessageRenderer("mesh", (message, _options, theme) => {
-    const from = (message.details as Record<string, unknown> | undefined)?.from ?? "mesh";
+    const from =
+      (message.details as Record<string, unknown> | undefined)?.from ?? "mesh";
     const text =
       theme.fg("accent", `⚡ [${from}] `) +
       theme.fg("text", String(message.content));
