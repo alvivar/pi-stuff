@@ -2,23 +2,7 @@
 
 A WebSocket-based inter-terminal communication system that creates a local network between multiple Pi coding agent terminals. Enables terminals to discover each other, exchange messages, and orchestrate work across agents — all automatically on `localhost`.
 
-> **~400 lines of TypeScript** in a single `index.ts` file. No configuration required.
-
----
-
-## Table of Contents
-
-- [Why?](#why)
-- [Quick Start](#quick-start)
-- [Walkthrough](#walkthrough)
-- [Architecture](#architecture)
-- [Protocol](#protocol)
-- [LLM Tools](#llm-tools)
-- [Slash Commands](#slash-commands)
-- [Implementation Details](#implementation-details)
-- [Dependencies](#dependencies)
-- [Troubleshooting](#troubleshooting)
-- [Limitations & Design Decisions](#limitations--design-decisions)
+> Self-contained TypeScript in a single `index.ts` file. No configuration required.
 
 ---
 
@@ -204,7 +188,7 @@ When `triggerTurn` is enabled, the message is delivered via `pi.sendMessage` wit
 
 > **Broadcast note:** Sending to `"*"` delivers to **all other terminals** — the sender is excluded.
 
-> **No delivery confirmation** — the sender doesn't know if the message arrived.
+The tool **pre-validates** the target name against the local terminal list before sending, catching typos and definitely-absent names early. On the hub, delivery confirmation is **authoritative** (the hub knows all connections). On clients, delivery is **optimistic** — the message is sent to the hub for routing, and the hub handles errors via protocol-level responses.
 
 ### `mesh_prompt`
 
@@ -218,6 +202,7 @@ Send a prompt to a remote terminal and **wait** for the LLM's response (synchron
 - The remote terminal processes the prompt via `pi.sendUserMessage()` — as if a user typed it.
 - Returns the **last assistant message** text from the remote agent run.
 - **2-minute timeout**; supports abort signals.
+- **Early failure detection** — if the message can't be delivered (e.g., target not found), the tool resolves immediately with an error instead of waiting for the timeout.
 - Only **one remote prompt** can execute at a time per terminal. Concurrent requests are rejected with `"Terminal is busy"`.
 
 ### `mesh_list`
@@ -237,11 +222,11 @@ Connected terminals:
 
 ## Slash Commands
 
-| Command                 | Purpose                                         |
-| ----------------------- | ----------------------------------------------- |
-| `/mesh`                 | Show mesh status (name, role, online count)     |
-| `/mesh-name <name>`     | Rename this terminal on the mesh                |
-| `/mesh-broadcast <msg>` | Broadcast a chat message to all other terminals |
+| Command                 | Purpose                                                  |
+| ----------------------- | -------------------------------------------------------- |
+| `/mesh`                 | Show mesh status (name, role, online count)              |
+| `/mesh-name <name>`     | Rename this terminal on the mesh (with collision checks) |
+| `/mesh-broadcast <msg>` | Broadcast a chat message to all other terminals          |
 
 ### Examples
 
@@ -266,6 +251,14 @@ The hub enforces unique terminal names via a `uniqueName()` function. If `"build
 
 Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 
+**Rename guards:**
+
+- If you're already using the requested name, `/mesh-name` returns early (`"Already using..."`).
+- On the hub, renaming checks if the name is taken by another connected client before accepting the change.
+- On a client, the rename triggers a reconnect; the hub enforces uniqueness during re-registration and may assign a different name if taken.
+
+**Unregistered client guard:** The hub ignores all non-`register` messages from clients that haven't completed registration, preventing protocol violations from malformed or out-of-order messages.
+
 ### State Management
 
 | State Field              | Type                                  | Purpose                                             |
@@ -274,6 +267,13 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 | `isAgentBusy`            | `boolean`                             | Prevents accepting remote prompts during agent runs |
 | `pendingRemotePrompt`    | `object \| null`                      | Tracks the single in-flight remote prompt execution |
 | `pendingPromptResponses` | `Map`                                 | Outstanding prompt RPCs awaiting responses          |
+
+### Message Routing & Error Handling
+
+`routeMessage()` returns a `boolean` indicating delivery status:
+
+- **Hub** — delivery is authoritative. If the target terminal isn't connected, the hub sends a protocol-level error back to the sender. For `prompt_request` messages to unknown targets, the hub sends a `prompt_response` with an error field so the sender's pending promise resolves immediately rather than timing out.
+- **Client** — delivery is optimistic (`true` means "sent to hub"). The hub handles routing and errors via the protocol.
 
 ### Agent Lifecycle Integration
 
@@ -351,11 +351,11 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 ## Limitations & Design Decisions
 
-| #   | Decision                              | Rationale / Impact                                                                                                                                           |
-| --- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **No authentication**                 | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                  |
-| 2   | **Hardcoded port (9900)**             | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                          |
-| 3   | **Race-based hub promotion**          | Non-deterministic. Terminal state (names, in-flight prompts) is lost during promotion. Simple but imperfect.                                                 |
-| 4   | **Single remote prompt per terminal** | No queuing — immediate rejection if the target is busy. Keeps the model simple and avoids unbounded backlogs.                                                |
-| 5   | **No message persistence**            | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                            |
-| 6   | **Rename triggers full reconnect**    | Changing a client's name requires a new `register` message, so the client disconnects and reconnects to the hub. Hub renames are handled in-place.           |
+| #   | Decision                                  | Rationale / Impact                                                                                                                                            |
+| --- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                   |
+| 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                           |
+| 3   | **Race-based hub promotion**              | Non-deterministic. Terminal state (names, in-flight prompts) is lost during promotion. Simple but imperfect.                                                  |
+| 4   | **Single remote prompt per terminal**     | No queuing — immediate rejection if the target is busy. Keeps the model simple and avoids unbounded backlogs.                                                 |
+| 5   | **No message persistence**                | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                             |
+| 6   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place with collision checks. |
