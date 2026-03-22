@@ -1,6 +1,6 @@
 # pi-mesh
 
-A WebSocket-based inter-terminal communication system that creates a local network between multiple Pi coding agent terminals. Enables terminals to discover each other, exchange messages, and orchestrate work across agents — all automatically on `localhost`.
+A WebSocket-based inter-terminal communication system that creates a local network between multiple Pi coding agent terminals. Enables terminals to discover each other, exchange messages, and orchestrate work across agents - all automatically on `localhost`.
 
 > Self-contained TypeScript in a single `index.ts` file. No configuration required.
 
@@ -10,10 +10,10 @@ A WebSocket-based inter-terminal communication system that creates a local netwo
 
 A single Pi terminal is powerful. Multiple terminals working together unlock new patterns:
 
-- **Research + Build** — one terminal investigates APIs, docs, or logs while another writes code based on the findings.
-- **Fan-out** — split a large task across agents (e.g., "terminal A handles the backend, terminal B handles the frontend") and collect results.
-- **Orchestrator / Worker** — designate one terminal as a coordinator that delegates subtasks to others via `mesh_prompt` and assembles the final output.
-- **Review pipeline** — one terminal writes code, another reviews it, back and forth until both are satisfied.
+- **Research + Build** - one terminal investigates APIs, docs, or logs while another writes code based on the findings.
+- **Fan-out** - split a large task across agents (e.g., "terminal A handles the backend, terminal B handles the frontend") and collect results.
+- **Orchestrator / Worker** - designate one terminal as a coordinator that delegates subtasks to others via `mesh_prompt` and assembles the final output.
+- **Review pipeline** - one terminal writes code, another reviews it, back and forth until both are satisfied.
 
 ---
 
@@ -27,12 +27,13 @@ cd ~/.pi/agent/extensions/pi-mesh && npm install
 
 ### Usage
 
-Start two or more `pi` terminals — they discover each other automatically:
+Start two or more `pi` terminals - they discover each other automatically:
 
 ```
-# Terminal 1                          # Terminal 2
-$ pi                                  $ pi
-  ✓ Mesh hub on :9900 as "t-a1b2"      ✓ Joined mesh as "t-c3d4" (2 online)
+Terminal 1                           Terminal 2
+-----------                          -----------
+$ pi                                 $ pi
+✓ Mesh hub on :9900 as "t-a1b2"      ✓ Joined mesh as "t-c3d4" (2 online)
 ```
 
 Use `/mesh` in any terminal to check status, or let the LLM tools handle cross-terminal coordination.
@@ -43,7 +44,7 @@ Use `/mesh` in any terminal to check status, or let the LLM tools handle cross-t
 
 Here's a concrete example of two terminals collaborating. Open two separate `pi` sessions.
 
-**Terminal 1** — rename and check status:
+**Terminal 1** - rename and check status:
 
 ```
 > /mesh-name builder
@@ -53,7 +54,7 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi`
 ⚡ Mesh: "builder" (hub) · 2 terminals online: builder, researcher
 ```
 
-**Terminal 2** — rename it too:
+**Terminal 2** - rename it too:
 
 ```
 > /mesh-name researcher
@@ -92,20 +93,20 @@ Every other terminal sees:
 Despite the name "mesh," the actual topology is **hub-spoke (star)**:
 
 ```
-              ┌─────────┐
-              │   Hub   │
-              │  (WSS   │
-              │ :9900)  │
-              └────┬────┘
-              ╱    │    ╲
-             ╱     │     ╲
-      ┌──────┐ ┌──────┐ ┌──────┐
-      │ pi-2 │ │ pi-3 │ │ pi-4 │
-      └──────┘ └──────┘ └──────┘
-       client   client   client
+                       +-----------+
+                       |    Hub    |
+                       |   :9900   |
+                       +-----+-----+
+                             |
+              +--------------+--------------+
+              |              |              |
+          +---+---+      +---+---+      +---+---+
+          | pi-2  |      | pi-3  |      | pi-4  |
+          |client |      |client |      |client |
+          +-------+      +-------+      +-------+
 ```
 
-- The **first terminal** to start becomes the **hub** — it runs a `WebSocketServer` on `127.0.0.1:9900`.
+- The **first terminal** to start becomes the **hub** - it runs a `WebSocketServer` on `127.0.0.1:9900`.
 - **Subsequent terminals** connect as **clients** via plain WebSocket.
 - All messages route **through the hub**; clients never talk directly to each other.
 
@@ -115,13 +116,13 @@ Startup follows a simple fallback sequence:
 
 1. Attempt to connect as a **client** to `127.0.0.1:9900`.
 2. If connection fails → become the **hub** (start a WebSocket server on that port).
-3. If both fail (rare race condition) → retry after a randomized 2–5 second backoff.
+3. If both fail (rare race condition) → retry after a randomized 2-5 second backoff.
 
 ### Hub Promotion
 
 When the hub disconnects, clients detect the WebSocket close event, enter `"disconnected"` state, and call `scheduleReconnect()`. The **first terminal to retry** becomes the new hub via the same initialize-or-fallback flow.
 
-There is **no explicit leader election** — promotion is race-based.
+There is **no explicit leader election** - promotion is race-based.
 
 ---
 
@@ -145,27 +146,44 @@ The wire protocol consists of **7 message types**, all serialized as JSON over W
 **Joining the mesh:**
 
 ```
-Client                          Hub
-  |-- register {name:"builder"} -->|
-  |<-- welcome {name:"builder",   |
-  |     terminals:["pi-1"]}  ------|
-  |                                 |--> terminal_joined broadcast
+Client                         Hub
+  |                             |
+  | register {name:"builder"}   |
+  |---------------------------->|
+  |                             |
+  | welcome {name:"builder",    |
+  | terminals:["pi-1"]}         |
+  |<----------------------------|
+  |                             |
 ```
+
+Hub then broadcasts `terminal_joined` to the other connected terminals.
 
 **Sending a chat message:**
 
 ```
-Client A                        Hub                         Client B
-  |-- chat {to:"pi-2", msg} ---->|-- chat {from:"pi-1"} ---->|
+Client A            Hub              Client B
+  |                  |                  |
+  | chat {to:pi-2}   |                  |
+  |----------------->|                  |
+  |                  | chat {from:A}    |
+  |                  |----------------->|
+  |                  |                  |
 ```
 
 **Remote prompt (synchronous RPC):**
 
 ```
-Client A                        Hub                         Client B
-  |-- prompt_request ------------>|-- prompt_request --------->|
-  |                                |                           | (LLM runs)
-  |<-- prompt_response -----------|<-- prompt_response --------|
+Client A            Hub              Client B
+  |                  |                  |
+  | prompt_request   |                  |
+  |----------------->|                  |
+  |                  | prompt_request   |
+  |                  |----------------->|
+  |                  |   (LLM runs)     |
+  |                  |<-----------------|
+  | prompt_response  |                  |
+  |<-----------------|                  |
 ```
 
 ---
@@ -186,9 +204,9 @@ Send a fire-and-forget chat message to a specific terminal or broadcast to all.
 
 When `triggerTurn` is enabled, the message is delivered via `pi.sendMessage` with `deliverAs: "steer"`, causing the remote agent to kick off an LLM turn.
 
-> **Broadcast note:** Sending to `"*"` delivers to **all other terminals** — the sender is excluded.
+> **Broadcast note:** Sending to `"*"` delivers to **all other terminals** - the sender is excluded.
 
-The tool **pre-validates** the target name against the local terminal list before sending, catching typos and definitely-absent names early. On the hub, delivery confirmation is **authoritative** (the hub knows all connections). On clients, delivery is **optimistic** — the message is sent to the hub for routing, and the hub handles errors via protocol-level responses.
+The tool **pre-validates** the target name against the local terminal list before sending, catching typos and definitely-absent names early. On the hub, delivery confirmation is **authoritative** (the hub knows all connections). On clients, delivery is **optimistic** - the message is sent to the hub for routing, and the hub handles errors via protocol-level responses.
 
 ### `mesh_prompt`
 
@@ -199,10 +217,10 @@ Send a prompt to a remote terminal and **wait** for the LLM's response (synchron
 | `to`      | `string` | Target terminal name |
 | `prompt`  | `string` | Prompt text to send  |
 
-- The remote terminal processes the prompt via `pi.sendUserMessage()` — as if a user typed it.
+- The remote terminal processes the prompt via `pi.sendUserMessage()` - as if a user typed it.
 - Returns the **last assistant message** text from the remote agent run.
 - **2-minute timeout**; supports abort signals.
-- **Early failure detection** — if the message can't be delivered (e.g., target not found), the tool resolves immediately with an error instead of waiting for the timeout.
+- **Early failure detection** - if the message can't be delivered (e.g., target not found), the tool resolves immediately with an error instead of waiting for the timeout.
 - Only **one remote prompt** can execute at a time per terminal. Concurrent requests are rejected with `"Terminal is busy"`.
 
 ### `mesh_list`
@@ -272,8 +290,8 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 
 `routeMessage()` returns a `boolean` indicating delivery status:
 
-- **Hub** — delivery is authoritative. If the target terminal isn't connected, the hub sends a protocol-level error back to the sender. For `prompt_request` messages to unknown targets, the hub sends a `prompt_response` with an error field so the sender's pending promise resolves immediately rather than timing out.
-- **Client** — delivery is optimistic (`true` means "sent to hub"). The hub handles routing and errors via the protocol.
+- **Hub** - delivery is authoritative. If the target terminal isn't connected, the hub sends a protocol-level error back to the sender. For `prompt_request` messages to unknown targets, the hub sends a `prompt_response` with an error field so the sender's pending promise resolves immediately rather than timing out.
+- **Client** - delivery is optimistic (`true` means "sent to hub"). The hub handles routing and errors via the protocol.
 
 ### Agent Lifecycle Integration
 
@@ -299,9 +317,9 @@ Incoming mesh chat messages render with a styled prefix using the theme's accent
 | ------------------------------- | ------- | ------------------------------------------------ |
 | `ws`                            | ^8.18.0 | WebSocket library (server + client)              |
 | `@types/ws`                     | ^8.5.0  | TypeScript type definitions (dev)                |
-| `@mariozechner/pi-coding-agent` | —       | Pi SDK types (ExtensionAPI, ExtensionContext)    |
-| `@mariozechner/pi-tui`          | —       | TUI Text widget for custom message rendering     |
-| `@sinclair/typebox`             | —       | JSON Schema type definitions for tool parameters |
+| `@mariozechner/pi-coding-agent` | -       | Pi SDK types (ExtensionAPI, ExtensionContext)    |
+| `@mariozechner/pi-tui`          | -       | TUI Text widget for custom message rendering     |
+| `@sinclair/typebox`             | -       | JSON Schema type definitions for tool parameters |
 
 ### `package.json`
 
@@ -327,7 +345,7 @@ Incoming mesh chat messages render with a styled prefix using the theme's accent
 
 ### Port 9900 is already in use
 
-If another process occupies port 9900, the terminal can't become the hub. It will attempt to connect as a client instead (which also fails if there's no real hub), then retry after 2–5 seconds. **The port is hardcoded** — there's no configuration to change it. You'll need to free the port or modify `DEFAULT_PORT` in `index.ts`.
+If another process occupies port 9900, the terminal can't become the hub. It will attempt to connect as a client instead (which also fails if there's no real hub), then retry after 2-5 seconds. **The port is hardcoded** - there's no configuration to change it. You'll need to free the port or modify `DEFAULT_PORT` in `index.ts`.
 
 ### "Terminal is busy" rejections
 
@@ -345,7 +363,7 @@ Each terminal can only execute **one remote prompt at a time**. If a `mesh_promp
 
 ### Hub promotion loses state
 
-When the hub goes down and a client promotes itself, terminal names and in-flight prompts from the old hub session are lost. All surviving clients reconnect and re-register. This is by design — see [Limitations](#limitations--design-decisions).
+When the hub goes down and a client promotes itself, terminal names and in-flight prompts from the old hub session are lost. All surviving clients reconnect and re-register. This is by design - see [Limitations](#limitations--design-decisions).
 
 ---
 
@@ -356,6 +374,6 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                   |
 | 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                           |
 | 3   | **Race-based hub promotion**              | Non-deterministic. Terminal state (names, in-flight prompts) is lost during promotion. Simple but imperfect.                                                  |
-| 4   | **Single remote prompt per terminal**     | No queuing — immediate rejection if the target is busy. Keeps the model simple and avoids unbounded backlogs.                                                 |
+| 4   | **Single remote prompt per terminal**     | No queuing - immediate rejection if the target is busy. Keeps the model simple and avoids unbounded backlogs.                                                 |
 | 5   | **No message persistence**                | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                             |
 | 6   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place with collision checks. |
