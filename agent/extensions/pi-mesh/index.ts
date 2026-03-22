@@ -181,55 +181,53 @@ export default function (pi: ExtensionAPI) {
     if (excludeName !== terminalName) handleIncoming(msg);
   }
 
-  /** Hub: send a message to a specific terminal by name. */
-  function hubSendTo(target: string, msg: MeshMessage) {
-    if (target === terminalName) {
-      handleIncoming(msg);
-    } else {
-      for (const [clientWs, name] of hubClients) {
-        if (name === target) {
-          clientWs.send(JSON.stringify(msg));
-          return;
-        }
-      }
-    }
-  }
-
-  /** Route a message to its destination. Works in both hub and client roles. */
-  function routeMessage(msg: ChatMsg | PromptRequestMsg | PromptResponseMsg) {
-    if (role === "hub") {
-      if (msg.to === "*") {
-        hubBroadcast(msg, msg.from);
-      } else if (msg.to === terminalName || hubClientByName(msg.to)) {
-        hubSendTo(msg.to, msg);
-      } else {
-        // Target not found — notify the sender
-        const errText = `Terminal "${msg.to}" not found`;
-        if (msg.type === "prompt_request") {
-          // Synthesize a prompt_response with error so the sender resolves immediately
-          hubSendTo(msg.from, {
-            type: "prompt_response",
-            id: msg.id,
-            from: terminalName,
-            to: msg.from,
-            response: "",
-            error: errText,
-          });
-        } else {
-          hubSendTo(msg.from, { type: "error", message: errText });
-        }
-      }
-    } else if (role === "client" && ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg));
-    }
-  }
-
   /** Hub: find a client WebSocket by name. */
   function hubClientByName(name: string): WebSocket | undefined {
     for (const [clientWs, n] of hubClients) {
       if (n === name) return clientWs;
     }
     return undefined;
+  }
+
+  /**
+   * Route a message to its destination. Works in both hub and client roles.
+   * Returns true if the message was delivered (or sent to the hub for routing).
+   * For the hub, this is authoritative. For clients, it's optimistic (hub may
+   * still reject via protocol-level error responses).
+   */
+  function routeMessage(msg: ChatMsg | PromptRequestMsg | PromptResponseMsg): boolean {
+    if (role === "hub") {
+      if (msg.to === "*") {
+        hubBroadcast(msg, msg.from);
+        return true;
+      }
+      if (msg.to === terminalName) {
+        handleIncoming(msg);
+        return true;
+      }
+      const targetWs = hubClientByName(msg.to);
+      if (targetWs) {
+        targetWs.send(JSON.stringify(msg));
+        return true;
+      }
+      // Target not found — send error back to sender
+      const errText = `Terminal "${msg.to}" not found`;
+      const errorMsg: MeshMessage = msg.type === "prompt_request"
+        ? { type: "prompt_response", id: msg.id, from: terminalName, to: msg.from, response: "", error: errText }
+        : { type: "error", message: errText };
+
+      if (msg.from === terminalName) {
+        handleIncoming(errorMsg);
+      } else {
+        hubClientByName(msg.from)?.send(JSON.stringify(errorMsg));
+      }
+      return false;
+    }
+    if (role === "client" && ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+      return true;  // optimistic — hub will handle errors via protocol
+    }
+    return false;
   }
 
   // ── Incoming message handler (runs on every terminal) ────────────────────
@@ -633,7 +631,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      // Pre-validate target exists (fast-path, avoids round-trip to hub)
+      // Pre-validate target exists locally (best-effort, catches typos and stale names)
       if (params.to !== "*" && !connectedTerminals.includes(params.to)) {
         return {
           content: [{ type: "text", text: `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}` }],
@@ -641,7 +639,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      routeMessage({
+      const delivered = routeMessage({
         type: "chat",
         from: terminalName,
         to: params.to,
@@ -650,6 +648,12 @@ export default function (pi: ExtensionAPI) {
       });
 
       const target = params.to === "*" ? "all terminals" : `"${params.to}"`;
+      if (!delivered) {
+        return {
+          content: [{ type: "text", text: `Failed to send to ${target}` }],
+          details: { to: params.to, error: "not_delivered" },
+        };
+      }
       return {
         content: [{ type: "text", text: `Sent to ${target}` }],
         details: { to: params.to, triggerTurn: params.triggerTurn ?? false },
@@ -673,8 +677,10 @@ export default function (pi: ExtensionAPI) {
 
     renderResult(result, _options, theme) {
       const txt = result.content[0];
+      const details = result.details as Record<string, unknown> | undefined;
+      const icon = details?.error ? theme.fg("error", "✗ ") : theme.fg("success", "✓ ");
       return new Text(
-        theme.fg("success", "✓ ") + (txt?.type === "text" ? txt.text : ""),
+        icon + (txt?.type === "text" ? txt.text : ""),
         0,
         0,
       );
@@ -701,14 +707,6 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: "Not connected to mesh" }],
           details: {},
-        };
-      }
-
-      // Pre-validate target exists (fast-path, avoids waiting for hub round-trip)
-      if (!connectedTerminals.includes(params.to)) {
-        return {
-          content: [{ type: "text", text: `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}` }],
-          details: { to: params.to, error: "not_found" },
         };
       }
 
