@@ -366,6 +366,9 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      // Ignore messages from unregistered clients
+      if (!clientName) return;
+
       // Route chat / prompt messages
       if (
         msg.type === "chat" ||
