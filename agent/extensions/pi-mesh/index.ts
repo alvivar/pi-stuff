@@ -195,7 +195,9 @@ export default function (pi: ExtensionAPI) {
    * For the hub, this is authoritative. For clients, it's optimistic (hub may
    * still reject via protocol-level error responses).
    */
-  function routeMessage(msg: ChatMsg | PromptRequestMsg | PromptResponseMsg): boolean {
+  function routeMessage(
+    msg: ChatMsg | PromptRequestMsg | PromptResponseMsg,
+  ): boolean {
     if (role === "hub") {
       if (msg.to === "*") {
         hubBroadcast(msg, msg.from);
@@ -212,9 +214,17 @@ export default function (pi: ExtensionAPI) {
       }
       // Target not found — send error back to sender
       const errText = `Terminal "${msg.to}" not found`;
-      const errorMsg: MeshMessage = msg.type === "prompt_request"
-        ? { type: "prompt_response", id: msg.id, from: terminalName, to: msg.from, response: "", error: errText }
-        : { type: "error", message: errText };
+      const errorMsg: MeshMessage =
+        msg.type === "prompt_request"
+          ? {
+              type: "prompt_response",
+              id: msg.id,
+              from: terminalName,
+              to: msg.from,
+              response: "",
+              error: errText,
+            }
+          : { type: "error", message: errText };
 
       if (msg.from === terminalName) {
         handleIncoming(errorMsg);
@@ -225,7 +235,7 @@ export default function (pi: ExtensionAPI) {
     }
     if (role === "client" && ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
-      return true;  // optimistic — hub will handle errors via protocol
+      return true; // optimistic — hub will handle errors via protocol
     }
     return false;
   }
@@ -634,7 +644,12 @@ export default function (pi: ExtensionAPI) {
       // Pre-validate target exists locally (best-effort, catches typos and stale names)
       if (params.to !== "*" && !connectedTerminals.includes(params.to)) {
         return {
-          content: [{ type: "text", text: `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}` }],
+          content: [
+            {
+              type: "text",
+              text: `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
+            },
+          ],
           details: { to: params.to, error: "not_found" },
         };
       }
@@ -678,12 +693,10 @@ export default function (pi: ExtensionAPI) {
     renderResult(result, _options, theme) {
       const txt = result.content[0];
       const details = result.details as Record<string, unknown> | undefined;
-      const icon = details?.error ? theme.fg("error", "✗ ") : theme.fg("success", "✓ ");
-      return new Text(
-        icon + (txt?.type === "text" ? txt.text : ""),
-        0,
-        0,
-      );
+      const icon = details?.error
+        ? theme.fg("error", "✗ ")
+        : theme.fg("success", "✓ ");
+      return new Text(icon + (txt?.type === "text" ? txt.text : ""), 0, 0);
     },
   });
 
@@ -870,8 +883,19 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      // If we're the hub, just update directly
+      // If we're the hub, check uniqueness before renaming
       if (role === "hub") {
+        // Check if name is taken by another terminal
+        const takenByOther =
+          newName !== terminalName &&
+          Array.from(hubClients.values()).includes(newName);
+        if (takenByOther) {
+          _ctx.ui.notify(
+            `Name "${newName}" is already taken by another terminal`,
+            "warning",
+          );
+          return;
+        }
         const old = terminalName;
         terminalName = newName;
         const list = terminalList();
@@ -884,11 +908,14 @@ export default function (pi: ExtensionAPI) {
         );
         _ctx.ui.notify(`Renamed to "${newName}"`, "info");
       } else if (role === "client") {
-        // Reconnect with new name
+        // Reconnect with new name — hub will enforce uniqueness via register
         terminalName = newName;
         ws?.close();
         // Reconnect will happen via the onClose handler → scheduleReconnect
-        _ctx.ui.notify(`Reconnecting as "${newName}"...`, "info");
+        _ctx.ui.notify(
+          `Reconnecting as "${newName}" (hub may assign a different name if taken)...`,
+          "info",
+        );
       } else {
         terminalName = newName;
         _ctx.ui.notify(`Name set to "${newName}" (not connected)`, "info");
