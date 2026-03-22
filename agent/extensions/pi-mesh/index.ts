@@ -26,15 +26,12 @@ import type {
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import * as crypto from "node:crypto";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+
 import { WebSocket, WebSocketServer } from "ws";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_PORT = 9900;
-const MESH_FILE = path.join(os.tmpdir(), "pi-mesh.json");
 const PROMPT_TIMEOUT_MS = 120_000;
 const RECONNECT_DELAY_MS = 2000;
 
@@ -414,16 +411,6 @@ export default function (pi: ExtensionAPI) {
         connectedTerminals = [terminalName];
         updateStatus();
 
-        // Write mesh file so other terminals can find us
-        try {
-          fs.writeFileSync(
-            MESH_FILE,
-            JSON.stringify({ port: DEFAULT_PORT, pid: process.pid }),
-          );
-        } catch {
-          /* best effort */
-        }
-
         ctx?.ui.notify(
           `Mesh hub started on :${DEFAULT_PORT} as "${terminalName}"`,
           "info",
@@ -492,17 +479,8 @@ export default function (pi: ExtensionAPI) {
   async function initialize() {
     if (disposed) return;
 
-    // Try reading the mesh file for port info
-    let port = DEFAULT_PORT;
-    try {
-      const info = JSON.parse(fs.readFileSync(MESH_FILE, "utf-8"));
-      port = info.port ?? DEFAULT_PORT;
-    } catch {
-      /* no file yet */
-    }
-
-    // Try connecting as a client first
-    if (await connectAsClient(port)) return;
+    // Try connecting to an existing hub
+    if (await connectAsClient(DEFAULT_PORT)) return;
 
     // No hub found — become the hub
     if (await startHub()) return;
@@ -547,12 +525,6 @@ export default function (pi: ExtensionAPI) {
 
     // Close hub server
     if (wss) {
-      // Remove mesh file if we're the hub
-      try {
-        fs.unlinkSync(MESH_FILE);
-      } catch {
-        /* ignore */
-      }
       for (const clientWs of hubClients.keys()) clientWs.close();
       hubClients.clear();
       wss.close();

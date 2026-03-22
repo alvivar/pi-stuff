@@ -127,25 +127,11 @@ Despite the name "mesh," the actual topology is **hub-spoke (star)**:
 
 ### Auto-Discovery Protocol
 
-Startup follows a graceful fallback sequence:
+Startup follows a simple fallback sequence:
 
-1. Try to read `$TMPDIR/pi-mesh.json` for existing hub connection info.
-2. Attempt to connect as a **client** to the advertised port.
-3. If connection fails → become the **hub** and write the mesh file.
-4. If both fail (rare race condition) → retry after a randomized 2–5 second backoff.
-
-#### Mesh File Format
-
-The hub writes `pi-mesh.json` to the OS temp directory (`os.tmpdir()`):
-
-```json
-{
-  "port": 9900,
-  "pid": 12345
-}
-```
-
-This is how new terminals discover the hub. The file is deleted when the hub shuts down cleanly.
+1. Attempt to connect as a **client** to `127.0.0.1:9900`.
+2. If connection fails → become the **hub** (start a WebSocket server on that port).
+3. If both fail (rare race condition) → retry after a randomized 2–5 second backoff.
 
 ### Hub Promotion
 
@@ -295,7 +281,7 @@ The extension hooks into Pi's agent lifecycle events:
 
 - **`agent_start`** → Sets `isAgentBusy = true`, blocking incoming remote prompts.
 - **`agent_end`** → Checks if a remote prompt was running. If so, extracts the last assistant response from `event.messages` and sends back a `prompt_response`.
-- **`session_shutdown`** → Full cleanup: closes all sockets, resolves pending promises, and deletes `pi-mesh.json` (if hub).
+- **`session_shutdown`** → Full cleanup: closes all sockets and resolves pending promises.
 
 ### Custom Message Renderer
 
@@ -343,10 +329,6 @@ Incoming mesh chat messages render with a styled prefix using the theme's accent
 
 If another process occupies port 9900, the terminal can't become the hub. It will attempt to connect as a client instead (which also fails if there's no real hub), then retry after 2–5 seconds. **The port is hardcoded** — there's no configuration to change it. You'll need to free the port or modify `DEFAULT_PORT` in `index.ts`.
 
-### Stale `pi-mesh.json` after a crash
-
-If the hub crashes without cleaning up, a stale mesh file remains in the temp directory. This is handled gracefully: the next terminal reads the file, fails to connect to the dead hub, and falls through to creating a new hub (overwriting the stale file). No manual intervention needed.
-
 ### "Terminal is busy" rejections
 
 Each terminal can only execute **one remote prompt at a time**. If a `mesh_prompt` arrives while the agent is already running (either from a local user or another remote prompt), it's immediately rejected with `"Terminal is busy"`. There is no queuing. Solutions:
@@ -359,7 +341,7 @@ Each terminal can only execute **one remote prompt at a time**. If a `mesh_promp
 
 - Verify both terminals are on the same machine (the mesh only works on `127.0.0.1`).
 - Run `/mesh` in each terminal to check status.
-- Check that `pi-mesh.json` exists in your OS temp directory (`$TMPDIR` / `os.tmpdir()`).
+- Ensure port 9900 isn't blocked or occupied by a non-mesh process.
 
 ### Hub promotion loses state
 
@@ -376,5 +358,4 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | 3   | **Race-based hub promotion**          | Non-deterministic. Terminal state (names, in-flight prompts) is lost during promotion. Simple but imperfect.                                                 |
 | 4   | **Single remote prompt per terminal** | No queuing — immediate rejection if the target is busy. Keeps the model simple and avoids unbounded backlogs.                                                |
 | 5   | **No message persistence**            | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                            |
-| 6   | **Mesh file cleanup is hub-only**     | Only the hub deletes `pi-mesh.json` on shutdown. Stale files from crashes are handled gracefully — clients fail to connect and fall through to hub creation. |
-| 7   | **Rename triggers full reconnect**    | Changing a client's name requires a new `register` message, so the client disconnects and reconnects to the hub. Hub renames are handled in-place.           |
+| 6   | **Rename triggers full reconnect**    | Changing a client's name requires a new `register` message, so the client disconnects and reconnects to the hub. Hub renames are handled in-place.           |
