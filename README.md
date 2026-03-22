@@ -2,30 +2,46 @@
 
 My personal [Pi](http://pi.dev) config. Scrappy, opinionated, not meant for anyone else.
 
+
 ## Extensions
 
-**`claude-code-provider`** — The big one (~2k lines). Wraps the `claude` CLI so I can use Claude Code headless mode as a Pi model. Streams `stream-json` output, keeps Claude sessions alive across turns with `--resume`, renders Claude's internal tool calls as compact inline traces (not Pi toolCalls — those have the wrong semantics here), handles `/compact` by summarizing and restarting the Claude session, and so on. Logs everything to `agent/debug.log`.
+### [pi-mesh](agent/extensions/pi-mesh/)
 
-Docs live next to the code:
-- `BEHAVIOR.md` — how the provider actually behaves (streaming, compaction, usage tracking, context meter)
-- `INTEGRATION.md` — why Claude tool events can't be Pi toolCalls, and other architectural decisions
-- `HEADLESS.md` — reference for Claude Code's headless CLI API
-- `TODO.md` — what's left to do
+Lets multiple local Pi terminals talk to each other over WebSocket on `localhost`. One terminal becomes the hub, the rest join automatically. Tools: `mesh_send`, `mesh_prompt`, `mesh_list`. Commands: `/mesh`, `/mesh-name`, `/mesh-broadcast`. Good for fan-out, research/build splits, orchestrator/worker setups.
 
-**`claude-subagent`** — Registers a `claude_subagent` tool so any model running in Pi can shell out to Claude Code for a subtask. Thread-based session reuse, `/claude <task>` shortcut.
+Has its own [README](agent/extensions/pi-mesh/README.md) with protocol details and a [broadcast prompt plan](agent/extensions/pi-mesh/PLAN-broadcast-prompt.md) for a possible fan-out tool.
 
-**`pi-mesh`** — Lets multiple local Pi terminals talk to each other over WebSocket on `localhost`. One terminal becomes the hub, the others join automatically. Adds `mesh_send`, `mesh_prompt`, and `mesh_list`, plus `/mesh`, `/mesh-name`, and `/mesh-broadcast`. Basically: terminal-to-terminal coordination for fan-out, research/build splits, or orchestrator/worker setups. Has its own `README.md`, and a `PLAN-broadcast-prompt.md` note for a possible fan-out prompt tool.
+### [claude-code-provider](agent/extensions/claude-code-provider/)
+
+The big one (~2k lines). Wraps the `claude` CLI so I can use Claude Code headless mode as a Pi model. Streams `stream-json` output, keeps Claude sessions alive across turns with `--resume`, renders Claude's internal tool calls as compact inline traces (not Pi toolCalls — wrong semantics here), handles `/compact` by summarizing and restarting the Claude session. Logs to `agent/debug.log`.
+
+Docs next to the code:
+- [BEHAVIOR.md](agent/extensions/claude-code-provider/BEHAVIOR.md) — streaming, compaction, usage tracking, context meter
+- [INTEGRATION.md](agent/extensions/claude-code-provider/INTEGRATION.md) — why Claude tool events can't be Pi toolCalls
+- [HEADLESS.md](agent/extensions/claude-code-provider/HEADLESS.md) — Claude Code headless CLI reference
+- [TODO.md](agent/extensions/claude-code-provider/TODO.md) — what's left
+
+### [claude-subagent](agent/extensions/claude-subagent/)
+
+Registers a `claude_subagent` tool so any model running in Pi can shell out to Claude Code for a subtask. Thread-based session reuse, `/claude <task>` shortcut.
+
 
 ## Skills
 
-**`chrome-cdp-win`** — Windows-only fork of `pi-chrome-cdp`. Same idea, but actually made to work properly on Windows. Uses named pipes plus per-daemon marker files in `%TEMP%` so daemon discovery, stop, cleanup, screenshots, and the rest behave sensibly. See `agent/skills/chrome-cdp-win/SKILL.md` for usage and `agent/skills/chrome-cdp-win/README.md` for the backstory.
+### [chrome-cdp-win](agent/skills/chrome-cdp-win/)
 
-## Other docs
+Windows-only fork of `pi-chrome-cdp`. Same commands, but actually works on Windows — named pipes for daemon IPC, per-daemon marker files in `%TEMP%`, proper discovery and cleanup.
 
-- `docs/dead-key-bug.md` — a dead key composition bug I hit in VSCode terminal
+[SKILL.md](agent/skills/chrome-cdp-win/SKILL.md) for usage, [README.md](agent/skills/chrome-cdp-win/README.md) for the backstory.
+
+
+## Other
+
+- [docs/dead-key-bug.md](docs/dead-key-bug.md) — a dead key composition bug I hit in VSCode terminal (not tied to any extension)
+
 
 ## Setup
 
-- Claude stuff needs the `claude` CLI on PATH (or `CLAUDE_CLI_PATH`)
-- `pi-mesh` needs `npm install` in `agent/extensions/pi-mesh/`
-- `chrome-cdp-win` needs Windows, Node.js 22+, and Chrome remote debugging enabled
+- **Claude extensions** — `claude` CLI on PATH (or set `CLAUDE_CLI_PATH`)
+- **pi-mesh** — run `npm install` in [`agent/extensions/pi-mesh/`](agent/extensions/pi-mesh/)
+- **chrome-cdp-win** — Windows, Node.js 22+, Chrome remote debugging enabled
