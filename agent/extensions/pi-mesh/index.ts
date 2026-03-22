@@ -538,6 +538,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, _ctx) => {
     ctx = _ctx;
+    // Use session name as default mesh identity if available
+    const sessionName = pi.getSessionName()?.trim().replace(/\s+/g, " ");
+    if (sessionName) terminalName = sessionName;
     await initialize();
   });
 
