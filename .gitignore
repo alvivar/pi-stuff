@@ -1,5 +1,6 @@
+agent/auth.json
 agent/bin/
 agent/sessions/
-agent/auth.json
 agent/settings.json
 debug.log
+node_modules/
