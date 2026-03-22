@@ -308,20 +308,12 @@ export default function (pi: ExtensionAPI) {
           clearTimeout(pending.timeout);
           pendingPromptResponses.delete(msg.id);
           if (msg.error) {
-            pending.resolve({
-              content: [
-                {
-                  type: "text",
-                  text: `Error from "${msg.from}": ${msg.error}`,
-                },
-              ],
-              details: { from: msg.from, error: msg.error },
-            });
+            pending.resolve(textResult(
+              `Error from "${msg.from}": ${msg.error}`,
+              { from: msg.from, error: msg.error },
+            ));
           } else {
-            pending.resolve({
-              content: [{ type: "text", text: msg.response }],
-              details: { from: msg.from },
-            });
+            pending.resolve(textResult(msg.response, { from: msg.from }));
           }
         }
         break;
@@ -516,10 +508,7 @@ export default function (pi: ExtensionAPI) {
     // Clean up pending prompts
     for (const [id, pending] of pendingPromptResponses) {
       clearTimeout(pending.timeout);
-      pending.resolve({
-        content: [{ type: "text", text: "Mesh shutting down" }],
-        details: { error: "shutdown" },
-      });
+      pending.resolve(textResult("Mesh shutting down", { error: "shutdown" }));
     }
     pendingPromptResponses.clear();
 
@@ -587,6 +576,20 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
+  // ── Tool helpers ──────────────────────────────────────────────────────────
+
+  function textResult(text: string, details: Record<string, unknown> = {}) {
+    return { content: [{ type: "text" as const, text }], details };
+  }
+
+  function notConnectedResult() {
+    return textResult("Not connected to mesh");
+  }
+
+  function truncatePreview(text: string, max = 60) {
+    return text.length > max ? text.slice(0, max) + "..." : text;
+  }
+
   // ── Tools ────────────────────────────────────────────────────────────────
 
   pi.registerTool({
@@ -612,24 +615,14 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params) {
-      if (role === "disconnected") {
-        return {
-          content: [{ type: "text", text: "Not connected to mesh" }],
-          details: {},
-        };
-      }
+      if (role === "disconnected") return notConnectedResult();
 
       // Pre-validate target exists locally (best-effort, catches typos and definitely-absent names)
       if (params.to !== "*" && !connectedTerminals.includes(params.to)) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
-            },
-          ],
-          details: { to: params.to, error: "not_found" },
-        };
+        return textResult(
+          `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
+          { to: params.to, error: "not_found" },
+        );
       }
 
       const delivered = routeMessage({
@@ -642,27 +635,18 @@ export default function (pi: ExtensionAPI) {
 
       const target = params.to === "*" ? "all terminals" : `"${params.to}"`;
       if (!delivered) {
-        return {
-          content: [{ type: "text", text: `Failed to send to ${target}` }],
-          details: { to: params.to, error: "not_delivered" },
-        };
+        return textResult(`Failed to send to ${target}`, { to: params.to, error: "not_delivered" });
       }
       // Hub delivery is authoritative; client delivery is optimistic (hub routes)
       const verb = role === "hub" ? "Sent to" : "Sent to hub for delivery to";
-      return {
-        content: [{ type: "text", text: `${verb} ${target}` }],
-        details: { to: params.to, triggerTurn: params.triggerTurn ?? false },
-      };
+      return textResult(`${verb} ${target}`, { to: params.to, triggerTurn: params.triggerTurn ?? false });
     },
 
     renderCall(args, theme) {
       const target = args.to === "*" ? "broadcast" : args.to;
-      const preview =
-        typeof args.message === "string"
-          ? args.message.length > 60
-            ? args.message.slice(0, 60) + "..."
-            : args.message
-          : "...";
+      const preview = typeof args.message === "string"
+        ? truncatePreview(args.message)
+        : "...";
       let text = theme.fg("toolTitle", theme.bold("mesh_send "));
       text += theme.fg("accent", target);
       if (args.triggerTurn) text += theme.fg("warning", " (trigger)");
@@ -696,27 +680,17 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params, signal) {
-      if (role === "disconnected") {
-        return {
-          content: [{ type: "text", text: "Not connected to mesh" }],
-          details: {},
-        };
-      }
+      if (role === "disconnected") return notConnectedResult();
 
       const requestId = crypto.randomUUID();
 
       return new Promise((resolve) => {
         const timeout = setTimeout(() => {
           pendingPromptResponses.delete(requestId);
-          resolve({
-            content: [
-              {
-                type: "text",
-                text: `Prompt to "${params.to}" timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
-              },
-            ],
-            details: { to: params.to, error: "timeout" },
-          });
+          resolve(textResult(
+            `Prompt to "${params.to}" timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
+            { to: params.to, error: "timeout" },
+          ));
         }, PROMPT_TIMEOUT_MS);
 
         pendingPromptResponses.set(requestId, { resolve, timeout });
@@ -727,10 +701,7 @@ export default function (pi: ExtensionAPI) {
           () => {
             clearTimeout(timeout);
             pendingPromptResponses.delete(requestId);
-            resolve({
-              content: [{ type: "text", text: "Prompt request aborted" }],
-              details: { to: params.to, error: "aborted" },
-            });
+            resolve(textResult("Prompt request aborted", { to: params.to, error: "aborted" }));
           },
           { once: true },
         );
@@ -746,21 +717,18 @@ export default function (pi: ExtensionAPI) {
         if (!delivered && pendingPromptResponses.has(requestId)) {
           clearTimeout(timeout);
           pendingPromptResponses.delete(requestId);
-          resolve({
-            content: [{ type: "text", text: `Failed to send prompt to "${params.to}"` }],
-            details: { to: params.to, error: "not_delivered" },
-          });
+          resolve(textResult(
+            `Failed to send prompt to "${params.to}"`,
+            { to: params.to, error: "not_delivered" },
+          ));
         }
       });
     },
 
     renderCall(args, theme) {
-      const preview =
-        typeof args.prompt === "string"
-          ? args.prompt.length > 60
-            ? args.prompt.slice(0, 60) + "..."
-            : args.prompt
-          : "...";
+      const preview = typeof args.prompt === "string"
+        ? truncatePreview(args.prompt)
+        : "...";
       let text = theme.fg("toolTitle", theme.bold("mesh_prompt "));
       text += theme.fg("accent", args.to ?? "...");
       text += "\n  " + theme.fg("dim", preview);
@@ -780,7 +748,7 @@ export default function (pi: ExtensionAPI) {
       const from = details?.from ?? "unknown";
       const response = txt?.type === "text" ? txt.text : "";
       const preview =
-        response.length > 200 ? response.slice(0, 200) + "..." : response;
+        truncatePreview(response, 200);
       return new Text(
         theme.fg("success", "✓ ") +
           theme.fg("accent", `[${from}] `) +
@@ -799,12 +767,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
 
     async execute() {
-      if (role === "disconnected") {
-        return {
-          content: [{ type: "text", text: "Not connected to mesh" }],
-          details: {},
-        };
-      }
+      if (role === "disconnected") return notConnectedResult();
 
       const list = connectedTerminals
         .map((name) => {
@@ -813,10 +776,9 @@ export default function (pi: ExtensionAPI) {
         })
         .join("\n");
 
-      return {
-        content: [{ type: "text", text: `Connected terminals:\n${list}` }],
-        details: { terminals: connectedTerminals, self: terminalName, role },
-      };
+      return textResult(`Connected terminals:\n${list}`, {
+        terminals: connectedTerminals, self: terminalName, role,
+      });
     },
 
     renderResult(result, _options, theme) {
