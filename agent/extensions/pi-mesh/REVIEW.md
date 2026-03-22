@@ -1,107 +1,110 @@
 # Code Review: `agent/extensions/pi-mesh`
 
+## Current status
+
+This extension is in a better place now than when I first reviewed it.
+
+The highest-impact behavioral issues have been addressed:
+
+- **Finding #1:** resolved
+- **Finding #2:** resolved
+- **Finding #3:** resolved
+- **Finding #6:** resolved
+
+The main remaining work is now in the lower-risk cleanup category:
+
+- **Finding #4:** still open
+- **Finding #5:** still open
+
+---
+
 ## Summary
 
-This is a nice, compact extension overall: the core idea is easy to follow, the protocol is small, and the use of discriminated message types keeps most of the file readable.
+`pi-mesh` remains a nice, compact extension with a small protocol and readable overall flow. Since the initial review, the implementation has improved meaningfully in the areas that mattered most:
 
-The biggest improvement area is **simplifying the control flow** around routing, naming, and connection discovery. Right now a few branches make the implementation look simpler than it behaves: some failures are only surfaced in the UI, some state is duplicated, and one of the discovery mechanisms is effectively unused.
+- missing-target handling is much more honest and predictable
+- hub rename behavior no longer allows ambiguous duplicate names
+- unnecessary mesh-file state has been removed
+- protocol intent now matches implementation more closely for unregistered sockets
 
-I’d prioritize the following.
+At this point, the remaining improvements are mostly about **maintainability** and **TypeScript polish**, not correctness.
 
 ---
 
 ## Findings
 
 ### 1. Missing recipients are not reported back to the calling tool correctly
-
-**Priority:** High
+**Status:** Resolved  
+**Priority at review time:** High  
 **Area:** Simplicity / behavior
-**Lines:** `index.ts:185-219`, `index.ts:287-315`, `index.ts:682-729`
 
-`routeMessage()` handles an unknown `msg.to` by either:
+This was the most important behavior issue in the original review, and it has been addressed well.
 
-- showing a local UI warning, or
-- sending a generic `error` message back to the sender.
+What changed:
+- `routeMessage()` now participates in delivery reporting instead of only causing side-effect UI notifications
+- missing `prompt_request` targets now produce a synthesized `prompt_response` with an error, so callers fail fast instead of hanging until timeout
+- `mesh_send` now reports failure on the hub path instead of always claiming success
+- tool rendering now distinguishes success vs failure
 
-That creates two bad outcomes:
+Result:
+- `mesh_prompt` no longer waits 120 seconds for a non-existent target
+- `mesh_send` is substantially more honest
 
-- `mesh_send` still returns `Sent to "..."` even when nothing was delivered.
-- `mesh_prompt` does **not** receive a `prompt_response` error, so the caller waits the full 120 seconds and times out instead of failing fast.
-
-This is especially visible when a client prompts a non-existent terminal: the hub emits `error`, but `pendingPromptResponses` only resolves on `prompt_response`.
-
-### Recommendation
-
-Make routing failures part of the normal request/response path instead of a side-channel UI notification.
-
-Concretely:
-
-- For `prompt_request`, synthesize an immediate `prompt_response` with `error` when the target is missing.
-- For `chat`, let `routeMessage()` return a delivery result (or throw) so `mesh_send` can return an honest tool result.
-
-That will make the behavior much simpler for both users and the LLM.
+Non-blocking note:
+- client-side `mesh_send` is still necessarily optimistic without an explicit ack protocol, but that is a reasonable tradeoff for this extension’s scope
 
 ---
 
 ### 2. Hub renaming bypasses the uniqueness rules and can make routing ambiguous
-
-**Priority:** High
+**Status:** Resolved  
+**Priority at review time:** High  
 **Area:** Simplicity / correctness
-**Lines:** `index.ts:152-157`, `index.ts:850-861`
 
-Name deduplication exists in `uniqueName()`, but it is only used during client registration. The `/mesh-name` command for the hub does this instead:
+This issue is fixed.
 
-```ts
-terminalName = newName;
-```
+What changed:
+- the hub now checks whether the requested name is already taken by another terminal before renaming
+- taken names are rejected instead of silently creating ambiguity
+- a no-op rename now exits early, avoiding fake `terminal_left` / `terminal_joined` broadcasts
+- client rename messaging was updated to be more honest about hub-side uniqueness enforcement
 
-If a client is already using that name:
+I still think **rejecting** a taken explicit `/mesh-name` request is the right UX choice here.
 
-- `terminalList()` collapses duplicates because it is built from a `Set`
-- direct sends can be routed to the hub instead of the client (`msg.to === terminalName` wins first)
-- one of the terminals effectively becomes unreachable by name
-
-### Recommendation
-
-Run hub renames through the same uniqueness path as registration, or centralize all renaming through one shared function.
-
-Even better: make the hub authoritative for _all_ name changes, including its own, so there is only one code path that enforces uniqueness and updates `connectedTerminals`.
+Result:
+- the hub can no longer rename itself into a client’s existing name
+- duplicate-name routing ambiguity from the original review is gone
 
 ---
 
 ### 3. The temp mesh file is currently unnecessary complexity
-
-**Priority:** Medium
+**Status:** Resolved  
+**Priority at review time:** Medium  
 **Area:** Unnecessary code / simplicity
-**Lines:** `index.ts:36-37`, `index.ts:400-405`, `index.ts:478-485`
 
-The extension writes and reads `pi-mesh.json`, but today:
+This issue is fixed in the simplest and best way: the temp mesh file was removed.
 
-- the host is always `127.0.0.1`
-- the port is always `DEFAULT_PORT`
-- the stored `pid` is never used
+What changed:
+- `MESH_FILE` and its read/write/delete touch points were removed
+- `initialize()` now directly attempts `connectAsClient(DEFAULT_PORT)`
+- unused `fs`, `os`, and `path` imports were removed
 
-So the file does not currently enable discovery of anything dynamic. Clients could just try `ws://127.0.0.1:9900` directly, which already happens after the read anyway.
+Result:
+- less state
+- less I/O
+- same effective discovery behavior
 
-### Recommendation
-
-Either:
-
-1. remove the mesh file entirely, or
-2. make it pull its weight by supporting dynamic port selection and/or validating whether the recorded PID is still alive.
-
-As written, this is extra I/O and extra state to reason about without a real payoff.
+This is a good simplification.
 
 ---
 
 ### 4. Too much unrelated responsibility lives in one file and a few helpers are duplicated
-
-**Priority:** Medium
+**Status:** Open  
+**Priority:** Medium  
 **Area:** Simplicity
-**Lines:** broadly `index.ts:1-908`
 
-`index.ts` currently owns:
+This is still the biggest remaining improvement area.
 
+`index.ts` still owns most of the extension’s behavior:
 - protocol types
 - hub/client socket lifecycle
 - routing
@@ -111,89 +114,81 @@ As written, this is extra I/O and extra state to reason about without a real pay
 - command definitions
 - renderer definitions
 
-On top of that, several patterns repeat:
-
-- identical `Not connected to mesh` tool results
+There is also still some repeated logic, such as:
+- identical or near-identical “not connected” tool results
 - repeated preview truncation logic in tool renderers
-- repeated result shaping for text-only tool responses
+- repeated text-result shaping
 
-None of this is individually bad, but together it makes the file harder to change safely than it needs to be.
+None of this is broken, but it makes the file harder to evolve than it needs to be.
 
 ### Recommendation
-
-Split by concern, even if only lightly:
-
+A light split by concern would help:
 - `protocol.ts` for message types
-- `transport.ts` or `mesh.ts` for hub/client/routing
+- `mesh.ts` or `transport.ts` for socket lifecycle + routing
 - `tools.ts` for tool registration
-- shared helpers for `notConnectedResult()` and `truncatePreview()`
+- small helpers like `notConnectedResult()` and `truncatePreview()`
 
-That would reduce the branching density and make the naming/routing bugs easier to spot.
+This remains a maintainability recommendation, not a correctness blocker.
 
 ---
 
 ### 5. A few `any` casts and ad-hoc result types weaken an otherwise typed implementation
-
-**Priority:** Low
+**Status:** Open  
+**Priority:** Low  
 **Area:** Idiomatic TypeScript
-**Lines:** `index.ts:123-128`, `index.ts:577-580`, `index.ts:747-748`, `index.ts:798-800`, `index.ts:902`
 
-The file is mostly typed well, but a few places fall back to `any` or hand-written inline shapes:
+This remains true.
 
-- assistant content extraction uses `(c: any)`
-- renderer reads `(message.details as any)?.from`
-- pending tool result resolution uses an inline object type instead of a shared alias/interface
+The code is mostly typed well, but a few places still fall back to looser typing than necessary, including:
+- assistant content extraction using `(c: any)`
+- renderer access via `(message.details as any)`
+- inline result object shapes where a small shared alias/interface would be clearer
 
 ### Recommendation
+Introduce a few small local types/helpers:
+- a typed assistant-text extraction helper
+- a `MeshToolResult` alias or equivalent local result type
+- a typed details shape for mesh-rendered messages
 
-Introduce small local types instead of dropping to `any`, e.g.:
-
-- a typed helper for extracting assistant text blocks
-- a `MeshToolResult` alias
-- a typed `details` object for mesh-rendered messages
-
-This would make the code more idiomatic without adding much verbosity.
+This is low risk and mostly about making a solid TypeScript file more idiomatic.
 
 ---
 
 ### 6. “First message must be register” is documented in code comments but not enforced
-
-**Priority:** Low
+**Status:** Resolved  
+**Priority at review time:** Low  
 **Area:** Simplicity / robustness
-**Lines:** `index.ts:328-362`
 
-The comment says:
+This issue is fixed.
 
-> First message must be register
+What changed:
+- the hub now ignores non-`register` messages until `clientName` has been established
 
-But the handler does not actually enforce that. Any unregistered socket can send `chat`, `prompt_request`, or `prompt_response`, and the hub will route it.
+I’m fine with the chosen implementation of silently ignoring those messages instead of terminating the socket. For a localhost extension, that is a good simplicity tradeoff.
 
-Even for a localhost-only tool, this is a confusing mismatch between the intended protocol and the implementation.
-
-### Recommendation
-
-Short-circuit non-`register` messages until `clientName` has been established, or close the socket immediately if the first frame is not a valid registration.
-
-That is both simpler and more honest to the protocol.
+Result:
+- the implementation now matches the documented protocol expectation much better
 
 ---
 
 ## Performance notes
 
-No major performance problems stood out for the intended scale of “a few terminals on localhost”. The main thing I’d watch is that directed sends do repeated linear scans of `hubClients` (`index.ts:194-218`).
+No major performance issues stand out for the expected scale of “a few terminals on localhost”.
 
-That is fine at this size, but if you want a small cleanup that also improves performance, keep a second map of `name -> WebSocket` (or make the hub’s client registry a richer object keyed by name). That would also simplify the target-not-found handling.
+Directed sends still rely on linear scans of `hubClients`, which is acceptable at this size. If desired, a future cleanup could maintain a `name -> WebSocket` map to simplify some routing paths, but this is not urgent.
 
 ---
 
 ## Overall
 
-I would address the review in this order:
+The review priority has changed.
 
-1. Fix missing-target behavior for `mesh_send` / `mesh_prompt`
-2. Fix hub rename deduplication
-3. Remove or justify the mesh temp file
-4. Extract a few helpers / split responsibilities
-5. Clean up the remaining `any` usage
+Originally, the biggest concerns were correctness and hidden behavior. Those have mostly been addressed. At this point, I would prioritize the remaining work like this:
 
-The extension is already small enough to improve quickly; the biggest wins are mostly about removing hidden behavior rather than adding features.
+1. Extract a few helpers / split responsibilities in `index.ts`
+2. Clean up the remaining `any` usage and ad-hoc typing
+
+So the current state is:
+- **Correctness:** much improved
+- **Simplicity:** still the main area to work on
+- **TypeScript idioms:** small cleanup remaining

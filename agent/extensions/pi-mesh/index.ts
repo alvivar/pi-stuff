@@ -224,7 +224,10 @@ export default function (pi: ExtensionAPI) {
           : { type: "error", message: errText };
 
       if (msg.from === terminalName) {
-        handleIncoming(errorMsg);
+        // For prompt_request, deliver the error response locally so
+        // pendingPromptResponses resolves. For chat, skip — the tool
+        // result (via return false) is sufficient; no extra UI toast.
+        if (errorMsg.type === "prompt_response") handleIncoming(errorMsg);
       } else {
         hubClientByName(msg.from)?.send(JSON.stringify(errorMsg));
       }
@@ -567,8 +570,8 @@ export default function (pi: ExtensionAPI) {
         const msg = event.messages[i];
         if (msg.role === "assistant") {
           responseText = msg.content
-            .filter((c: any) => c.type === "text")
-            .map((c: any) => c.text)
+            .filter((c: { type: string }) => c.type === "text")
+            .map((c: { type: string; text?: string }) => c.text ?? "")
             .join("\n");
           break;
         }
@@ -616,7 +619,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      // Pre-validate target exists locally (best-effort, catches typos and stale names)
+      // Pre-validate target exists locally (best-effort, catches typos and definitely-absent names)
       if (params.to !== "*" && !connectedTerminals.includes(params.to)) {
         return {
           content: [
@@ -644,8 +647,10 @@ export default function (pi: ExtensionAPI) {
           details: { to: params.to, error: "not_delivered" },
         };
       }
+      // Hub delivery is authoritative; client delivery is optimistic (hub routes)
+      const verb = role === "hub" ? "Sent to" : "Sent to hub for delivery to";
       return {
-        content: [{ type: "text", text: `Sent to ${target}` }],
+        content: [{ type: "text", text: `${verb} ${target}` }],
         details: { to: params.to, triggerTurn: params.triggerTurn ?? false },
       };
     },
@@ -730,13 +735,22 @@ export default function (pi: ExtensionAPI) {
           { once: true },
         );
 
-        routeMessage({
+        const delivered = routeMessage({
           type: "prompt_request",
           id: requestId,
           from: terminalName,
           to: params.to,
           prompt: params.prompt,
         });
+
+        if (!delivered && pendingPromptResponses.has(requestId)) {
+          clearTimeout(timeout);
+          pendingPromptResponses.delete(requestId);
+          resolve({
+            content: [{ type: "text", text: `Failed to send prompt to "${params.to}"` }],
+            details: { to: params.to, error: "not_delivered" },
+          });
+        }
       });
     },
 
@@ -927,7 +941,7 @@ export default function (pi: ExtensionAPI) {
   // ── Message renderer ─────────────────────────────────────────────────────
 
   pi.registerMessageRenderer("mesh", (message, _options, theme) => {
-    const from = (message.details as any)?.from ?? "mesh";
+    const from = (message.details as Record<string, unknown> | undefined)?.from ?? "mesh";
     const text =
       theme.fg("accent", `⚡ [${from}] `) +
       theme.fg("text", String(message.content));
