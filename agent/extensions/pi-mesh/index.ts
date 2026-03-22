@@ -883,12 +883,15 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (newName === terminalName) {
+        _ctx.ui.notify(`Already using "${newName}"`, "info");
+        return;
+      }
+
       // If we're the hub, check uniqueness before renaming
       if (role === "hub") {
         // Check if name is taken by another terminal
-        const takenByOther =
-          newName !== terminalName &&
-          Array.from(hubClients.values()).includes(newName);
+        const takenByOther = Array.from(hubClients.values()).includes(newName);
         if (takenByOther) {
           _ctx.ui.notify(
             `Name "${newName}" is already taken by another terminal`,
