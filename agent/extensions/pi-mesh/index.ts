@@ -538,9 +538,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, _ctx) => {
     ctx = _ctx;
-    // Use session name as default mesh identity if available
-    const sessionName = pi.getSessionName()?.trim().replace(/\s+/g, " ");
-    if (sessionName) terminalName = sessionName;
     await initialize();
   });
 
@@ -846,15 +843,21 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("mesh-name", {
-    description: "Change your mesh terminal name",
+    description: "Change mesh name. No arg = use session name",
     handler: async (args, _ctx) => {
-      const newName = args.trim();
+      let newName = args.trim();
       if (!newName) {
-        _ctx.ui.notify(
-          `Current name: "${terminalName}". Usage: /mesh-name <name>`,
-          "info",
-        );
-        return;
+        // No argument: use session name if available
+        const sessionName = pi.getSessionName()?.trim().replace(/\s+/g, " ");
+        if (sessionName) {
+          newName = sessionName;
+        } else {
+          _ctx.ui.notify(
+            `Current name: "${terminalName}". No session name set. Usage: /mesh-name <name>`,
+            "info",
+          );
+          return;
+        }
       }
 
       if (newName === terminalName) {
