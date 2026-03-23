@@ -96,6 +96,12 @@ type MeshMessage =
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+  pi.registerFlag("mesh", {
+    description: "Connect to mesh on startup",
+    type: "boolean",
+    default: false,
+  });
+
   // ── State ────────────────────────────────────────────────────────────────
 
   let role: "hub" | "client" | "disconnected" = "disconnected";
@@ -551,7 +557,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, _ctx) => {
     ctx = _ctx;
-    await initialize();
+    if (pi.getFlag("mesh") === true) await initialize();
   });
 
   pi.on("session_shutdown", async () => {
