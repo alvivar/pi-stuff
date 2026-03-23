@@ -1,11 +1,11 @@
-# Plan: `mesh_broadcast_prompt`
+# Plan: `link_broadcast_prompt`
 
-Send a prompt to all terminals on the mesh and collect all responses.
+Send a prompt to all terminals on the link and collect all responses.
 
 ## Design Decisions
 
-- **New tool** (`mesh_broadcast_prompt`), not an extension of `mesh_prompt` — different return shape (map vs single), different timeout semantics (wait for all), cleaner for LLM tool selection.
-- **No slash command yet** — prove the tool first, add `/mesh-broadcast-prompt` later if useful interactively.
+- **New tool** (`link_broadcast_prompt`), not an extension of `link_prompt` — different return shape (map vs single), different timeout semantics (wait for all), cleaner for LLM tool selection.
+- **No slash command yet** — prove the tool first, add `/link-broadcast-prompt` later if useful interactively.
 - **No new protocol messages** — reuse existing `prompt_request` / `prompt_response`. Send N individual requests, one per target.
 - **Partial failure is normal** — terminals can timeout, error, or be busy. The result captures all outcomes.
 
@@ -46,7 +46,7 @@ Register the tool and send prompts to all targets.
 
 ### Steps
 
-1. Register `mesh_broadcast_prompt` tool:
+1. Register `link_broadcast_prompt` tool:
    - Parameters: `prompt: string`
    - Description explains fan-out and partial failure semantics
 2. On execute:
@@ -97,7 +97,7 @@ Polish the output for both LLM and human consumption.
 1. Format `content` summary: `"Collected N/M responses (X ok, Y failed)"`
 2. Format `details` with the full structured map plus `total`, `ok`, `failed` counts
 3. Add `renderCall`:
-   - Show "mesh_broadcast_prompt" title
+   - Show "link_broadcast_prompt" title
    - Preview prompt text using `truncatePreview()`
    - Show target count: e.g., "→ 4 terminals"
 4. Add `renderResult`:
