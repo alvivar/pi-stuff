@@ -9,6 +9,7 @@
     "url": "https://github.com/alvivar/pi-mesh"
   },
   "keywords": [
+    "pi-package",
     "pi",
     "mesh",
     "websocket",
