@@ -541,9 +541,9 @@ export default function (pi: ExtensionAPI) {
 
   // ── Connect as client ────────────────────────────────────────────────────
 
-  function connectAsClient(port: number): Promise<boolean> {
+  function connectAsClient(): Promise<boolean> {
     return new Promise((resolve) => {
-      const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+      const socket = new WebSocket(`ws://127.0.0.1:${DEFAULT_PORT}`);
       let resolved = false;
 
       socket.on("open", () => {
@@ -595,7 +595,7 @@ export default function (pi: ExtensionAPI) {
     if (disposed) return;
 
     // Try connecting to an existing hub
-    if (await connectAsClient(DEFAULT_PORT)) return;
+    if (await connectAsClient()) return;
 
     // No hub found — become the hub
     if (await startHub()) return;
@@ -720,10 +720,14 @@ export default function (pi: ExtensionAPI) {
       const list = terminalList();
       connectedTerminals = list;
       updateStatus();
-      hubBroadcast({ type: "terminal_left", name: old, terminals: list });
+      // Notify clients only — hub already updated local state
+      hubBroadcast(
+        { type: "terminal_left", name: old, terminals: list },
+        terminalName,
+      );
       hubBroadcast(
         { type: "terminal_joined", name: desiredName, terminals: list },
-        desiredName,
+        terminalName,
       );
       pushStatus(true);
     } else if (role === "client") {
@@ -903,6 +907,13 @@ export default function (pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, signal) {
       if (role === "disconnected") return notConnectedResult();
+
+      if (!connectedTerminals.includes(params.to)) {
+        return textResult(
+          `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
+          { to: params.to, error: "not_found" },
+        );
+      }
 
       const requestId = crypto.randomUUID();
 
@@ -1119,10 +1130,14 @@ export default function (pi: ExtensionAPI) {
         const list = terminalList();
         connectedTerminals = list;
         updateStatus();
-        hubBroadcast({ type: "terminal_left", name: old, terminals: list });
+        // Notify clients only — hub already updated local state
+        hubBroadcast(
+          { type: "terminal_left", name: old, terminals: list },
+          terminalName,
+        );
         hubBroadcast(
           { type: "terminal_joined", name: newName, terminals: list },
-          newName,
+          terminalName,
         );
         pushStatus(true);
         savePreference();
