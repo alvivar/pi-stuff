@@ -209,13 +209,13 @@ link (hub) 3 terminal(s)
 
 ## Slash Commands
 
-| Command                 | Purpose                                                                                                  |
-| ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| `/link`                 | Show link status (name, role, online count, agent status per terminal)                                   |
+| Command                 | Purpose                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `/link`                 | Show link status (name, role, online count, agent status per terminal)                                                   |
 | `/link-name [name]`     | Rename and save as this session's preferred link name. With no argument, adopts the Pi session name. Restored on resume. |
-| `/link-broadcast <msg>` | Broadcast a chat message to all other terminals                                                          |
-| `/link-connect`         | Connect to Pi Link (works anytime, with or without `--link`)                                             |
-| `/link-disconnect`      | Disconnect from Pi Link and suppress auto-reconnect (overrides `--link`)                                 |
+| `/link-broadcast <msg>` | Broadcast a chat message to all other terminals                                                                          |
+| `/link-connect`         | Connect to Pi Link (works anytime, with or without `--link`)                                                             |
+| `/link-disconnect`      | Disconnect from Pi Link and suppress auto-reconnect (overrides `--link`)                                                 |
 
 ### Examples
 
