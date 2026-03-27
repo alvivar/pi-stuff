@@ -33,10 +33,38 @@ Send a prompt to all terminals on the link and collect all responses.
 ## Implementation Notes
 
 - **Snapshot targets at start** — use `connectedTerminals` minus self at invocation time. Joins/leaves during execution don't change the wait set.
-- **Fail fast per target** — if `routeMessage()` returns `false`, mark that target as failed immediately instead of waiting for timeout.
 - **Handle "no other terminals"** — return an empty success result immediately.
 - **Deterministic ordering** — sort target names so summaries and details are stable.
 - **Busy terminals** — each receiver only accepts one remote prompt at a time, so some may reply "Terminal is busy". This fits the partial-failure model.
+
+### Accumulator pattern
+
+Reuse `pendingPromptResponses` with per-target closure resolvers. Each target gets its own `requestId` and entry in the map, but the resolve callback writes into a shared accumulator object + decrements a `remaining` counter. When `remaining` hits 0, resolve the outer tool promise. No separate map or `handleIncoming` branch needed.
+
+### Double-count prevention for failed targets
+
+When `routeMessage()` returns `false` on the hub, it also synthesizes a `prompt_response` error via `handleIncoming`. To avoid double-counting:
+
+- If `routeMessage()` returns `false`, do NOT register a `pendingPromptResponses` entry for that target
+- Mark it failed in the accumulator immediately and decrement `remaining`
+- This ensures the synthesized error has no pending entry to hit
+
+### Cleanup on completion / abort / disconnect
+
+When the outer promise resolves (all targets done, or abort), must:
+
+1. Clear all outstanding `setTimeout` handles
+2. Delete all outstanding entries from `pendingPromptResponses`
+3. Late `prompt_response`s arriving after resolution find no pending entry — harmlessly ignored
+
+Same cleanup applies to abort signal and disconnect events.
+
+### renderResult truncation
+
+For large target counts:
+
+- Truncate per-response previews (reuse `truncatePreview()`)
+- Cap visible rows at a reasonable limit (e.g., 10) with a `+ N more` summary
 
 ---
 
@@ -54,8 +82,10 @@ Register the tool and send prompts to all targets.
    - Snapshot targets: `connectedTerminals.filter(n => n !== terminalName).sort()`
    - Early return if no targets: `textResult("No other terminals connected", { responses: {}, total: 0, ok: 0, failed: 0 })`
 3. Generate one `requestId` per target using `crypto.randomUUID()`
-4. Send N `prompt_request` messages via `routeMessage()`
-5. For any target where `routeMessage()` returns `false`, mark as `{ status: "error", error: "not_delivered" }` immediately
+4. For each target, call `routeMessage()`:
+   - If returns `false`: mark target as `{ status: "error", error: "not_delivered" }` in accumulator, decrement `remaining`. Do NOT register in `pendingPromptResponses`.
+   - If returns `true`: register in `pendingPromptResponses` with a closure resolver (see Batch 2).
+5. If all targets failed immediately (`remaining === 0`), resolve the tool promise right away.
 
 ### Output
 
@@ -70,16 +100,26 @@ Wire up response collection so the tool waits for all targets to respond.
 ### Steps
 
 1. Create a `Promise` that resolves when all targets have a result (ok, error, or timeout)
-2. For each target, register an entry in `pendingPromptResponses` with its own `requestId`
-3. Per-terminal timeout: `setTimeout` per target using `PROMPT_TIMEOUT_MS`
-   - On timeout: record `{ status: "timeout" }` for that target
-   - Check if all targets are resolved; if so, resolve the outer promise
-4. As each `prompt_response` arrives via existing `handleIncoming`:
-   - Match by `requestId` (already works — each target has its own ID)
-   - Record `{ status: "ok", response }` or `{ status: "error", error }`
-   - Check if all targets are resolved; if so, resolve the outer promise
+2. Shared state:
+   - `results: Record<string, { status, response?, error? }>` — accumulator, pre-populated with immediate failures from Batch 1
+   - `remaining: number` — count of targets still pending
+   - `timeouts: Map<string, NodeJS.Timeout>` — per-target timeout handles
+   - `resolved: boolean` — guard against late settlement
+3. For each successfully-routed target:
+   - Start a per-target `setTimeout(PROMPT_TIMEOUT_MS)`
+   - On timeout: write `{ status: "timeout" }` to accumulator, delete pending entry, decrement remaining, check if done
+   - Register in `pendingPromptResponses` with a closure that:
+     - Writes `{ status: "ok", response }` or `{ status: "error", error }` to accumulator
+     - Clears the target's timeout
+     - Decrements `remaining`, checks if done
+4. "Check if done" means: if `remaining === 0` and not yet `resolved`:
+   - Set `resolved = true`
+   - Clear all outstanding timeouts
+   - Delete all outstanding `pendingPromptResponses` entries
+   - Resolve the outer promise with final results
 5. Abort signal support:
-   - On abort, cancel all pending timeouts, mark remaining targets as `{ status: "error", error: "aborted" }`
+   - On abort: set `resolved = true`, clear all timeouts, delete all pending entries
+   - Mark all remaining targets as `{ status: "error", error: "aborted" }`
    - Resolve immediately with partial results
 
 ### Output
@@ -103,6 +143,8 @@ Polish the output for both LLM and human consumption.
 4. Add `renderResult`:
    - Summary line with ok/failed counts
    - Per-terminal status lines with ✓/✗ icons and response previews
+   - Truncate per-response previews via `truncatePreview()`
+   - Cap at 10 visible rows, show `+ N more` if exceeded
 
 ### Output
 
