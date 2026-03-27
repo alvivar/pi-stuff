@@ -15,6 +15,7 @@ Terminal 1:  pi                        # no --link flag
 ```
 
 **Expected:**
+
 - No status bar text (no "link: offline", nothing)
 - No connection attempt
 - `/link` shows "Link: not connected"
@@ -31,6 +32,7 @@ Terminal 1:  pi --link
 ```
 
 **Expected:**
+
 - Status bar shows `link: <name> (hub) · 1 terminal`
 - `/link` shows status with your name
 - You became the hub (first terminal on the port)
@@ -47,6 +49,7 @@ Terminal 2:  pi --link                 # becomes client
 ```
 
 **Expected:**
+
 - Terminal 1 gets a notification that terminal 2 joined
 - Terminal 2 gets a notification showing its name and terminal count
 - Both see 2 terminals in `/link` and `link_list`
@@ -65,6 +68,7 @@ Terminal 2:  /link-connect             # manual connect
 ```
 
 **Expected:**
+
 - Terminal 2 connects as client
 - Both see 2 terminals
 - Terminal 2 gets a join notification
@@ -82,6 +86,7 @@ Terminal 2:  /link-disconnect
 ```
 
 **Expected:**
+
 - Terminal 2 disconnects, shows "Disconnected from link"
 - Terminal 1 gets a leave notification
 - Terminal 2 does NOT auto-reconnect (even though --link was passed)
@@ -100,6 +105,7 @@ Terminal 1:  /link-name builder
 ```
 
 **Expected:**
+
 - Renamed to "builder"
 - Status bar updates to show "builder"
 - Name is persisted to session (saved via appendEntry)
@@ -124,6 +130,7 @@ Terminal 1:  /resume                   # pick the session where you set "builder
 ```
 
 **Expected:**
+
 - After `/resume`, terminal identity changes to "builder"
 - If hub: in-place rename (no reconnect). If client: disconnect and reconnect requesting "builder"
 - Status bar shows "builder"
@@ -144,6 +151,7 @@ Terminal 2:  /link-name builder        # same name requested
 ```
 
 **Expected:**
+
 - Terminal 2 gets assigned "builder-2" (hub enforces uniqueness)
 - Terminal 2's saved preference is still "builder" (not "builder-2")
 
@@ -157,6 +165,7 @@ Terminal 2:  /resume                   # pick the session where "builder" was se
 ```
 
 **Expected:**
+
 - Terminal 2 requests "builder" (the saved preference, not "builder-2")
 - Since "builder" is now free, terminal 2 gets "builder"
 
@@ -177,6 +186,7 @@ Terminal 1:  /resume                   # pick the first session (no saved name)
 ```
 
 **Expected:**
+
 - After resume, terminal gets a NEW random name (not "t-a3f2")
 - Unnamed sessions don't persist random names — each connect generates fresh
 
@@ -195,6 +205,7 @@ Terminal 1:  /resume                   # pick the "alpha" session
 ```
 
 **Expected:**
+
 - After resume, terminal identity changes to "alpha"
 - If hub: in-place rename, no server teardown, other clients see leave/join
 - If client: disconnect and reconnect as "alpha"
@@ -218,6 +229,7 @@ Terminal 1:  /resume                   # pick the "alpha" session
 ```
 
 **Expected:**
+
 - Terminal 1 renames in-place from "beta" to "alpha"
 - Terminal 2 sees a leave ("beta") and join ("alpha") notification
 - Terminal 2 stays connected — no disconnection
@@ -244,6 +256,7 @@ Terminal 1:  /link                     # confirm name is "beta"
 ```
 
 **Expected:**
+
 - `/new` switches to unnamed session → fresh random name, not the old "alpha"
 - Each `/resume` restores that session's saved preferred name
 - If hub: in-place rename each time, no server teardown
@@ -262,6 +275,7 @@ Terminal 1:  /link-name                # no args
 ```
 
 **Expected:**
+
 - Link name set to "my-worker"
 - Preference persisted
 - Ctrl+C, then `pi --link`, then `/resume` → restores "my-worker"
@@ -278,6 +292,7 @@ Terminal 1:  /link-name                # no args, no session name
 ```
 
 **Expected:**
+
 - Shows current name and usage hint: `Usage: /link-name <name>`
 - No rename, no persistence
 
@@ -297,6 +312,7 @@ Terminal 1:  /link-name <terminal-2-name>    # try to take terminal 2's name
 ```
 
 **Expected:**
+
 - Hub rejects: "Name is already taken by another terminal"
 - No rename happens
 - No preference is saved (persist happens after success, not before)
@@ -313,20 +329,24 @@ Terminal 2:  pi --link
 ```
 
 **Test idle status:**
+
 - Terminal 1 calls `link_list`
 - Both terminals should show `idle (Xs)`
 
 **Test thinking status:**
+
 - Terminal 2: send a prompt to the LLM (e.g., "explain recursion")
 - Terminal 1: quickly call `link_list` while terminal 2 is thinking
 - Terminal 2 should show `thinking (Xs)`
 
 **Test tool status:**
+
 - Terminal 2: ask something that triggers a tool (e.g., "read file X")
 - Terminal 1: quickly call `link_list` while tool runs
 - Terminal 2 should show `tool:read (Xs)` or `tool:bash (Xs)`
 
 **Test return to idle:**
+
 - After terminal 2 finishes, terminal 1 calls `link_list`
 - Terminal 2 should show `idle (Xs)` again
 
@@ -345,6 +365,7 @@ Terminal 2:  (call link_list immediately)
 ```
 
 **Expected:**
+
 - Terminal 2 sees terminal 1's current status (from welcome snapshot)
 - Not blank or fake idle — actual status from the moment of joining
 
@@ -370,6 +391,7 @@ Terminal 1:  Ctrl+C                    # kill the hub
 ```
 
 **Expected:**
+
 - Terminal 2 detects disconnect
 - After reconnect delay (2-5s), terminal 2 promotes itself to hub
 - Status bar shows `(hub)` on terminal 2
@@ -400,6 +422,7 @@ Terminal 2:  /link                     # check name
 ```
 
 **Expected:**
+
 - Terminal 2 registers requesting "builder" (preferred name, not "builder-2")
 - Since "builder" is now free, terminal 2 gets "builder"
 - `/link` confirms name is "builder"
@@ -418,6 +441,7 @@ Terminal 1:  /link-name t-a3f2         # same as current name
 ```
 
 **Expected:**
+
 - Shows "Saved "t-a3f2" as preferred link name"
 - Preference is now persisted
 - Ctrl+C, `pi --link`, `/resume` → restores "t-a3f2"
@@ -447,6 +471,7 @@ Terminal 1:  /resume                   # pick session B (preference "beta")
 ```
 
 **Expected:**
+
 - Hub warns: `Session preferred name "beta" is taken, keeping "alpha"`
 - Hub keeps "alpha" identity
 - No rename happens
@@ -476,11 +501,13 @@ Terminal 1:  Ctrl+C                    # kill hub
 ```
 
 **If terminal 3 promotes to hub:**
+
 - Terminal 2 auto-reconnects as client, requesting "builder" (preferred name)
 - Since "builder" is now free (terminal 1 is gone), terminal 2 gets "builder"
 - `/link` on terminal 2 confirms name is "builder"
 
 **If terminal 2 promotes to hub:**
+
 - Terminal 2 becomes hub with runtime name "builder-2" (hub promotion uses current `terminalName`)
 - The preferred name fix does NOT apply here — hub promotion doesn't go through `connectAsClient`
 - This is a known limitation: hub promotion doesn't retry preferred name
@@ -502,6 +529,7 @@ Terminal 2:  /link-name bob
 **From Terminal 1, ask the LLM:** "Send a message to bob saying hello"
 
 **Expected:**
+
 - LLM uses `link_send` tool with `to: "bob"`, `message: "hello"`
 - Terminal 2 sees the message rendered as `⚡ [alice] hello`
 - Terminal 1 sees a success indicator (✓) in the tool result
@@ -520,6 +548,7 @@ Terminal 2:  pi --link
 **From Terminal 1, ask the LLM:** "Send a message to charlie"
 
 **Expected:**
+
 - LLM uses `link_send` with `to: "charlie"`
 - Hub can't find "charlie"
 - Terminal 1 sees an error: `Terminal "charlie" not found`
@@ -539,6 +568,7 @@ Terminal 3:  pi --link
 **From Terminal 1, ask the LLM:** "Send a message to everyone saying meeting in 5"
 
 **Expected:**
+
 - LLM uses `link_send` with `to: "*"`
 - Terminal 2 and terminal 3 both see `⚡ [<terminal-1-name>] meeting in 5`
 - Terminal 1 does NOT see its own broadcast
@@ -560,6 +590,7 @@ Terminal 2:  /link-name bob
 **From Terminal 1, ask the LLM:** "Ask bob what 2+2 is"
 
 **Expected:**
+
 - LLM uses `link_prompt` tool with `to: "bob"`, `prompt: "what is 2+2"`
 - Terminal 2 receives the prompt, its LLM processes it, responds
 - Terminal 1 gets the response back in the tool result
@@ -579,6 +610,7 @@ Terminal 2:  pi --link
 **From Terminal 1, ask the LLM:** "Ask charlie what time it is"
 
 **Expected:**
+
 - LLM uses `link_prompt` with `to: "charlie"`
 - Hub synthesizes an error `prompt_response` (terminal not found)
 - Terminal 1 sees ✗ with error message
@@ -603,6 +635,7 @@ Terminal 2:  /link-name bob
 **Step 2:** While terminal 2 is still working, from terminal 1 ask: "Ask bob what 2+2 is"
 
 **Expected:**
+
 - Terminal 2 rejects the prompt request (agent is busy)
 - Terminal 1 gets an error response: "Terminal is busy"
 - Terminal 1 sees ✗ with the busy message
@@ -624,6 +657,7 @@ Terminal 1:  /link-broadcast hello everyone
 ```
 
 **Expected:**
+
 - Terminal 2 and terminal 3 both see `⚡ [<terminal-1-name>] hello everyone`
 - Terminal 1 sees "Broadcast sent" notification
 - Terminal 1 does NOT see its own broadcast message
