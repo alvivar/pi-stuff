@@ -177,8 +177,11 @@ Send a prompt to a remote terminal and **wait** for the LLM's response (synchron
 
 - The remote terminal processes the prompt via `pi.sendUserMessage()` — as if a user typed it.
 - Returns the remote terminal's actual assistant reply text as the tool result.
-- **2-minute timeout**; supports abort signals.
+- **Self-target rejection** — prompting yourself (`to` equals your own name) returns an immediate error.
+- **Heartbeat-based timeout** — no short fixed deadline. The target sends keepalives every 30s while working. The sender resets a 90-second inactivity timer on each keepalive. A 30-minute hard ceiling acts as a safety net against broken-but-chatty targets. A 10-minute task with regular activity never times out; a genuinely dead target times out in 90 seconds of silence.
+- **Immediate failure on disconnect** — if the target leaves the network (`terminal_left`), pending prompts to that target fail immediately instead of waiting for the inactivity timeout.
 - **Early failure detection** — if the message can't be delivered (e.g., target not found), the tool resolves immediately with an error instead of waiting for the timeout.
+- Supports abort signals.
 - Targets **one terminal at a time** (no broadcast mode).
 - Only **one remote prompt** can execute at a time per target terminal. Concurrent requests are rejected with `"Terminal is busy"`.
 
@@ -319,16 +322,17 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 ## Limitations & Design Decisions
 
-| #   | Decision                                  | Rationale / Impact                                                                                                                                            |
-| --- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                   |
-| 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                           |
-| 3   | **Race-based hub promotion**              | Non-deterministic. Terminal state (names, in-flight prompts) is lost during promotion. Simple but imperfect.                                                  |
-| 4   | **Single remote prompt per terminal**     | No queuing — immediate rejection if the target is busy. Keeps the model simple and avoids unbounded backlogs.                                                 |
-| 5   | **No message persistence**                | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                             |
-| 6   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place with collision checks. |
-| 7   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                  |
-| 8   | **Opt-in startup**                        | Link is off by default. Use `pi --link` or `/link-connect` to participate. See [Configuration](#configuration).                                               |
+| #   | Decision                                  | Rationale / Impact                                                                                                                                                                                              |
+| --- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                                                                     |
+| 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                                                                             |
+| 3   | **Race-based hub promotion**              | Non-deterministic. Terminal state (names, in-flight prompts) is lost during promotion. Simple but imperfect.                                                                                                    |
+| 4   | **Single remote prompt per terminal**     | No queuing — immediate rejection if the target is busy. Keeps the model simple and avoids unbounded backlogs.                                                                                                   |
+| 5   | **No message persistence**                | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                                                                               |
+| 6   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place with collision checks.                                                   |
+| 7   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                                                                    |
+| 8   | **Opt-in startup**                        | Link is off by default. Use `pi --link` or `/link-connect` to participate. See [Configuration](#configuration).                                                                                                 |
+| 9   | **Rename during prompt loses keepalives** | If the target renames mid-prompt, keepalive resets stop working (pending requests track by name). The final response can still succeed by request ID, but inactivity may false-fire on long tasks after rename. |
 
 ---
 
@@ -459,13 +463,15 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 
 ### State Management
 
-| State Field              | Type                                  | Purpose                                              |
-| ------------------------ | ------------------------------------- | ---------------------------------------------------- |
-| `role`                   | `"hub" \| "client" \| "disconnected"` | Current network role                                 |
-| `isAgentBusy`            | `boolean`                             | Prevents accepting remote prompts during agent runs  |
-| `manuallyDisconnected`   | `boolean`                             | Set by `/link-disconnect`; suppresses auto-reconnect |
-| `pendingRemotePrompt`    | `object \| null`                      | Tracks the single in-flight remote prompt execution  |
-| `pendingPromptResponses` | `Map`                                 | Outstanding prompt RPCs awaiting responses           |
+| State Field              | Type                                  | Purpose                                                                                     |
+| ------------------------ | ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `role`                   | `"hub" \| "client" \| "disconnected"` | Current network role                                                                        |
+| `agentRunning`           | `boolean`                             | Whether an agent run is active; blocks incoming remote prompts                              |
+| `activeToolName`         | `string \| null`                      | Name of the currently executing tool (drives `tool:<name>` status)                          |
+| `stateSince`             | `number`                              | Timestamp of last status change (used for duration display)                                 |
+| `manuallyDisconnected`   | `boolean`                             | Set by `/link-disconnect`; suppresses auto-reconnect                                        |
+| `pendingRemotePrompt`    | `object \| null`                      | Tracks the single in-flight remote prompt execution                                         |
+| `pendingPromptResponses` | `Map`                                 | Outstanding prompt RPCs awaiting responses (includes inactivity + ceiling timers per entry) |
 
 ### Message Routing & Error Handling
 
@@ -494,6 +500,8 @@ The extension hooks into Pi's agent lifecycle events:
 - **`session_shutdown`** → Full cleanup via `cleanup()`: closes all sockets, resolves pending promises, and disposes the extension.
 
 Status updates are push-based: each terminal broadcasts changes to the hub, which fans them out. New joiners receive a status snapshot for all terminals in the `welcome` message. Durations are computed at render time from a `since` timestamp — no polling or timer traffic over the wire.
+
+While executing a remote prompt, the target sends a forced `status_update` every 30 seconds as a keepalive — reusing the existing status push mechanism. On the sender side, each incoming `status_update` from the target resets the 90-second inactivity timer. All resolution paths (response, inactivity, ceiling, abort, disconnect, delivery failure) go through a single `cleanupPending()` helper to prevent double-resolution races.
 
 ### Rendering
 
