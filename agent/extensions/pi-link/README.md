@@ -164,7 +164,7 @@ When `triggerTurn` is enabled, the message is delivered via `pi.sendMessage` wit
 
 > **Broadcast note:** Sending to `"*"` delivers to **all other terminals** — the sender is excluded.
 
-Pre-validates the target name against the local terminal list before sending, catching typos early. On the hub, delivery confirmation is authoritative. On clients, delivery is optimistic — the message is sent to the hub for routing.
+Pre-validates the target name against the local terminal list before sending, catching typos early. See [Message Routing](#message-routing--error-handling) for delivery semantics.
 
 ### `link_prompt`
 
@@ -246,7 +246,7 @@ link (hub) 3 terminal(s)
 ✓ Pi Link hub started on :9900 as "orchestrator" ... if no hub exists
 ```
 
-**Name persistence:** `/link-name` saves your preferred name to the session. Resume that session later and your name is restored automatically. If the name is taken, the hub assigns a variant (e.g., `"builder-2"`), but your preferred name stays saved — the next reconnect retries it. Both `/link-name builder` and `/link-name` (no args) count as explicit saves; hub-assigned variants like `"builder-2"` are never persisted.
+**Name persistence:** `/link-name` saves your preferred name to the session. Resume later and it's restored automatically. If the name is taken, the hub assigns a variant (e.g., `"builder-2"`), but your preferred name stays saved for the next reconnect. See [Name Uniqueness & Persistence](#name-uniqueness--persistence) for details.
 
 See [Configuration](#configuration) for details on `--link`, `/link-connect`, and `/link-disconnect` behavior.
 
@@ -327,12 +327,11 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                                                                     |
 | 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                                                                             |
 | 3   | **Race-based hub promotion**              | Non-deterministic. Terminal state (names, in-flight prompts) is lost during promotion. Simple but imperfect.                                                                                                    |
-| 4   | **Single remote prompt per terminal**     | No queuing — immediate rejection if the target is busy. Keeps the model simple and avoids unbounded backlogs.                                                                                                   |
+| 4   | **Single remote prompt per terminal**     | No queuing — immediate rejection if busy. See [`link_prompt`](#link_prompt) and [Troubleshooting](#terminal-is-busy-rejections).                                                                                |
 | 5   | **No message persistence**                | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                                                                               |
 | 6   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place with collision checks.                                                   |
 | 7   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                                                                    |
-| 8   | **Opt-in startup**                        | Link is off by default. Use `pi --link` or `/link-connect` to participate. See [Configuration](#configuration).                                                                                                 |
-| 9   | **Rename during prompt loses keepalives** | If the target renames mid-prompt, keepalive resets stop working (pending requests track by name). The final response can still succeed by request ID, but inactivity may false-fire on long tasks after rename. |
+| 8   | **Rename during prompt loses keepalives** | If the target renames mid-prompt, keepalive resets stop working (pending requests track by name). The final response can still succeed by request ID, but inactivity may false-fire on long tasks after rename. |
 
 ---
 
@@ -493,13 +492,13 @@ The `manuallyDisconnected` flag distinguishes user-initiated disconnects (`/link
 
 The extension hooks into Pi's agent lifecycle events:
 
-- **`agent_start`** → Sets `isAgentBusy = true`, blocking incoming remote prompts. Broadcasts `status_update` (`thinking`).
+- **`agent_start`** → Sets `agentRunning = true`, blocking incoming remote prompts. Broadcasts `status_update` (`thinking`).
 - **`agent_end`** → Checks if a remote prompt was running. If so, extracts the last assistant response from `event.messages` and sends back a `prompt_response`. Broadcasts `status_update` (`idle`).
 - **`tool_execution_start`** → Broadcasts `status_update` (`tool:<name>`).
 - **`tool_execution_end`** → Clears tool status; broadcasts `status_update` (`thinking`) while the agent run continues.
 - **`session_shutdown`** → Full cleanup via `cleanup()`: closes all sockets, resolves pending promises, and disposes the extension.
 
-Status updates are push-based: each terminal broadcasts changes to the hub, which fans them out. New joiners receive a status snapshot for all terminals in the `welcome` message. Durations are computed at render time from a `since` timestamp — no polling or timer traffic over the wire.
+Status updates are push-based: each terminal broadcasts changes to the hub, which fans them out. New joiners receive a status snapshot for all terminals in the `welcome` message.
 
 While executing a remote prompt, the target sends a forced `status_update` every 30 seconds as a keepalive — reusing the existing status push mechanism. On the sender side, each incoming `status_update` from the target resets the 90-second inactivity timer. All resolution paths (response, inactivity, ceiling, abort, disconnect, delivery failure) go through a single `cleanupPending()` helper to prevent double-resolution races.
 
