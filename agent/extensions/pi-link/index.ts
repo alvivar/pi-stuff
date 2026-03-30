@@ -388,6 +388,20 @@ export default function (pi: ExtensionAPI) {
       case "terminal_left":
         connectedTerminals = msg.terminals;
         terminalStatuses.delete(msg.name);
+        // Fail any pending prompts to the departed terminal immediately
+        for (const [id, pending] of pendingPromptResponses) {
+          if (pending.targetName === msg.name) {
+            const p = cleanupPending(id);
+            if (p) {
+              p.resolve(
+                textResult(`Terminal "${msg.name}" disconnected`, {
+                  to: msg.name,
+                  error: "disconnected",
+                }),
+              );
+            }
+          }
+        }
         updateStatus();
         ctx?.ui.notify(`"${msg.name}" left the link`, "info");
         break;
@@ -955,6 +969,13 @@ export default function (pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, signal) {
       if (role === "disconnected") return notConnectedResult();
+
+      if (params.to === terminalName) {
+        return textResult("Cannot prompt yourself", {
+          to: params.to,
+          error: "self_target",
+        });
+      }
 
       if (!connectedTerminals.includes(params.to)) {
         return textResult(
