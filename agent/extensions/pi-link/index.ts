@@ -34,6 +34,7 @@ import { WebSocket, WebSocketServer } from "ws";
 const DEFAULT_PORT = 9900;
 const PROMPT_TIMEOUT_MS = 120_000;
 const RECONNECT_DELAY_MS = 2000;
+const KEEPALIVE_INTERVAL_MS = 30_000;
 
 // ─── Protocol ────────────────────────────────────────────────────────────────
 
@@ -155,6 +156,7 @@ export default function (pi: ExtensionAPI) {
 
   // Pending remote prompt (this terminal is executing a prompt for someone else)
   let pendingRemotePrompt: { id: string; from: string } | null = null;
+  let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -384,6 +386,9 @@ export default function (pi: ExtensionAPI) {
           });
         } else {
           pendingRemotePrompt = { id: msg.id, from: msg.from };
+          // Keepalive: periodic status push so sender knows we're alive
+          if (keepaliveTimer) clearInterval(keepaliveTimer);
+          keepaliveTimer = setInterval(() => pushStatus(true), KEEPALIVE_INTERVAL_MS);
           ctx?.ui.notify(`Running remote prompt from "${msg.from}"`, "info");
           pi.sendUserMessage(
             `[Remote prompt from "${msg.from}"]\n\n${msg.prompt}`,
@@ -623,6 +628,10 @@ export default function (pi: ExtensionAPI) {
       reconnectTimer = null;
     }
 
+    // Clean up target-side remote prompt state
+    if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+    pendingRemotePrompt = null;
+
     // Clean up pending prompts
     for (const [id, pending] of pendingPromptResponses) {
       clearTimeout(pending.timeout);
@@ -770,6 +779,7 @@ export default function (pi: ExtensionAPI) {
     // If we were running a remote prompt, send the response back
     if (pendingRemotePrompt) {
       const { id, from } = pendingRemotePrompt;
+      if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
       pendingRemotePrompt = null;
 
       // Find the last assistant text in this run
