@@ -103,22 +103,22 @@ Wire up response collection so the tool waits for all targets to respond.
 2. Shared state:
    - `results: Record<string, { status, response?, error? }>` — accumulator, pre-populated with immediate failures from Batch 1
    - `remaining: number` — count of targets still pending
-   - `timeouts: Map<string, NodeJS.Timeout>` — per-target timeout handles
    - `resolved: boolean` — guard against late settlement
 3. For each successfully-routed target:
-   - Start a per-target `setTimeout(PROMPT_TIMEOUT_MS)`
-   - On timeout: write `{ status: "timeout" }` to accumulator, delete pending entry, decrement remaining, check if done
+   - Start per-target inactivity timeout (`PROMPT_INACTIVITY_MS`, 90s) and hard ceiling (`PROMPT_HARD_CEILING_MS`, 30min)
+   - Same shape as `link_prompt`: `{ resolve, targetName, inactivityTimeout, ceilingTimeout }`
+   - `resetInactivityFor(targetName)` works automatically — resets inactivity for all pending prompts to that target, including broadcast entries
+   - On either timeout: write `{ status: "timeout" }` to accumulator, use `cleanupPending()`, decrement remaining, check if done
    - Register in `pendingPromptResponses` with a closure that:
      - Writes `{ status: "ok", response }` or `{ status: "error", error }` to accumulator
      - Clears the target's timeout
      - Decrements `remaining`, checks if done
 4. "Check if done" means: if `remaining === 0` and not yet `resolved`:
    - Set `resolved = true`
-   - Clear all outstanding timeouts
-   - Delete all outstanding `pendingPromptResponses` entries
+   - Call `cleanupPending()` for all outstanding request IDs
    - Resolve the outer promise with final results
 5. Abort signal support:
-   - On abort: set `resolved = true`, clear all timeouts, delete all pending entries
+   - On abort: set `resolved = true`, call `cleanupPending()` for all outstanding request IDs
    - Mark all remaining targets as `{ status: "error", error: "aborted" }`
    - Resolve immediately with partial results
 
