@@ -32,7 +32,8 @@ import { WebSocket, WebSocketServer } from "ws";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_PORT = 9900;
-const PROMPT_TIMEOUT_MS = 120_000;
+const PROMPT_INACTIVITY_MS = 90_000;
+const PROMPT_HARD_CEILING_MS = 1_800_000;
 const RECONNECT_DELAY_MS = 2000;
 const KEEPALIVE_INTERVAL_MS = 30_000;
 
@@ -150,7 +151,9 @@ export default function (pi: ExtensionAPI) {
         content: { type: "text"; text: string }[];
         details: Record<string, unknown>;
       }) => void;
-      timeout: ReturnType<typeof setTimeout>;
+      targetName: string;
+      inactivityTimeout: ReturnType<typeof setTimeout>;
+      ceilingTimeout: ReturnType<typeof setTimeout>;
     }
   >();
 
@@ -216,6 +219,40 @@ export default function (pi: ExtensionAPI) {
     if (name === terminalName) return deriveStatus();
     const map = role === "hub" ? hubTerminalStatuses : terminalStatuses;
     return map.get(name) ?? null;
+  }
+
+  // ── Pending prompt helpers ───────────────────────────────────────────────
+
+  function cleanupPending(requestId: string) {
+    const pending = pendingPromptResponses.get(requestId);
+    if (!pending) return null;
+    clearTimeout(pending.inactivityTimeout);
+    clearTimeout(pending.ceilingTimeout);
+    pendingPromptResponses.delete(requestId);
+    return pending;
+  }
+
+  function makeInactivityTimeout(requestId: string, targetName: string) {
+    return setTimeout(() => {
+      const pending = cleanupPending(requestId);
+      if (pending) {
+        pending.resolve(
+          textResult(
+            `Prompt to "${targetName}" timed out (no activity for ${PROMPT_INACTIVITY_MS / 1000}s)`,
+            { to: targetName, error: "timeout" },
+          ),
+        );
+      }
+    }, PROMPT_INACTIVITY_MS);
+  }
+
+  function resetInactivityFor(targetName: string) {
+    for (const [id, pending] of pendingPromptResponses) {
+      if (pending.targetName === targetName) {
+        clearTimeout(pending.inactivityTimeout);
+        pending.inactivityTimeout = makeInactivityTimeout(id, targetName);
+      }
+    }
   }
 
   function allTerminalNames(): Set<string> {
@@ -358,6 +395,7 @@ export default function (pi: ExtensionAPI) {
       // ── Status update from another terminal ──
       case "status_update":
         terminalStatuses.set(msg.name, msg.status);
+        resetInactivityFor(msg.name);
         break;
 
       // ── Chat message ──
@@ -398,10 +436,8 @@ export default function (pi: ExtensionAPI) {
 
       // ── Response to a prompt we sent ──
       case "prompt_response": {
-        const pending = pendingPromptResponses.get(msg.id);
+        const pending = cleanupPending(msg.id);
         if (pending) {
-          clearTimeout(pending.timeout);
-          pendingPromptResponses.delete(msg.id);
           if (msg.error) {
             pending.resolve(
               textResult(`Error from "${msg.from}": ${msg.error}`, {
@@ -470,6 +506,7 @@ export default function (pi: ExtensionAPI) {
       // Status update — store and fan out to other clients only (not back to hub)
       if (msg.type === "status_update") {
         hubTerminalStatuses.set(clientName, msg.status);
+        resetInactivityFor(clientName);
         const normalized: StatusUpdateMsg = {
           type: "status_update",
           name: clientName,
@@ -633,13 +670,14 @@ export default function (pi: ExtensionAPI) {
     pendingRemotePrompt = null;
 
     // Clean up pending prompts
-    for (const [id, pending] of pendingPromptResponses) {
-      clearTimeout(pending.timeout);
-      pending.resolve(
-        textResult("Link disconnected", { error: "disconnected" }),
-      );
+    for (const id of [...pendingPromptResponses.keys()]) {
+      const pending = cleanupPending(id);
+      if (pending) {
+        pending.resolve(
+          textResult("Link disconnected", { error: "disconnected" }),
+        );
+      }
     }
-    pendingPromptResponses.clear();
 
     // Close client connection
     if (ws) {
@@ -906,7 +944,7 @@ export default function (pi: ExtensionAPI) {
     description: [
       "Send a prompt to another Pi terminal and wait for its LLM to respond.",
       "The remote terminal processes the prompt as if a user typed it,",
-      "then returns the assistant's response. Times out after 2 minutes.",
+      "then returns the assistant's response. Times out after 90s of inactivity.",
     ].join(" "),
     promptSnippet:
       "Send a prompt to another Pi terminal and receive its LLM response",
@@ -928,30 +966,40 @@ export default function (pi: ExtensionAPI) {
       const requestId = crypto.randomUUID();
 
       return new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          pendingPromptResponses.delete(requestId);
-          resolve(
-            textResult(
-              `Prompt to "${params.to}" timed out after ${PROMPT_TIMEOUT_MS / 1000}s`,
-              { to: params.to, error: "timeout" },
-            ),
-          );
-        }, PROMPT_TIMEOUT_MS);
+        const inactivityTimeout = makeInactivityTimeout(requestId, params.to);
 
-        pendingPromptResponses.set(requestId, { resolve, timeout });
+        const ceilingTimeout = setTimeout(() => {
+          const pending = cleanupPending(requestId);
+          if (pending) {
+            pending.resolve(
+              textResult(
+                `Prompt to "${params.to}" hit hard ceiling (${PROMPT_HARD_CEILING_MS / 60_000}min)`,
+                { to: params.to, error: "timeout" },
+              ),
+            );
+          }
+        }, PROMPT_HARD_CEILING_MS);
+
+        pendingPromptResponses.set(requestId, {
+          resolve,
+          targetName: params.to,
+          inactivityTimeout,
+          ceilingTimeout,
+        });
 
         // Abort handling
         signal?.addEventListener(
           "abort",
           () => {
-            clearTimeout(timeout);
-            pendingPromptResponses.delete(requestId);
-            resolve(
-              textResult("Prompt request aborted", {
-                to: params.to,
-                error: "aborted",
-              }),
-            );
+            const pending = cleanupPending(requestId);
+            if (pending) {
+              pending.resolve(
+                textResult("Prompt request aborted", {
+                  to: params.to,
+                  error: "aborted",
+                }),
+              );
+            }
           },
           { once: true },
         );
@@ -965,14 +1013,15 @@ export default function (pi: ExtensionAPI) {
         });
 
         if (!delivered && pendingPromptResponses.has(requestId)) {
-          clearTimeout(timeout);
-          pendingPromptResponses.delete(requestId);
-          resolve(
-            textResult(`Failed to send prompt to "${params.to}"`, {
-              to: params.to,
-              error: "not_delivered",
-            }),
-          );
+          const pending = cleanupPending(requestId);
+          if (pending) {
+            pending.resolve(
+              textResult(`Failed to send prompt to "${params.to}"`, {
+                to: params.to,
+                error: "not_delivered",
+              }),
+            );
+          }
         }
       });
     },
