@@ -440,7 +440,10 @@ export default function (pi: ExtensionAPI) {
           pendingRemotePrompt = { id: msg.id, from: msg.from };
           // Keepalive: periodic status push so sender knows we're alive
           if (keepaliveTimer) clearInterval(keepaliveTimer);
-          keepaliveTimer = setInterval(() => pushStatus(true), KEEPALIVE_INTERVAL_MS);
+          keepaliveTimer = setInterval(
+            () => pushStatus(true),
+            KEEPALIVE_INTERVAL_MS,
+          );
           ctx?.ui.notify(`Running remote prompt from "${msg.from}"`, "info");
           pi.sendUserMessage(
             `[Remote prompt from "${msg.from}"]\n\n${msg.prompt}`,
@@ -680,7 +683,10 @@ export default function (pi: ExtensionAPI) {
     }
 
     // Clean up target-side remote prompt state
-    if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+    if (keepaliveTimer) {
+      clearInterval(keepaliveTimer);
+      keepaliveTimer = null;
+    }
     pendingRemotePrompt = null;
 
     // Clean up pending prompts
@@ -831,7 +837,10 @@ export default function (pi: ExtensionAPI) {
     // If we were running a remote prompt, send the response back
     if (pendingRemotePrompt) {
       const { id, from } = pendingRemotePrompt;
-      if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+      if (keepaliveTimer) {
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = null;
+      }
       pendingRemotePrompt = null;
 
       // Find the last assistant text in this run
