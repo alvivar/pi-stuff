@@ -34,7 +34,7 @@ Mixing them on the same terminal is the most common coordination failure.
 
 ### `link_list`
 
-Discover who's online. Returns all connected terminals with names and live status (`idle`, `thinking`, `tool:bash`, etc.).
+Discover who's online. Returns all connected terminals with names, live status (`idle`, `thinking`, `tool:bash`, etc.), and working directory (cwd).
 
 **Use when:** Availability is uncertain, before retrying a busy target, or after coordination state changes.
 
@@ -121,7 +121,7 @@ Distribute independent tasks across multiple agents using `link_send(triggerTurn
 
 **Use when:** Independent tasks that don't depend on each other's output.
 **Tools:** `link_send(triggerTurn: true)` per agent, explicit file paths.
-**Caution:** Use explicit paths (absolute when needed). Require DONE callbacks. Don't `link_prompt` agents you just dispatched.
+**Caution:** Check cwds via `link_list`. Use explicit paths; if cwds differ, use absolute paths. Require DONE callbacks. Don't `link_prompt` agents you just dispatched.
 
 ### 5. Notification / Steering
 
@@ -151,7 +151,7 @@ Agree on a contract (structure, glossary, conventions) before anyone writes. The
 
 ### Step 1 — Discovery
 
-`link_list` → see who's available.
+`link_list` → see who's available and where they're working.
 
 ### Step 2 — Spec Lock
 
@@ -168,7 +168,7 @@ link_send(triggerTurn: true):
   "Write [files] to [explicit paths]. [Constraints]. Send DONE + file list when finished."
 ```
 
-Use explicit paths (absolute when needed) — the remote agent doesn't share your mental model of the workspace. Do your own work in parallel.
+Check target cwds first via `link_list`. Use explicit paths; if cwds differ, use absolute paths. The remote agent doesn't share your mental model of the workspace. Do your own work in parallel.
 
 **Prompt-and-receive** (more control):
 

@@ -17,6 +17,7 @@ How Pi terminal agents coordinate and collaborate using pi-link.
 > After `link_send(triggerTurn: true)` to terminal X, do not `link_prompt` X until X sends a completion callback.
 
 Pick one mode per terminal per task:
+
 - **Sync:** `link_prompt` → get response → continue
 - **Async:** `link_send(triggerTurn: true)` → do your own work → wait for callback
 
@@ -28,7 +29,7 @@ Mixing them on the same terminal is the most common coordination failure.
 
 ### `link_list`
 
-Discover who's online. Returns all connected terminals with names and live status (`idle`, `thinking`, `tool:bash`, etc.).
+Discover who's online. Returns all connected terminals with names, live status (`idle`, `thinking`, `tool:bash`, etc.), and working directory (cwd).
 
 **Use when:** Availability is uncertain, before retrying a busy target, or after coordination state changes.
 
@@ -39,6 +40,7 @@ Fire-and-forget messaging. Send to one terminal or broadcast to all (`to: "*"`).
 Set `triggerTurn: true` to make the receiver's LLM act on the message autonomously. The sender does **not** get the response back.
 
 **Completion callback contract:** When delegating with `triggerTurn: true`, ask the receiver to send back via `link_send`:
+
 - `DONE` signal
 - Output paths / artifacts created
 - Blockers or open questions
@@ -48,6 +50,7 @@ Set `triggerTurn: true` to make the receiver's LLM act on the message autonomous
 Synchronous RPC. Send a prompt, wait for the remote LLM to process it, get the full response back.
 
 **Behavior:**
+
 - Prompts to yourself are rejected immediately
 - If the target is missing or unreachable, fails immediately
 - If the target is already busy (local work or another remote prompt), rejected as busy
@@ -55,6 +58,7 @@ Synchronous RPC. Send a prompt, wait for the remote LLM to process it, get the f
 - Fails immediately if the target disconnects
 
 **Prompt checklist** — every remote prompt should include:
+
 - **Goal:** what you need
 - **Scope:** which files, paths, topics
 - **Constraints:** format, length, style, what to avoid
@@ -112,7 +116,7 @@ Distribute independent tasks across multiple agents using `link_send(triggerTurn
 
 **Use when:** Independent tasks that don't depend on each other's output.
 **Tools:** `link_send(triggerTurn: true)` per agent, explicit file paths.
-**Caution:** Use explicit paths (absolute when needed). Require DONE callbacks. Don't `link_prompt` agents you just dispatched.
+**Caution:** Check cwds via `link_list`. Use explicit paths; if cwds differ, use absolute paths. Require DONE callbacks. Don't `link_prompt` agents you just dispatched.
 
 ### 5. Notification / Steering
 
@@ -141,34 +145,44 @@ Agree on a contract (structure, glossary, conventions) before anyone writes. The
 ## Recommended Workflow
 
 ### Step 1 — Discovery
-`link_list` → see who's available.
+
+`link_list` → see who's available and where they're working.
 
 ### Step 2 — Spec Lock
+
 Agree on: objective, file structure, naming, conventions, ownership per artifact, definition of done.
 
 ### Step 3 — Execute
+
 Choose one mode per terminal:
 
 **Direct file output** (more efficient):
+
 ```
 link_send(triggerTurn: true):
   "Write [files] to [explicit paths]. [Constraints]. Send DONE + file list when finished."
 ```
-Use explicit paths (absolute when needed) — the remote agent doesn't share your mental model of the workspace. Do your own work in parallel.
+
+Check target cwds first via `link_list`. Use explicit paths; if cwds differ, use absolute paths. The remote agent doesn't share your mental model of the workspace. Do your own work in parallel.
 
 **Prompt-and-receive** (more control):
+
 ```
 link_prompt: "Write the content for [section]. Include [details]."
 ```
+
 Review before saving. Better for quality-sensitive work.
 
 ### Step 4 — Completion
+
 Require explicit signals: DONE + artifact list + blockers.
 
 ### Step 5 — Cross-Review
+
 Each agent reviews the other's output for consistency, gaps, and quality.
 
 ### Step 6 — Final Pass
+
 One unified pass: terminology, formatting, cross-references, naming.
 
 ---
@@ -212,10 +226,10 @@ From real multi-agent collaboration producing 7 documents (~144 KB):
 
 ## Quick Reference
 
-| I need to...                     | Tool                           | Mode            |
-|----------------------------------|--------------------------------|-----------------|
-| See who's available              | `link_list`                    | —               |
-| Get an answer from another agent | `link_prompt`                  | Synchronous     |
+| I need to...                     | Tool                            | Mode            |
+| -------------------------------- | ------------------------------- | --------------- |
+| See who's available              | `link_list`                     | —               |
+| Get an answer from another agent | `link_prompt`                   | Synchronous     |
 | Delegate autonomous work         | `link_send(triggerTurn: true)`  | Asynchronous    |
 | Notify without activating        | `link_send(triggerTurn: false)` | Fire-and-forget |
-| Broadcast to all                 | `link_send(to: "*")`           | Broadcast       |
+| Broadcast to all                 | `link_send(to: "*")`            | Broadcast       |
