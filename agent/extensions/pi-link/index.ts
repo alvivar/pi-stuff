@@ -2,21 +2,12 @@
  * Pi Link — WebSocket-based inter-terminal communication
  *
  * Connects multiple Pi terminals over a local WebSocket link.
- * The first terminal becomes the hub (server); others join as clients.
- * If the hub exits, a surviving terminal promotes itself automatically.
+ * Opt-in via --link flag or /link-connect command.
+ * First terminal to connect becomes the hub; others join as clients.
+ * Hub loss triggers automatic promotion of a surviving client.
  *
- * Features:
- *   - Auto-discovery: try to connect → fall back to becoming the hub
- *   - Named terminals with uniqueness enforcement
- *   - LLM tools: link_send (chat), link_prompt (remote prompt + response), link_list
- *   - Commands: /link, /link-name, /link-broadcast, /link-connect, /link-disconnect
- *   - Custom message renderer for incoming link messages
- *   - Auto-reconnect with hub promotion on disconnect
- *
- * Install:
- *   cd ~/.pi/agent/extensions/pi-link && npm install
- *
- * Then just start two or more `pi` terminals — they discover each other.
+ * Tools: link_send, link_prompt, link_list
+ * Commands: /link, /link-name, /link-broadcast, /link-connect, /link-disconnect
  */
 
 import type {
@@ -425,10 +416,10 @@ export default function (pi: ExtensionAPI) {
         pushStatus(true);
         break;
 
-      // ── Directory updates ──
+      // ── Membership updates ──
       case "terminal_joined":
         connectedTerminals = msg.terminals;
-        if (msg.cwd) terminalCwds.set(msg.name, msg.cwd);
+        if (role !== "hub" && msg.cwd) terminalCwds.set(msg.name, msg.cwd);
         updateStatus();
         ctx?.ui.notify(`"${msg.name}" joined the link`, "info");
         break;
@@ -436,7 +427,7 @@ export default function (pi: ExtensionAPI) {
       case "terminal_left":
         connectedTerminals = msg.terminals;
         terminalStatuses.delete(msg.name);
-        terminalCwds.delete(msg.name);
+        if (role !== "hub") terminalCwds.delete(msg.name);
         // Fail any pending prompts to the departed terminal immediately
         for (const [id, pending] of pendingPromptResponses) {
           if (pending.targetName === msg.name) {
