@@ -234,7 +234,6 @@ export default function (pi: ExtensionAPI) {
     return normalized;
   }
 
-
   // ── Connection intent ──────────────────────────────────────────────────
 
   function shouldConnect(_ctx: ExtensionContext): boolean {
@@ -580,7 +579,6 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-
       // Route chat / prompt messages
       if (
         msg.type === "chat" ||
@@ -801,7 +799,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     cleanup();
   });
-
 
   pi.on("agent_start", async () => {
     agentRunning = true;
