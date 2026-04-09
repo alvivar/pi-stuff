@@ -28,9 +28,11 @@ Pick one mode per terminal per task. Mixing sync and async on the same terminal 
 ## The Tools
 
 ### `link_list`
+
 Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Use before delegating when availability or path context is uncertain.
 
 ### `link_prompt`
+
 Synchronous RPC. Send a prompt, wait for the response.
 
 - Fails immediately if target is missing, self, disconnects, or busy (local work or another remote prompt)
@@ -39,11 +41,13 @@ Synchronous RPC. Send a prompt, wait for the response.
 - Include: goal, scope, constraints, output format, done condition
 
 ### `link_send`
+
 Fire-and-forget. Send to one terminal or `to: "*"` to broadcast (excludes sender).
 
 Set `triggerTurn: true` to activate the receiver's LLM. The sender does **not** get the response back.
 
 **Callback contract for `triggerTurn: true`:** ask the receiver to reply via `link_send` with:
+
 - `DONE` signal
 - Output paths / artifacts created
 - Blockers or open questions
@@ -64,12 +68,15 @@ Set `triggerTurn: true` to activate the receiver's LLM. The sender does **not** 
 ## Coordination Modes
 
 ### Sync ask — `link_prompt`
+
 For answers, review, analysis you need back now. One terminal at a time. Keep scope focused to avoid timeout.
 
 ### Async delegate — `link_send(triggerTurn: true)`
+
 For autonomous work. Require the callback contract (DONE + paths + blockers). Do your own work in parallel. Don't `link_prompt` the target until the callback arrives.
 
 ### Parallel batch — async to multiple terminals
+
 Distribute independent tasks. Use explicit paths (absolute if cwds differ). Wait for all callbacks, then synthesize. Don't prompt any dispatched terminal until its callback arrives.
 
 ---
