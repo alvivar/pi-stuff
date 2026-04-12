@@ -791,6 +791,11 @@ export default function (pi: ExtensionAPI) {
     if (saved?.data?.name) {
       preferredName = saved.data.name;
       terminalName = preferredName;
+    } else {
+      // No explicit link-name: fall back to session name as a better default than t-xxxx
+      const sessionName = pi.getSessionName()?.trim().replace(/\s+/g, " ");
+      if (sessionName) terminalName = sessionName;
+      // NOT saved as preferredName — only /link-name persists
     }
 
     if (shouldConnect(_ctx)) await initialize();
