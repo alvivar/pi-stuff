@@ -2,7 +2,15 @@
 
 All notable changes to pi-link are documented here.
 
-This changelog is based on the git history from `2026-03-21` through `2026-04-03` (current). Versions correspond to npm publishes.
+This changelog is based on the git history from `2026-03-21` (initial commit) through the present. Versions correspond to npm publishes.
+
+---
+
+## Unreleased
+
+### Added
+
+- **Idle-gated batched delivery for `triggerTurn:true`.** `link_send` with `triggerTurn:true` no longer calls `pi.sendMessage()` immediately. Messages queue in a local inbox, coalesce over a 200ms debounce window, and flush only when the receiver is idle (`ctx.isIdle()`). Delivered as a single `[Link: N message(s) received]` block at the start of a fresh turn. Avoids a Pi platform race where mid-run steering messages can be stranded. `triggerTurn:false` is unchanged (immediate fire-and-forget). (`82977ec`, `ca2996b`)
 
 ---
 

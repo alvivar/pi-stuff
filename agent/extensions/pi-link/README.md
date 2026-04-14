@@ -63,7 +63,7 @@ Link is **off by default**. Start Pi with the `--link` flag to auto-connect on s
 Terminal 1                            Terminal 2
 ----------                            ----------
 $ pi --link                           $ pi --link
-✓ Link hub on :9900 as "t-a1b2"      ✓ Joined link as "t-c3d4" (2 online)
+✓ Link hub started on :9900 as "t-a1b2"  ✓ Joined link as "t-c3d4" (2 online)
 ```
 
 Already in a session without `--link`? You can connect mid-session with `/link-connect`.
@@ -132,7 +132,7 @@ Link is **off by default**. Without `--link`, the extension is completely silent
 | `/link-connect`    | Opt-in mid-session (no flag needed) | Yes                              |
 | `/link-disconnect` | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
-`/link-connect` enables full participation in Pi Link regardless of whether `--link` was passed. `/link-disconnect` always wins — even over `--link` — until you explicitly `/link-connect` again.
+`/link-connect` enables full participation in Pi Link regardless of whether `--link` was passed. Both `/link-connect` and `/link-disconnect` save their intent to the session — resume that session later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
 Once connected, terminals discover each other on `127.0.0.1:9900`. See [Limitations](#limitations--design-decisions) for the hardcoded port.
 
@@ -140,7 +140,7 @@ Once connected, terminals discover each other on `127.0.0.1:9900`. See [Limitati
 
 ## LLM Tools
 
-The extension registers three tools that the LLM can invoke during agent runs.
+The extension registers three tools that the LLM can invoke during agent runs. pi-link also ships with a bundled **pi-link-coordination** skill that gives agents on-demand guidance for tool selection, delegation patterns, and avoiding common coordination mistakes.
 
 ### Which tool should I use?
 
@@ -162,7 +162,9 @@ Send a fire-and-forget chat message to a specific terminal or broadcast to all.
 | `message`     | `string`  | Message content                                      |
 | `triggerTurn` | `boolean` | If `true`, the receiver's LLM responds automatically |
 
-When `triggerTurn` is enabled, the message is queued in the receiver's local inbox. Nearby arrivals are coalesced into a single batch, and delivery is gated on the receiving agent being idle — ensuring it starts a clean new turn. Delivery is not immediate mid-run; it happens after the current turn completes. Note: `triggerTurn` does **not** cause the response to come back to the caller — use `link_prompt` for that.
+When `triggerTurn` is enabled, the message is queued in the receiver's local inbox. Nearby arrivals are coalesced (200ms debounce), and delivery is gated on the receiving agent being idle — ensuring it starts a clean new turn. Messages arrive as a single `[Link: N message(s) received]` block at the top of a fresh turn, not mid-run. When `triggerTurn` is `false` or omitted, delivery is immediate fire-and-forget.
+
+Note: `triggerTurn` does **not** cause the response to come back to the caller — use `link_prompt` for that.
 
 > **Broadcast note:** Sending to `"*"` delivers to **all other terminals** — the sender is excluded.
 
@@ -251,11 +253,11 @@ Connected terminals:
 ✓ Broadcast sent
 
 > /link-disconnect
-✓ Disconnected from Pi Link
+✓ Disconnected from link
 
 > /link-connect
-✓ Joined Pi Link as "orchestrator" (3 online)    ... or ...
-✓ Pi Link hub started on :9900 as "orchestrator" ... if no hub exists
+✓ Joined link as "orchestrator" (3 online)          ... or ...
+✓ Link hub started on :9900 as "orchestrator"  ... if no hub exists
 ```
 
 **Name persistence:** `/link-name` saves your preferred name to the session. Resume later and it's restored automatically. If the name is taken, the hub assigns a variant (e.g., `"builder-2"`), but your preferred name stays saved for the next reconnect. See [Name Uniqueness & Persistence](#name-uniqueness--persistence) for details.
@@ -374,7 +376,6 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 ```json
 {
   "name": "pi-link",
-  "private": true,
   "dependencies": {
     "ws": "^8.20.0"
   },
@@ -382,12 +383,13 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
     "@types/ws": "^8.18.1"
   },
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": ["./index.ts"],
+    "skills": ["./skills"]
   }
 }
 ```
 
-The `pi.extensions` field tells Pi which files to load as extensions. Here it points to `./index.ts`, which Pi compiles and registers on startup.
+The `pi.extensions` field tells Pi which files to load as extensions. `pi.skills` registers bundled skill directories — the `pi-link-coordination` skill is loaded automatically on install.
 
 ---
 
@@ -482,6 +484,8 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 | `activeToolName`         | `string \| null`                      | Name of the currently executing tool (drives `tool:<name>` status)                          |
 | `stateSince`             | `number`                              | Timestamp of last status change (used for duration display)                                 |
 | `currentCwd`             | `string`                              | Current working directory reported to peers on connect                                      |
+| `inbox`                  | `array`                               | Queued `triggerTurn:true` messages awaiting idle-gated flush                                |
+| `flushTimer`             | `Timer \| null`                       | Pending inbox flush (debounce or busy-retry)                                                |
 | `manuallyDisconnected`   | `boolean`                             | Set by `/link-disconnect`; suppresses auto-reconnect                                        |
 | `pendingRemotePrompt`    | `object \| null`                      | Tracks the single in-flight remote prompt execution                                         |
 | `pendingPromptResponses` | `Map`                                 | Outstanding prompt RPCs awaiting responses (includes inactivity + ceiling timers per entry) |
@@ -515,6 +519,28 @@ The extension hooks into Pi's agent lifecycle events:
 Status updates are push-based: each terminal broadcasts changes to the hub, which fans them out. New joiners receive a status snapshot for all terminals in the `welcome` message.
 
 While executing a remote prompt, the target sends a forced `status_update` every 30 seconds as a keepalive — reusing the existing status push mechanism. On the sender side, each incoming `status_update` from the target resets the 90-second inactivity timer. All resolution paths (response, inactivity, ceiling, abort, disconnect, delivery failure) go through a single `cleanupPending()` helper to prevent double-resolution races.
+
+### Idle-Gated Inbox
+
+When a `chat` message arrives with `triggerTurn:true`, it goes into a local inbox instead of calling `pi.sendMessage()` immediately. This avoids a Pi platform race where steering messages sent mid-agent-run can be stranded (see `REPORT-sendMessage-race.md`).
+
+The flush pipeline:
+
+1. **Debounce** — `scheduleFlush(FLUSH_DELAY_MS)` coalesces burst arrivals (200ms window).
+2. **Idle gate** — `flushInbox()` checks `ctx.isIdle()`. If busy, retries every 500ms.
+3. **Batch** — up to 20 messages or ~8 000 chars per delivery; individual messages truncated at 2 000 chars.
+4. **Deliver** — one `pi.sendMessage({ triggerTurn: true })` call with a `[Link: N message(s) received]` block.
+5. **Drain** — if the inbox still has items, reschedule.
+
+On `agent_end`, the inbox flush is kicked via `scheduleFlush(0)` — deferred to the next macrotask, by which time `ctx.isIdle()` returns `true`.
+
+| Constant          | Value | Purpose                      |
+| ----------------- | ----- | ---------------------------- |
+| `FLUSH_DELAY_MS`  | 200   | Burst debounce window        |
+| `IDLE_RETRY_MS`   | 500   | Busy-retry polling interval  |
+| `BATCH_MAX_ITEMS` | 20    | Max messages per batch       |
+| `BATCH_MAX_CHARS` | 8 000 | Max total batch text size    |
+| `ITEM_MAX_CHARS`  | 2 000 | Per-message truncation limit |
 
 ### Rendering
 
