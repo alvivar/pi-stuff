@@ -164,7 +164,7 @@ export default function (pi: ExtensionAPI) {
   let pendingRemotePrompt: { id: string; from: string } | null = null;
   let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Inbox: batched delivery for triggerTurn:true messages
+  // Inbox: idle-gated batched delivery for triggerTurn:true messages
   const inbox: { from: string; content: string }[] = [];
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -253,50 +253,40 @@ export default function (pi: ExtensionAPI) {
   function flushInbox() {
     flushTimer = null;
     if (inbox.length === 0) return;
+    if (!ctx) return;
 
     // Only deliver when idle so triggerTurn takes the prompt-start path
     // instead of mid-run steering, avoiding async delivery loss.
-    if (!ctx || !ctx.isIdle()) {
+    if (!ctx.isIdle()) {
       scheduleFlush(IDLE_RETRY_MS);
       return;
     }
 
-    // Select batch without mutating inbox: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS
-    const batch: { from: string; content: string }[] = [];
+    // Select batch: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS total
+    const batch: string[] = [];
     let totalChars = 0;
-    let selected = 0;
     for (let i = 0; i < inbox.length && batch.length < BATCH_MAX_ITEMS; i++) {
       const item = inbox[i];
-      const truncated =
+      const content =
         item.content.length > ITEM_MAX_CHARS
           ? item.content.slice(0, ITEM_MAX_CHARS - 15) + "... (truncated)"
           : item.content;
-      const itemText = `From "${item.from}":\n${truncated}`;
-      if (batch.length > 0 && totalChars + itemText.length > BATCH_MAX_CHARS)
-        break;
-      batch.push({ from: item.from, content: truncated });
-      totalChars += itemText.length;
-      selected++;
+      const text = `From "${item.from}":\n${content}`;
+      if (batch.length > 0 && totalChars + text.length > BATCH_MAX_CHARS) break;
+      batch.push(text);
+      totalChars += text.length;
     }
 
-    // Compose batched message
-    const header = `[Link: ${batch.length} message(s) received]`;
-    const body = batch
-      .map((item) => `From "${item.from}":\n${item.content}`)
-      .join("\n\n");
-    const batchText = `${header}\n\n${body}`;
-
-    // Handoff to Pi, then remove from inbox
     pi.sendMessage(
       {
         customType: "link",
-        content: batchText,
+        content: `[Link: ${batch.length} message(s) received]\n\n${batch.join("\n\n")}`,
         display: true,
         details: { batched: true, count: batch.length },
       },
       { triggerTurn: true },
     );
-    inbox.splice(0, selected);
+    inbox.splice(0, batch.length);
 
     // Reschedule if inbox still has items; agent_end wakeup will usually beat this
     if (inbox.length > 0) {
@@ -917,7 +907,7 @@ export default function (pi: ExtensionAPI) {
     stateSince = Date.now();
     pushStatus();
 
-    // Wake up inbox flush — agent_end fires before finishRun(), so pi.isIdle()
+    // Wake up inbox flush — agent_end fires before finishRun(), so ctx.isIdle()
     // is still false here. scheduleFlush(0) defers to next macrotask when idle.
     if (inbox.length > 0) scheduleFlush(0);
 
