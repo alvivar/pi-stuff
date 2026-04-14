@@ -1,62 +1,85 @@
-# Plan: Batched Async Delivery
+# Plan: Batched Async Delivery with Idle-Gated Flush
 
 ## Problem
 
-`link_send(triggerTurn:true)` calls `pi.sendMessage(steer)` per message. When multiple arrive near-simultaneously, some can be silently lost — delivery races or LLM attention limits. Observed: 3 workers sent results, only 2 arrived.
+`link_send(triggerTurn:true)` calls `pi.sendMessage(triggerTurn:true)` per message. Pi's `sendCustomMessage()` routes this two ways:
+- **Agent idle** → `agent.prompt()` — reliable, message IS the prompt
+- **Agent busy** → `agent.steer()` — unreliable, message can be stranded if it arrives after the loop's final steering poll but before `agent_end`
+
+Observed: 3 workers send results, 1 silently lost. Root cause documented in `REPORT-sendMessage-race.md`.
 
 ## Solution
 
-Receiver-side inbox that collects `triggerTurn:true` messages, then flushes them as ONE batched message after a short debounce.
+Receiver-side inbox that collects `triggerTurn:true` messages, then flushes them as ONE batched `sendMessage` call — **only when the agent is idle**. This guarantees the reliable `agent.prompt()` path is always taken.
+
+## Key Insight
+
+`ctx.isIdle()` is available on the extension context (`!isStreaming`). If we gate flushes on `ctx.isIdle() === true`, we avoid the mid-run steer path and its delivery window.
 
 ## Scope
 
-- `triggerTurn: true` → inbox + batched flush
+- `triggerTurn: true` → inbox + idle-gated batched flush
 - `triggerTurn: false` → immediate delivery as today, unchanged
 
-**No protocol changes. No new message types. Protocol stays at 9.**
+**No protocol changes. No new tools. No breaking changes.**
 
 ---
 
-## Receiver Side
+## Delivery Mechanism
 
-### State
+### Three flush triggers, one scheduler
+
+```
+scheduleFlush(delay):
+  clear any existing flushTimer
+  set flushTimer = setTimeout(flushInbox, delay)
+```
+
+| Trigger | Delay | Purpose |
+|---------|-------|---------|
+| New message arrives | 200ms | Debounce burst coalescing |
+| `agent_end` event | 0ms (next tick) | Wake up when agent becomes idle |
+| Idle-gate retry | 500ms | Polling fallback while agent busy |
+
+All three use `scheduleFlush()` — single timer slot, latest call wins (may replace an earlier `0ms` with a `200ms` if a new message arrives, which is fine for coalescing).
+
+### `flushInbox()` logic
+
+```
+1. flushTimer = null
+2. if inbox empty → return
+3. if !ctx.isIdle() → scheduleFlush(500) → return    ← IDLE GATE
+4. select batch from inbox (caps: 20 items, 8KB text, 2KB/item)
+5. pi.sendMessage(batch, { triggerTurn: true, deliverAs: "steer" })
+6. splice sent items from inbox
+7. if inbox still has items → scheduleFlush(500)
+```
+
+### `agent_end` wakeup
 
 ```typescript
-interface InboxItem {
-  from: string;
-  content: string;
-}
+// Inside existing agent_end handler:
+if (inbox.length > 0) scheduleFlush(0);
+```
 
-const inbox: InboxItem[] = [];
+`agent_end` fires before `finishRun()`, so `ctx.isIdle()` is still false inside the handler. `scheduleFlush(0)` defers to next macrotask when `finishRun()` has completed and idle is true.
+
+---
+
+## State
+
+```typescript
+const inbox: { from: string; content: string }[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 const FLUSH_DELAY_MS = 200;
+const IDLE_RETRY_MS = 500;
 const BATCH_MAX_ITEMS = 20;
 const BATCH_MAX_CHARS = 8000;
 const ITEM_MAX_CHARS = 2000;
 ```
 
-Order is preserved by array insertion — no timestamp needed.
-
-### On receive `chat` with `triggerTurn: true`
-
-1. Push `{ from, content }` into `inbox`
-2. Clear existing `flushTimer`, set new one for `FLUSH_DELAY_MS`
-
-### On receive `chat` with `triggerTurn: false`
-
-Immediate delivery as today. No inbox.
-
-### Flush
-
-1. If `inbox` is empty → return
-2. Take items from front: up to `BATCH_MAX_ITEMS`, total text under `BATCH_MAX_CHARS`
-3. Compose one batched message (see format below)
-4. `pi.sendMessage(batch, { triggerTurn: true, deliverAs: "steer" })` — handoff to Pi
-5. Remove those items from `inbox` (only after handoff)
-6. If `inbox` still has items → schedule another flush
-
-### Batch format
+## Batch Format
 
 ```
 [Link: 3 message(s) received]
@@ -71,38 +94,20 @@ From "worker-3":
 <content>
 ```
 
-- Ordered by arrival (array order)
-- Per-item truncated at `ITEM_MAX_CHARS` with `... (truncated)` suffix
-- Total text capped at `BATCH_MAX_CHARS` — stop adding items when next would exceed
-- Blank line between items
+## Cleanup
 
-### Cleanup
+- **On disconnect**: inbox survives. If non-empty and no timer pending, `scheduleFlush(FLUSH_DELAY_MS)`.
+- **On `session_shutdown`**: clear inbox and timer.
 
-**On link disconnect**: do NOT clear `inbox` or cancel `flushTimer`. Messages are local state waiting for local delivery. If inbox is non-empty and no timer is pending, schedule a flush immediately.
+## Semantic Change
 
-**On `session_shutdown`**: clear everything.
-
----
-
-## Implementation
-
-Single batch — small change, ~40-60 lines:
-
-1. Add `inbox[]`, `flushTimer`, constants
-2. In `chat` + `triggerTurn:true` handler: push to inbox, schedule flush (replace current `sendMessage` call)
-3. Add `flushInbox()` function: select batch, compose, deliver, clear, reschedule
-4. Update disconnect/shutdown cleanup
-5. Update README/CHANGELOG
-
----
+Messages are delivered **when idle**, not mid-run. For worker results this is ideal — they arrive clean at the start of a new turn. `triggerTurn:false` is unaffected (still immediate/fire-and-forget).
 
 ## Expected Outcome
 
-The 3-worker test case:
-
-1. All 3 results arrive at receiver within milliseconds
-2. Each pushed to `inbox`
-3. 200ms debounce coalesces all 3
-4. ONE batched message delivered
-5. LLM sees all 3 in a single context entry
-6. Zero message loss
+3-worker fan-out test:
+1. All 3 results arrive at receiver
+2. Each pushed to inbox, debounce resets
+3. If agent is idle: 200ms debounce fires → one `sendMessage` → prompt path → all 3 in one turn ✅
+4. If agent is busy: wait → `agent_end` fires → `scheduleFlush(0)` → next tick idle → flush → all messages delivered ✅
+5. Zero message loss

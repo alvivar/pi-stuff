@@ -162,7 +162,7 @@ Send a fire-and-forget chat message to a specific terminal or broadcast to all.
 | `message`     | `string`  | Message content                                      |
 | `triggerTurn` | `boolean` | If `true`, the receiver's LLM responds automatically |
 
-When `triggerTurn` is enabled, the message is delivered via `pi.sendMessage` with `deliverAs: "steer"`, causing the remote agent to kick off an LLM turn. Note: `triggerTurn` does **not** cause the response to come back to the caller — use `link_prompt` for that.
+When `triggerTurn` is enabled, the message is queued in the receiver's local inbox. Nearby arrivals are coalesced into a single batch, and delivery is gated on the receiving agent being idle — ensuring it starts a clean new turn. Delivery is not immediate mid-run; it happens after the current turn completes. Note: `triggerTurn` does **not** cause the response to come back to the caller — use `link_prompt` for that.
 
 > **Broadcast note:** Sending to `"*"` delivers to **all other terminals** — the sender is excluded.
 
@@ -507,7 +507,7 @@ The `manuallyDisconnected` flag distinguishes user-initiated disconnects (`/link
 The extension hooks into Pi's agent lifecycle events:
 
 - **`agent_start`** → Sets `agentRunning = true`, blocking incoming remote prompts. Broadcasts `status_update` (`thinking`).
-- **`agent_end`** → Checks if a remote prompt was running. If so, extracts the last assistant response from `event.messages` and sends back a `prompt_response`. Broadcasts `status_update` (`idle`).
+- **`agent_end`** → Wakes up the inbox flush (idle-gated delivery for `triggerTurn:true` messages). Checks if a remote prompt was running; if so, extracts the last assistant response from `event.messages` and sends back a `prompt_response`. Broadcasts `status_update` (`idle`).
 - **`tool_execution_start`** → Broadcasts `status_update` (`tool:<name>`).
 - **`tool_execution_end`** → Clears tool status; broadcasts `status_update` (`thinking`) while the agent run continues.
 - **`session_shutdown`** → Full cleanup via `cleanup()`: closes all sockets, resolves pending promises, and disposes the extension.
