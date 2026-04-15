@@ -1,5 +1,8 @@
 /**
- * Pi Rules — persistent session rules injected into every LLM turn.
+ * Pi Rules — persistent prompt guidance injected into every LLM turn.
+ *
+ * Use --append-system-prompt for static, always-on instructions.
+ * Use /rules for dynamic, branch-local guidance.
  *
  * /rules <text>   → set rules
  * /rules @<file>  → set rules from file
