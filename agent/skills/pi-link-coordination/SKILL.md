@@ -29,7 +29,7 @@ Pick one mode per terminal per task. Mixing sync and async on the same terminal 
 
 ### `link_list`
 
-Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Use before delegating when availability or path context is uncertain.
+Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Use before delegating when availability or path context is uncertain. Your own entry is marked `(you)` — use this to discover your link name when replying to broadcast tasks.
 
 ### `link_prompt`
 
