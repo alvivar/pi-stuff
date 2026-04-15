@@ -45,9 +45,9 @@ export default function (pi: ExtensionAPI) {
     };
   }) {
     if (rulesText) {
-      const preview = rulesText.split("\n")[0].slice(0, 100);
+      const preview = rulesText.split("\n")[0].slice(0, 280);
       const text =
-        rulesText.length > 100 || rulesText.includes("\n")
+        rulesText.length > 280 || rulesText.includes("\n")
           ? preview + "..."
           : rulesText;
       ctx.ui.setWidget("pi-rules", [ctx.ui.theme.fg("dim", `⚙ ${text}`)]);
@@ -76,15 +76,19 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("rules", {
-    description: "Set, show, or clear session rules injected into every turn",
+    description:
+      "Prompt guidance for every turn (current branch). Use /rules clear to remove.",
     handler: (args, ctx) => {
       const trimmed = (args ?? "").trim();
 
       if (!trimmed) {
         if (rulesText) {
-          ctx.ui.notify(`Current rules:\n${rulesText}`, "info");
+          ctx.ui.notify(`⚙ ${rulesText}`, "info");
         } else {
-          ctx.ui.notify("No session rules set", "info");
+          ctx.ui.notify(
+            "No branch rules set. Use /rules <text> to add branch-local prompt guidance.\n\nNote: rules are guidance appended to the prompt each turn, the model is not enforced to follow them.",
+            "info",
+          );
         }
         return;
       }
