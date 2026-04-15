@@ -14,18 +14,35 @@ import * as path from "node:path";
 export default function (pi: ExtensionAPI) {
   let rulesText: string | null = null;
 
-  pi.on("session_start", async (_event, ctx) => {
-    const saved = ctx.sessionManager
-      .getEntries()
-      .filter(
-        (e: { type: string; customType?: string }) =>
-          e.type === "custom" && e.customType === "rules",
-      )
-      .pop() as { data?: { text?: string | null } } | undefined;
-    rulesText = saved?.data?.text ?? null;
+  type RulesEntry = { type: string; customType?: string; data?: { text?: string | null } };
+
+  function restoreRules(ctx: { sessionManager: { getBranch(): RulesEntry[] } }) {
+    const entries = ctx.sessionManager.getBranch();
+    rulesText = null;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (entry.type === "custom" && entry.customType === "rules") {
+        rulesText = entry.data?.text ?? null;
+        break;
+      }
+    }
+  }
+
+  function updateStatus(ctx: { ui: { setStatus(key: string, text: string | undefined): void } }) {
+    ctx.ui.setStatus("pi-rules", rulesText ? "rules" : undefined);
+  }
+
+  pi.on("session_start", (_event, ctx) => {
+    restoreRules(ctx);
+    updateStatus(ctx);
   });
 
-  pi.on("before_agent_start", async (event) => {
+  pi.on("session_tree", (_event, ctx) => {
+    restoreRules(ctx);
+    updateStatus(ctx);
+  });
+
+  pi.on("before_agent_start", (event) => {
     if (!rulesText) return;
     return {
       systemPrompt:
@@ -36,7 +53,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("rules", {
     description: "Set, show, or clear session rules injected into every turn",
-    handler: async (args, ctx) => {
+    handler: (args, ctx) => {
       const trimmed = (args ?? "").trim();
 
       if (!trimmed) {
@@ -51,6 +68,7 @@ export default function (pi: ExtensionAPI) {
       if (trimmed === "clear") {
         rulesText = null;
         pi.appendEntry("rules", { text: null });
+        updateStatus(ctx);
         ctx.ui.notify("Session rules cleared", "info");
         return;
       }
@@ -73,6 +91,7 @@ export default function (pi: ExtensionAPI) {
         }
         rulesText = text;
         pi.appendEntry("rules", { text: rulesText });
+        updateStatus(ctx);
         ctx.ui.notify(
           `Rules loaded from ${resolved} (${rulesText.length} chars)`,
           "info",
@@ -82,6 +101,7 @@ export default function (pi: ExtensionAPI) {
 
       rulesText = trimmed;
       pi.appendEntry("rules", { text: rulesText });
+      updateStatus(ctx);
       ctx.ui.notify(`Rules set (${rulesText.length} chars)`, "info");
     },
   });
