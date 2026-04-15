@@ -14,9 +14,15 @@ import * as path from "node:path";
 export default function (pi: ExtensionAPI) {
   let rulesText: string | null = null;
 
-  type RulesEntry = { type: string; customType?: string; data?: { text?: string | null } };
+  type RulesEntry = {
+    type: string;
+    customType?: string;
+    data?: { text?: string | null };
+  };
 
-  function restoreRules(ctx: { sessionManager: { getBranch(): RulesEntry[] } }) {
+  function restoreRules(ctx: {
+    sessionManager: { getBranch(): RulesEntry[] };
+  }) {
     const entries = ctx.sessionManager.getBranch();
     rulesText = null;
     for (let i = entries.length - 1; i >= 0; i--) {
@@ -28,18 +34,36 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  function updateStatus(ctx: { ui: { setStatus(key: string, text: string | undefined): void } }) {
-    ctx.ui.setStatus("pi-rules", rulesText ? "rules" : undefined);
+  function updateWidget(ctx: {
+    ui: {
+      theme: { fg(style: string, text: string): string };
+      setWidget(
+        key: string,
+        content: string[] | undefined,
+        options?: { placement?: string },
+      ): void;
+    };
+  }) {
+    if (rulesText) {
+      const preview = rulesText.split("\n")[0].slice(0, 100);
+      const text =
+        rulesText.length > 100 || rulesText.includes("\n")
+          ? preview + "..."
+          : rulesText;
+      ctx.ui.setWidget("pi-rules", [ctx.ui.theme.fg("dim", `⚙ ${text}`)]);
+    } else {
+      ctx.ui.setWidget("pi-rules", undefined);
+    }
   }
 
   pi.on("session_start", (_event, ctx) => {
     restoreRules(ctx);
-    updateStatus(ctx);
+    updateWidget(ctx);
   });
 
   pi.on("session_tree", (_event, ctx) => {
     restoreRules(ctx);
-    updateStatus(ctx);
+    updateWidget(ctx);
   });
 
   pi.on("before_agent_start", (event) => {
@@ -68,7 +92,7 @@ export default function (pi: ExtensionAPI) {
       if (trimmed === "clear") {
         rulesText = null;
         pi.appendEntry("rules", { text: null });
-        updateStatus(ctx);
+        updateWidget(ctx);
         ctx.ui.notify("Session rules cleared", "info");
         return;
       }
@@ -91,7 +115,7 @@ export default function (pi: ExtensionAPI) {
         }
         rulesText = text;
         pi.appendEntry("rules", { text: rulesText });
-        updateStatus(ctx);
+        updateWidget(ctx);
         ctx.ui.notify(
           `Rules loaded from ${resolved} (${rulesText.length} chars)`,
           "info",
@@ -101,7 +125,7 @@ export default function (pi: ExtensionAPI) {
 
       rulesText = trimmed;
       pi.appendEntry("rules", { text: rulesText });
-      updateStatus(ctx);
+      updateWidget(ctx);
       ctx.ui.notify(`Rules set (${rulesText.length} chars)`, "info");
     },
   });
