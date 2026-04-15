@@ -31,8 +31,7 @@ const KEEPALIVE_INTERVAL_MS = 30_000;
 const FLUSH_DELAY_MS = 200;
 const IDLE_RETRY_MS = 500;
 const BATCH_MAX_ITEMS = 20;
-const BATCH_MAX_CHARS = 8000;
-const ITEM_MAX_CHARS = 2000;
+const BATCH_MAX_CHARS = 16_000;
 
 // ─── Protocol ────────────────────────────────────────────────────────────────
 
@@ -262,16 +261,13 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    // Select batch: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS total
+    // Select batch: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS total (soft cap —
+    // first item always included even if oversized, others deferred to next flush)
     const batch: string[] = [];
     let totalChars = 0;
     for (let i = 0; i < inbox.length && batch.length < BATCH_MAX_ITEMS; i++) {
       const item = inbox[i];
-      const content =
-        item.content.length > ITEM_MAX_CHARS
-          ? item.content.slice(0, ITEM_MAX_CHARS - 15) + "... (truncated)"
-          : item.content;
-      const text = `From "${item.from}":\n${content}`;
+      const text = `From "${item.from}":\n${item.content}`;
       if (batch.length > 0 && totalChars + text.length > BATCH_MAX_CHARS) break;
       batch.push(text);
       totalChars += text.length;

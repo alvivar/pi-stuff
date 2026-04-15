@@ -54,7 +54,7 @@ Batched callback shape: `[Link: N message(s) received]` then one or more `From "
 - Output paths / artifacts created
 - Short result summary or next question
 
-Keep each callback under ~2000 chars. Put long details in files and return the paths.
+Keep callbacks concise. Put long details in files and return the paths.
 
 ---
 
@@ -106,7 +106,7 @@ A → B → C → A = deadlock. Maintain clear hierarchy.
 Check status before re-sending.
 
 **❌ Long async callbacks**
-`triggerTurn:true` messages are truncated at ~2000 chars. Ask workers to write detailed output to files and return paths + short summaries.
+Long callbacks crowd a whole batched turn. Ask workers to write detailed output to files and return paths + short summaries.
 
 ---
 
