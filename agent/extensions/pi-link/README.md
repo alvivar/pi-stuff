@@ -66,7 +66,7 @@ $ pi --link                           $ pi --link
 ✓ Link hub started on :9900 as "t-a1b2"  ✓ Joined link as "t-c3d4" (2 online)
 ```
 
-Use `--link-name` to connect with a meaningful name instead:
+Use `--link-name` to connect with a meaningful name instead. The name is remembered — next time, it resumes the same session:
 
 ```
 $ pi --link-name builder              $ pi --link-name reviewer
@@ -140,7 +140,7 @@ Link is **off by default**. Without `--link` or `--link-name`, the extension is 
 | `/link-connect`         | Opt-in mid-session (no flag needed) | Yes                              |
 | `/link-disconnect`      | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
-`--link-name` implies `--link` — no need for both. It persists the link name and sets the Pi session name if the session is currently unnamed.
+`--link-name` implies `--link` — no need for both. It persists the link name, sets the Pi session name if currently unnamed, and resumes an existing session with that name if one exists. The bundled `pi-link start` helper handles session lookup under the hood (since Pi's `--session` flag requires a path, not a name).
 
 **Name precedence:** `--link-name` flag > saved `/link-name` > Pi session name > random `t-xxxx`.
 
