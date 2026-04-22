@@ -66,14 +66,7 @@ $ pi --link-name builder              $ pi --link-name reviewer
 ✓ Link hub started on :9900 as "builder"  ✓ Joined link as "reviewer" (2 online)
 ```
 
-Or use `pi-link start` to resume an existing session by name (or create one):
-
-```bash
-pi-link start worker-1                # resume or create session "worker-1"
-pi-link start worker-1 --model sonnet # with extra Pi flags
-```
-
-`pi --link` also works (connects with an auto-generated name). Already in a session without either flag? Connect mid-session with `/link-connect`.
+`pi --link` also works (connects with an auto-generated name). Already in a session? Connect mid-session with `/link-connect`.
 
 Use `/link` in any terminal to check status, or let the LLM tools handle cross-terminal coordination.
 
@@ -137,34 +130,16 @@ Link is **off by default**. Without `--link` or `--link-name`, the extension is 
 | ----------------------- | ----------------------------------- | -------------------------------- |
 | `pi --link-name <name>` | Connect on startup with a name      | Yes                              |
 | `pi --link`             | Connect on startup (random name)    | Yes                              |
-| `pi-link start <name>`  | Resume/create session, connect      | Yes                              |
 | `/link-connect`         | Opt-in mid-session (no flag needed) | Yes                              |
 | `/link-disconnect`      | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
-`--link-name` implies `--link` — no need for both. It also persists the name and sets the Pi session name if the session is currently unnamed.
+`--link-name` implies `--link` — no need for both. It persists the link name and sets the Pi session name if the session is currently unnamed.
 
 **Name precedence:** `--link-name` flag > saved `/link-name` > Pi session name > random `t-xxxx`.
 
 `/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
 Once connected, terminals discover each other on `127.0.0.1:9900`. See [Limitations](#limitations--design-decisions) for the hardcoded port.
-
-### `pi-link start`
-
-The `pi-link` CLI resolves sessions by display name:
-
-```bash
-pi-link start <name> [pi-flags...]
-```
-
-- Scans `~/.pi/agent/sessions/` for sessions with a matching name
-- **One match** → resumes that session with `--link-name <name>`
-- **No match** → starts a new session with `--link-name <name>`
-- **Multiple matches** → prints candidates (cwd, modified date, path) and exits
-- Extra Pi flags pass through: `pi-link start worker-1 --model sonnet --thinking high`
-- `--session` and `--link-name` cannot be passed as extra flags (managed by `pi-link start`)
-
-Sessions in the current working directory are prioritized when sorting candidates.
 
 ---
 
