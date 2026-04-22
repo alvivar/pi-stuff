@@ -2,7 +2,7 @@
 
 A WebSocket-based inter-terminal communication system that creates a local network between multiple Pi coding agent terminals. Enables terminals to discover each other, exchange messages, and orchestrate work across agents - all automatically on `localhost`.
 
-> Self-contained TypeScript in a single `index.ts` file. Start Pi with `--link` or `--link-name <name>` to enable.
+> Self-contained TypeScript in a single `index.ts` file. Start Pi with `--link` or `--link-name <name>` to enable
 
 ---
 
@@ -57,16 +57,23 @@ pi uninstall npm:pi-link
 
 ### Usage
 
-Link is **off by default**. Start Pi with `--link-name` to connect with a meaningful name:
+Link is **off by default**. Start Pi with `--link` to auto-connect on startup:
 
 ```
 Terminal 1                            Terminal 2
 ----------                            ----------
+$ pi --link                           $ pi --link
+✓ Link hub started on :9900 as "t-a1b2"  ✓ Joined link as "t-c3d4" (2 online)
+```
+
+Use `--link-name` to connect with a meaningful name instead:
+
+```
 $ pi --link-name builder              $ pi --link-name reviewer
 ✓ Link hub started on :9900 as "builder"  ✓ Joined link as "reviewer" (2 online)
 ```
 
-`pi --link` also works (connects with an auto-generated name). Already in a session? Connect mid-session with `/link-connect`.
+Already in a session? Connect mid-session with `/link-connect`.
 
 Use `/link` in any terminal to check status, or let the LLM tools handle cross-terminal coordination.
 
@@ -128,8 +135,8 @@ Link is **off by default**. Without `--link` or `--link-name`, the extension is 
 
 | Method                  | When                                | Auto-reconnect?                  |
 | ----------------------- | ----------------------------------- | -------------------------------- |
-| `pi --link-name <name>` | Connect on startup with a name      | Yes                              |
 | `pi --link`             | Connect on startup (random name)    | Yes                              |
+| `pi --link-name <name>` | Connect on startup with a name      | Yes                              |
 | `/link-connect`         | Opt-in mid-session (no flag needed) | Yes                              |
 | `/link-disconnect`      | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
