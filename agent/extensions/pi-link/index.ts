@@ -17,7 +17,11 @@ import type {
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import * as crypto from "node:crypto";
+import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
+import * as readline from "node:readline";
+import { spawn } from "node:child_process";
 
 import { WebSocket, WebSocketServer } from "ws";
 
@@ -264,6 +268,186 @@ export default function (pi: ExtensionAPI) {
     if (normalized.startsWith(home + "/"))
       return "~" + normalized.slice(home.length);
     return normalized;
+  }
+
+  // ── Session re-exec (--link-name session resume) ─────────────────────────
+
+  function samePath(a: string, b: string): boolean {
+    const ar = path.resolve(a);
+    const br = path.resolve(b);
+    return process.platform === "win32"
+      ? ar.toLowerCase() === br.toLowerCase()
+      : ar === br;
+  }
+
+  // Session-selection flags that mean the user already chose a session policy.
+  // Value flags take the next arg (--session foo, --session=foo).
+  const SESSION_VALUE_FLAGS = new Set(["--session", "--fork", "--session-dir"]);
+  const SESSION_BOOL_FLAGS = new Set([
+    "--continue",
+    "-c",
+    "--resume",
+    "-r",
+    "--no-session",
+  ]);
+
+  /** Check if any session-selection flag is in argv. */
+  function hasSessionFlag(): boolean {
+    return process.argv.slice(2).some((a) => {
+      const key = a.split("=")[0];
+      return SESSION_VALUE_FLAGS.has(key) || SESSION_BOOL_FLAGS.has(key);
+    });
+  }
+
+  /** Strip session-selection flags from argv, prepend --session <path>. */
+  function buildReexecArgs(sessionPath: string): string[] {
+    const args: string[] = ["--session", sessionPath];
+    const argv = process.argv.slice(2);
+    for (let i = 0; i < argv.length; i++) {
+      const a = argv[i];
+      const key = a.split("=")[0];
+      if (SESSION_VALUE_FLAGS.has(key)) {
+        if (!a.includes("=")) i++;
+        continue;
+      }
+      if (SESSION_BOOL_FLAGS.has(key)) continue;
+      args.push(a);
+    }
+    return args;
+  }
+
+  /**
+   * Scan session directory for sessions matching `name` and `cwd`.
+   * Returns matching session file paths.
+   */
+  async function findCwdSessionsByName(
+    name: string,
+    sessionDir: string,
+    cwd: string,
+  ): Promise<string[]> {
+    let files: string[];
+    try {
+      files = await fs.promises.readdir(sessionDir);
+    } catch {
+      return [];
+    }
+    const matches: string[] = [];
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      const filePath = path.join(sessionDir, file);
+      try {
+        const meta = await readSessionMeta(filePath);
+        if (meta.name === name && meta.cwd && samePath(meta.cwd, cwd)) {
+          matches.push(filePath);
+        }
+      } catch {
+        // Skip unreadable/locked/deleted session files
+      }
+    }
+    return matches;
+  }
+
+  /** Read session header cwd and last session_info name from a JSONL file. */
+  async function readSessionMeta(
+    filePath: string,
+  ): Promise<{ name?: string; cwd?: string }> {
+    const meta: { name?: string; cwd?: string } = {};
+    const rl = readline.createInterface({
+      input: fs.createReadStream(filePath, "utf-8"),
+      crlfDelay: Infinity,
+    });
+    for await (const line of rl) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === "session" && typeof entry.cwd === "string") {
+          meta.cwd = entry.cwd;
+        }
+        if (entry.type === "session_info" && typeof entry.name === "string") {
+          meta.name = entry.name.trim() || undefined;
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+    return meta;
+  }
+
+  /**
+   * Try to re-exec Pi with the correct session. Returns true if re-exec
+   * was initiated (caller should return immediately). Returns false if
+   * no re-exec is needed (caller should proceed normally).
+   */
+  async function tryReexec(
+    name: string,
+    _ctx: ExtensionContext,
+  ): Promise<boolean> {
+    // Guard: env flag means we were already re-exec'd — consume it so
+    // child processes spawned by tools don't inherit the skip.
+    if (process.env.PI_LINK_REEXEC) {
+      delete process.env.PI_LINK_REEXEC;
+      return false;
+    }
+    // Guard: explicit session-selection flags mean user chose deliberately
+    if (hasSessionFlag()) return false;
+
+    const sessionDir = _ctx.sessionManager.getSessionDir();
+    const currentFile = _ctx.sessionManager.getSessionFile();
+    const matches = await findCwdSessionsByName(name, sessionDir, _ctx.cwd);
+
+    if (matches.length === 0) return false;
+
+    // Already in the right session
+    if (
+      matches.length === 1 &&
+      currentFile &&
+      samePath(matches[0], currentFile)
+    ) {
+      return false;
+    }
+
+    if (matches.length > 1) {
+      // Ambiguous — print candidates and shut down
+      const lines = [`Multiple sessions named "${name}" in this directory:`];
+      for (const m of matches) {
+        try {
+          const stats = await fs.promises.stat(m);
+          lines.push(`  ${stats.mtime.toISOString().slice(0, 19)}  ${m}`);
+        } catch {
+          lines.push(`  (unreadable)  ${m}`);
+        }
+      }
+      lines.push(`Use: pi --session <path> --link-name ${name}`);
+      const message = lines.join("\n");
+      notify(message, "error");
+      // Also stderr — TUI notification may vanish on shutdown
+      // eslint-disable-next-line no-console
+      console.error(message);
+      _ctx.shutdown();
+      setTimeout(() => process.exit(1), 750).unref();
+      return true;
+    }
+
+    // Single match in a different session — re-exec
+    const piArgs = buildReexecArgs(matches[0]);
+    const isWin = process.platform === "win32";
+    const cmd = isWin ? "cmd" : "pi";
+    const cmdArgs = isWin ? ["/c", "pi", ...piArgs] : piArgs;
+
+    const child = spawn(cmd, cmdArgs, {
+      stdio: "inherit",
+      env: { ...process.env, PI_LINK_REEXEC: "1" },
+    });
+    child.on("exit", (code) => process.exit(code ?? 0));
+    child.once("spawn", () => {
+      _ctx.shutdown();
+      setTimeout(() => process.exit(0), 750).unref();
+    });
+    child.once("error", () => {
+      _ctx.shutdown();
+      setTimeout(() => process.exit(1), 750).unref();
+    });
+    return true;
   }
 
   // ── Startup connect ──────────────────────────────────────────────────────
@@ -926,6 +1110,11 @@ export default function (pi: ExtensionAPI) {
       typeof rawLinkName === "string"
         ? rawLinkName.trim().replace(/\s+/g, " ") || undefined
         : undefined;
+
+    // Re-exec shim: if --link-name is set, try to resume the correct session
+    // BEFORE writing any entries (to avoid orphan session pollution).
+    if (flagName && (await tryReexec(flagName, _ctx))) return;
+
     if (flagName) {
       preferredName = flagName;
       terminalName = flagName;

@@ -145,7 +145,10 @@ const isWin = process.platform === "win32";
 const cmd = isWin ? "cmd" : "pi";
 const cmdArgs = isWin ? ["/c", "pi", ...piArgs] : piArgs;
 
-const child = spawn(cmd, cmdArgs, { stdio: "inherit" });
+const child = spawn(cmd, cmdArgs, {
+  stdio: "inherit",
+  env: { ...process.env, PI_LINK_REEXEC: "1" },
+});
 
 child.on("exit", (code) => process.exit(code ?? 0));
 child.on("error", (err) => {
