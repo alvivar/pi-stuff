@@ -66,12 +66,14 @@ $ pi --link                           $ pi --link
 ✓ Link hub started on :9900 as "t-a1b2"  ✓ Joined link as "t-c3d4" (2 online)
 ```
 
-Use `--link-name` to connect with a meaningful name instead. The name is remembered — next time, it resumes the same session:
+Use `--link-name` to connect with a meaningful name instead:
 
 ```
 $ pi --link-name builder              $ pi --link-name reviewer
 ✓ Link hub started on :9900 as "builder"  ✓ Joined link as "reviewer" (2 online)
 ```
+
+To resume a named session, use the `pl` shell function (see [Session Resume](#session-resume)).
 
 Already in a session? Connect mid-session with `/link-connect`.
 
@@ -137,16 +139,74 @@ Link is **off by default**. Without `--link` or `--link-name`, the extension is 
 | ----------------------- | ----------------------------------- | -------------------------------- |
 | `pi --link`             | Connect on startup (random name)    | Yes                              |
 | `pi --link-name <name>` | Connect on startup with a name      | Yes                              |
+| `pl <name>`             | Resume/create named session (shell function) | Yes                     |
 | `/link-connect`         | Opt-in mid-session (no flag needed) | Yes                              |
 | `/link-disconnect`      | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
-`--link-name` implies `--link` — no need for both. It persists the link name, sets the Pi session name if currently unnamed, and resumes an existing session with that name if one exists. The bundled `pi-link start` helper handles session lookup under the hood (since Pi's `--session` flag requires a path, not a name).
+`--link-name` implies `--link` — no need for both. It persists the link name and sets the Pi session name if currently unnamed. It does **not** do session lookup — use a shell function for that (see [Session Resume](#session-resume)).
 
 **Name precedence:** `--link-name` flag > saved `/link-name` > Pi session name > random `t-xxxx`.
 
 `/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
 Once connected, terminals discover each other on `127.0.0.1:9900`. See [Limitations](#limitations--design-decisions) for the hardcoded port.
+
+### Session Resume
+
+Pi's `--session` flag requires a file path, not a display name. `pi-link resolve` bridges this gap — it scans sessions by name and prints the matching path. Add a shell function to combine resolution with launch:
+
+**PowerShell** (add to `$PROFILE`):
+
+```powershell
+function pl {
+    param(
+        [Parameter(Mandatory=$true, Position=0)]
+        [string]$name,
+        [Parameter(ValueFromRemainingArguments=$true)]
+        [string[]]$flags
+    )
+    $session = pi-link resolve $name
+    if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+    if ($session) {
+        pi --session $session --link-name $name @flags
+    } else {
+        pi --link-name $name @flags
+    }
+}
+```
+
+**Bash/Zsh** (add to `.bashrc` / `.zshrc`):
+
+```bash
+pl() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: pl <name> [pi flags...]" >&2
+        return 1
+    fi
+    shift
+    local session
+    session=$(pi-link resolve "$name") || return $?
+    if [ -n "$session" ]; then
+        pi --session "$session" --link-name "$name" "$@"
+    else
+        pi --link-name "$name" "$@"
+    fi
+}
+```
+
+Usage:
+
+```bash
+pl worker-1                # resume or create session "worker-1"
+pl worker-1 --model sonnet # with extra Pi flags
+```
+
+`pi-link resolve` behavior:
+
+- **One match** → prints session path to stdout
+- **No match** → prints nothing (shell function creates a new session)
+- **Multiple matches** → prints candidates to stderr, exits 1
 
 ---
 

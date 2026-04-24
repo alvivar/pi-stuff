@@ -8,9 +8,15 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ## Unreleased
 
+### Changed
+
+- **`pi-link start` replaced with `pi-link resolve`.** The old `pi-link start <name>` command spawned Pi as a child of Node, which broke terminal input (shift+enter) on Windows. Replaced with `pi-link resolve <name>` — a subcommand that prints the session path to stdout and exits. Pair with a shell function that calls the resolver then launches `pi` directly. See README for setup.
+
+- **`--link-name` no longer attempts session resume.** It sets the link name, persists it, and connects. Session lookup is the shell function's job.
+
 ### Fixed
 
-- **Stale extension context crash on startup.** WebSocket callbacks could fire after Pi invalidated the extension context (~1ms after `session_start` returns), causing unhandled exceptions that killed the process. Fixed with three changes: deferred startup connect via `scheduleStartupConnect()` (`setTimeout(0)`) so Pi's startup cycle completes first; `getUi()` / `notify()` / `isRuntimeLive()` helpers that safely handle stale context; and `disposed` guards on all 7 WebSocket callback sites. This bug made `--link-name` (and all auto-connect paths) appear broken — each crash created a new session instead of resuming.
+- **Stale extension context crash on startup.** WebSocket callbacks could fire after Pi invalidated the extension context (~1ms after `session_start` returns), causing unhandled exceptions that killed the process. Fixed with deferred startup connect, safe context helpers, and `disposed` guards on all WebSocket callback sites.
 
 ---
 
@@ -18,7 +24,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ### Added
 
-- **`--link-name <name>` flag.** Connect to link with a chosen terminal name on startup. Implies `--link`. Persists the name, sets the Pi session name if currently unnamed, and resumes an existing session with that name if one exists. Name precedence: `--link-name` > saved `/link-name` > session name > random `t-xxxx`. Session resume is handled by the bundled `pi-link start` helper (`bin/pi-link.mjs`), since Pi's `--session` flag requires a path, not a display name.
+- **`--link-name <name>` flag.** Connect to link with a chosen terminal name on startup. Implies `--link`. Persists the name and sets the Pi session name if currently unnamed. Name precedence: `--link-name` > saved `/link-name` > session name > random `t-xxxx`.
 
 ---
 
