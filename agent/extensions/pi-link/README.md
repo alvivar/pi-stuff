@@ -502,6 +502,8 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 | `currentCwd`             | `string`                              | Current working directory reported to peers on connect                                      |
 | `inbox`                  | `array`                               | Queued `triggerTurn:true` messages awaiting idle-gated flush                                |
 | `flushTimer`             | `Timer \| null`                       | Pending inbox flush (debounce or busy-retry)                                                |
+| `disposed`               | `boolean`                             | Set on `session_shutdown`; guards all WebSocket callbacks against stale context             |
+| `startupConnectTimer`    | `Timer \| null`                       | Deferred startup connect (`setTimeout(0)`) so Pi's startup cycle completes first            |
 | `manuallyDisconnected`   | `boolean`                             | Set by `/link-disconnect`; suppresses auto-reconnect                                        |
 | `pendingRemotePrompt`    | `object \| null`                      | Tracks the single in-flight remote prompt execution                                         |
 | `pendingPromptResponses` | `Map`                                 | Outstanding prompt RPCs awaiting responses (includes inactivity + ceiling timers per entry) |
@@ -518,7 +520,15 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 Internally, teardown is split into two functions:
 
 - **`disconnect()`** - closes sockets, clears connection state, resolves pending promises. Used by `/link-disconnect` and called internally by `cleanup()`.
-- **`cleanup()`** - calls `disconnect()` then marks the extension as disposed. Used on `session_shutdown`.
+- **`cleanup()`** - calls `disconnect()`, sets `disposed = true`, clears `ctx`. Used on `session_shutdown`.
+
+Three helpers protect WebSocket callbacks from stale extension context:
+
+- **`getUi()`** - safely accesses `ctx.ui`, returns `null` if the context is invalidated.
+- **`notify()`** - wraps `getUi()?.notify()` for safe notification delivery.
+- **`isRuntimeLive()`** - returns `false` if `disposed` or context is stale; checked before processing any incoming WebSocket message.
+
+Startup connect is deferred via `scheduleStartupConnect()` (`setTimeout(0)`) so Pi's startup cycle completes and the extension context is fully valid before WebSocket work begins.
 
 The `manuallyDisconnected` flag distinguishes user-initiated disconnects (`/link-disconnect`) from connection loss. When set, `scheduleReconnect()` is suppressed - the terminal stays offline until `/link-connect` is explicitly called.
 

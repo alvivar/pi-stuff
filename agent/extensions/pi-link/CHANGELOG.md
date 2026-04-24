@@ -6,7 +6,15 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
-## 0.1.9 — 2026-04-22
+## Unreleased
+
+### Fixed
+
+- **Stale extension context crash on startup.** WebSocket callbacks could fire after Pi invalidated the extension context (~1ms after `session_start` returns), causing unhandled exceptions that killed the process. Fixed with three changes: deferred startup connect via `scheduleStartupConnect()` (`setTimeout(0)`) so Pi's startup cycle completes first; `getUi()` / `notify()` / `isRuntimeLive()` helpers that safely handle stale context; and `disposed` guards on all 7 WebSocket callback sites. This bug made `--link-name` (and all auto-connect paths) appear broken — each crash created a new session instead of resuming.
+
+---
+
+## 0.1.9 — 2026-04-23
 
 ### Added
 
