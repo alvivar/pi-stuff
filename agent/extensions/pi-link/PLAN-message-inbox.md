@@ -3,6 +3,7 @@
 ## Problem
 
 `link_send(triggerTurn:true)` calls `pi.sendMessage(triggerTurn:true)` per message. Pi's `sendCustomMessage()` routes this two ways:
+
 - **Agent idle** → `agent.prompt()` — reliable, message IS the prompt
 - **Agent busy** → `agent.steer()` — unreliable, message can be stranded if it arrives after the loop's final steering poll but before `agent_end`
 
@@ -35,11 +36,11 @@ scheduleFlush(delay):
   set flushTimer = setTimeout(flushInbox, delay)
 ```
 
-| Trigger | Delay | Purpose |
-|---------|-------|---------|
-| New message arrives | 200ms | Debounce burst coalescing |
-| `agent_end` event | 0ms (next tick) | Wake up when agent becomes idle |
-| Idle-gate retry | 500ms | Polling fallback while agent busy |
+| Trigger             | Delay           | Purpose                           |
+| ------------------- | --------------- | --------------------------------- |
+| New message arrives | 200ms           | Debounce burst coalescing         |
+| `agent_end` event   | 0ms (next tick) | Wake up when agent becomes idle   |
+| Idle-gate retry     | 500ms           | Polling fallback while agent busy |
 
 All three use `scheduleFlush()` — single timer slot, latest call wins (may replace an earlier `0ms` with a `200ms` if a new message arrives, which is fine for coalescing).
 
@@ -106,6 +107,7 @@ Messages are delivered **when idle**, not mid-run. For worker results this is id
 ## Expected Outcome
 
 3-worker fan-out test:
+
 1. All 3 results arrive at receiver
 2. Each pushed to inbox, debounce resets
 3. If agent is idle: 200ms debounce fires → one `sendMessage` → prompt path → all 3 in one turn ✅

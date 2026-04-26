@@ -135,13 +135,13 @@ Every other terminal sees:
 
 Link is **off by default**. Without `--link` or `--link-name`, the extension is completely silent — no status bar, no connections, no warnings.
 
-| Method                  | When                                         | Auto-reconnect?                  |
-| ----------------------- | -------------------------------------------- | -------------------------------- |
-| `pi --link`             | Connect on startup (random name)             | Yes                              |
-| `pi --link-name <name>` | Connect on startup with a name               | Yes                              |
-| `$(pi-link <name>)`     | Resume/create named session                  | Yes                              |
-| `/link-connect`         | Opt-in mid-session (no flag needed)          | Yes                              |
-| `/link-disconnect`      | Opt-out mid-session                          | Suppressed until `/link-connect` |
+| Method                  | When                                | Auto-reconnect?                  |
+| ----------------------- | ----------------------------------- | -------------------------------- |
+| `pi --link`             | Connect on startup (random name)    | Yes                              |
+| `pi --link-name <name>` | Connect on startup with a name      | Yes                              |
+| `$(pi-link <name>)`     | Resume/create named session         | Yes                              |
+| `/link-connect`         | Opt-in mid-session (no flag needed) | Yes                              |
+| `/link-disconnect`      | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
 `--link-name` implies `--link` — no need for both. It persists the link name and sets the Pi session name if currently unnamed. It does **not** do session lookup — use `pi-link` for that (see [Session Resume](#session-resume)).
 
