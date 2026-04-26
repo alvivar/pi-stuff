@@ -24,7 +24,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ### Added
 
-- **`--link-name <name>` flag.** Connect to link with a chosen terminal name on startup. Implies `--link`. Persists the name and sets the Pi session name if currently unnamed. Name precedence: `--link-name` > saved `/link-name` > session name > random `t-xxxx`.
+- **`--link-name <name>` flag.** Connect to link with a chosen terminal name on startup. Implies `--link`. Persists the name and sets the Pi session name if currently unnamed. Session resume by name is handled separately by the `pi-link` CLI. Name precedence: `--link-name` > saved `/link-name` > session name > random `t-xxxx`.
 
 ---
 
