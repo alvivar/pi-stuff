@@ -2,7 +2,6 @@
 
 My personal [Pi](http://pi.dev) config. Scrappy, opinionated, not meant for anyone else.
 
-
 ## Extensions
 
 ### [claude-code-provider](agent/extensions/claude-code-provider/)
@@ -10,6 +9,7 @@ My personal [Pi](http://pi.dev) config. Scrappy, opinionated, not meant for anyo
 The big one (~2k lines). Wraps the `claude` CLI so I can use Claude Code headless mode as a Pi model. Streams `stream-json` output, keeps Claude sessions alive across turns with `--resume`, renders Claude's internal tool calls as compact inline traces (not Pi toolCalls — wrong semantics here), handles `/compact` by summarizing and restarting the Claude session. Logs to `agent/debug.log`.
 
 Docs next to the code:
+
 - [BEHAVIOR.md](agent/extensions/claude-code-provider/BEHAVIOR.md) — streaming, compaction, usage tracking, context meter
 - [INTEGRATION.md](agent/extensions/claude-code-provider/INTEGRATION.md) — why Claude tool events can't be Pi toolCalls
 - [HEADLESS.md](agent/extensions/claude-code-provider/HEADLESS.md) — Claude Code headless CLI reference
@@ -30,7 +30,6 @@ Tiny cosmetic extension. Rewrites standalone "pi" → "PI" in the system prompt 
 
 Has its own [test suite](agent/extensions/uppercase-pi/test.mjs) (`node test.mjs`).
 
-
 ## Workshop
 
 ### [pi-link](agent/workshop/pi-link/)
@@ -38,7 +37,6 @@ Has its own [test suite](agent/extensions/uppercase-pi/test.mjs) (`node test.mjs
 Published as `npm:pi-link`. Local WebSocket network between Pi terminals — hub-spoke on `localhost:9900`, auto-discovery, `link_send` / `link_prompt` / `link_list` tools, `/link` commands. The evolution of the earlier `pi-mesh` prototype. Lives in `workshop/` because it's an npm package with its own release cycle.
 
 Has a thorough [README](agent/workshop/pi-link/README.md), a bundled `pi-link-coordination` skill, and various design docs (`PLAN-*.md`, `REPORT-*.md`, `STYLE.md`).
-
 
 ## Skills
 
@@ -48,11 +46,9 @@ Windows-only fork of `pi-chrome-cdp`. Same commands, but actually works on Windo
 
 [SKILL.md](agent/skills/chrome-cdp-win/SKILL.md) for usage, [README.md](agent/skills/chrome-cdp-win/README.md) for the backstory.
 
-
 ## Other
 
 - [docs/dead-key-bug.md](docs/dead-key-bug.md) — a dead key composition bug I hit in VSCode terminal
-
 
 ## Setup
 
