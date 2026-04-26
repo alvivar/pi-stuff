@@ -73,7 +73,7 @@ $ pi --link-name builder              $ pi --link-name reviewer
 ✓ Link hub started on :9900 as "builder"  ✓ Joined link as "reviewer" (2 online)
 ```
 
-To resume a named session, use `$(pi-link <name>)` (see [Session Resume](#session-resume)).
+To resume a named session, use `pi-link <name>` (see [Session Resume](#session-resume)).
 
 Already in a session? Connect mid-session with `/link-connect`.
 
@@ -139,7 +139,7 @@ Link is **off by default**. Without `--link` or `--link-name`, the extension is 
 | ----------------------- | ----------------------------------- | -------------------------------- |
 | `pi --link`             | Connect on startup (random name)    | Yes                              |
 | `pi --link-name <name>` | Connect on startup with a name      | Yes                              |
-| `$(pi-link <name>)`     | Resume/create named session         | Yes                              |
+| `pi-link <name>`        | Resume/create named session         | Yes                              |
 | `/link-connect`         | Opt-in mid-session (no flag needed) | Yes                              |
 | `/link-disconnect`      | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
@@ -153,17 +153,17 @@ Once connected, terminals discover each other on `127.0.0.1:9900`. See [Limitati
 
 ### Session Resume
 
-Pi's `--session` flag requires a file path, not a display name. `pi-link` bridges this — it resolves a session by name and prints the full `pi` command. Use shell command substitution to run it:
+Pi's `--session` flag requires a file path, not a display name. `pi-link` bridges this — it resolves a session by name and launches Pi directly:
 
 ```bash
-$(pi-link worker-1)                # resume or create session "worker-1"
-$(pi-link worker-1 --model sonnet) # with extra Pi flags
+pi-link worker-1                # resume or create session "worker-1"
+pi-link worker-1 --model sonnet # with extra Pi flags
 ```
 
-How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and outputs `pi --session <path> --link-name worker-1`. The `$(...)` executes that output. Pi is launched directly by the shell — full terminal input support.
+How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and launches `pi --session <path> --link-name worker-1`.
 
-- **One match** → outputs `pi --session <path> --link-name <name>`
-- **No match** → outputs `pi --link-name <name>` (creates new session)
+- **One match** → resumes that session
+- **No match** → creates a new session
 - **Multiple matches** → prints candidates to stderr, exits 1
 
 `pi-link resolve <name>` is also available for machine-readable output (prints just the session path).

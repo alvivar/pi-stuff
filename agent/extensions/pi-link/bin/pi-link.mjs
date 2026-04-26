@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 
-// pi-link CLI — utilities for pi-link
+// pi-link CLI — launch Pi with session resume by name
 //
 // Usage:
-//   pi-link <name> [flags...]   Print the pi command to resume/create a named session.
+//   pi-link <name> [flags...]   Resume or create a named session, connected to link.
 //   pi-link resolve <name>      Print just the session path (machine-readable).
-//
-// Use with command substitution:  $(pi-link worker-1)
 
 import { readdir, stat } from "fs/promises";
 import { createReadStream } from "fs";
 import { createInterface } from "readline";
 import { join } from "path";
 import { homedir } from "os";
+import { spawn } from "child_process";
 
 const SESSIONS_DIR = join(homedir(), ".pi", "agent", "sessions");
 
@@ -109,22 +108,47 @@ if (command === "resolve") {
     printCandidates(name, matches);
   }
 } else if (command && command !== "--help" && command !== "-h") {
-  // pi-link <name> [flags...] — print the full pi command
+  // pi-link <name> [flags...] — resolve and launch Pi
   const name = command.trim().replace(/\s+/g, " ");
   if (!name) {
     console.error("Usage: pi-link <name> [pi flags...]");
     process.exit(1);
   }
+
+  // Reject conflicting flags
+  for (const flag of args) {
+    const key = flag.split("=")[0];
+    if (["--session", "--link-name", "--continue", "-c", "--resume", "-r", "--fork", "--no-session"].includes(key)) {
+      console.error(`Error: ${key} is managed by pi-link. Remove it.`);
+      process.exit(1);
+    }
+  }
+
   const matches = await findSessionsByName(name);
   if (matches.length > 1) {
     printCandidates(name, matches);
   }
-  const parts = ["pi"];
-  if (matches.length === 1) parts.push("--session", matches[0].path);
-  parts.push("--link-name", name);
-  parts.push(...args);
-  process.stdout.write(parts.join(" "));
+
+  const piArgs = [];
+  if (matches.length === 1) {
+    console.error(`Resuming session: ${matches[0].path}`);
+    piArgs.push("--session", matches[0].path);
+  } else {
+    console.error("No existing session found. Starting new session.");
+  }
+  piArgs.push("--link-name", name, ...args);
+
+  const isWin = process.platform === "win32";
+  const cmd = isWin ? "cmd" : "pi";
+  const cmdArgs = isWin ? ["/c", "pi", ...piArgs] : piArgs;
+
+  const child = spawn(cmd, cmdArgs, { stdio: "inherit" });
+  child.on("exit", (code) => process.exit(code ?? 0));
+  child.on("error", (err) => {
+    console.error(`Failed to start pi: ${err.message}`);
+    process.exit(1);
+  });
 } else {
-  console.error("Usage: pi-link <name> [pi flags...]\n       pi-link resolve <name>\n\nUse: $(pi-link worker-1)");
+  console.error("Usage: pi-link <name> [pi flags...]\n       pi-link resolve <name>");
   process.exit(0);
 }

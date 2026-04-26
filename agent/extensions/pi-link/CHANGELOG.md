@@ -10,7 +10,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ### Changed
 
-- **`pi-link start` replaced with `pi-link <name>`.** The old `pi-link start <name>` spawned Pi as a child of Node, which broke terminal input (shift+enter) on Windows. New approach: `pi-link <name>` prints the full `pi` command to stdout. Use with shell command substitution: `$(pi-link worker-1)`. Pi is launched directly by the shell. `pi-link resolve <name>` available for machine-readable path-only output.
+- **`pi-link start <name>` simplified to `pi-link <name>`.** Resolves session by name and launches Pi directly. `pi-link resolve <name>` available for machine-readable path-only output. Rejects conflicting flags (`--session`, `--continue`, etc.).
 
 - **`--link-name` no longer attempts session resume.** It sets the link name, persists it, and connects. Session lookup is `pi-link`'s job.
 
