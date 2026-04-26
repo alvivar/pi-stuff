@@ -118,7 +118,7 @@ if (command === "resolve") {
   // Reject conflicting flags
   for (const flag of args) {
     const key = flag.split("=")[0];
-    if (["--session", "--link-name", "--continue", "-c", "--resume", "-r", "--fork", "--no-session"].includes(key)) {
+    if (["--session", "--link-name", "--continue", "-c", "--resume", "-r", "--fork", "--no-session", "--session-dir"].includes(key)) {
       console.error(`Error: ${key} is managed by pi-link. Remove it.`);
       process.exit(1);
     }
@@ -139,12 +139,15 @@ if (command === "resolve") {
   piArgs.push("--link-name", name, ...args);
 
   const isWin = process.platform === "win32";
-  const cmd = isWin ? "cmd" : "pi";
-  const cmdArgs = isWin ? ["/c", "pi", ...piArgs] : piArgs;
+  const cmd = isWin ? "cmd.exe" : "pi";
+  const cmdArgs = isWin ? ["/d", "/c", "pi", ...piArgs] : piArgs;
 
   const child = spawn(cmd, cmdArgs, { stdio: "inherit" });
-  child.on("exit", (code) => process.exit(code ?? 0));
-  child.on("error", (err) => {
+  child.once("exit", (code, signal) => {
+    if (code !== null) process.exit(code);
+    process.exit(signal === "SIGINT" ? 130 : 1);
+  });
+  child.once("error", (err) => {
     console.error(`Failed to start pi: ${err.message}`);
     process.exit(1);
   });
