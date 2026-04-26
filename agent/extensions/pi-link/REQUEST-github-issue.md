@@ -2,23 +2,21 @@
 
 ## What do you want to change?
 
-`--session` resolves by path and ID prefix but ignores display names. I'd like it to also try exact display-name matching, so `pi --session worker-1` opens the session named `worker-1`.
+Make `--session` also match by display name. Right now `pi --session worker-1` only checks paths and ID prefixes. If there's a session named `worker-1`, it should find it.
 
-Resolution order: path → local ID prefix → **local name** → global ID prefix → **global name** → not found. ID prefix keeps priority. Multiple name matches should error with candidates, since names are user-assigned and not unique like IDs.
+ID prefix matching should stay first for backward compat. If multiple sessions share the same name, error out and show the candidates — names aren't unique.
 
 ## Why?
 
-If Pi lets users name sessions, the CLI should be able to open a session by that name.
+I maintain [pi-link](https://www.npmjs.com/package/pi-link), a multi-terminal coordination extension. Each terminal gets a name like `worker-1` or `reviewer`, and I want users to resume sessions by that name: `pi --session worker-1 --link-name worker-1`.
 
-I'm building [pi-link](https://www.npmjs.com/package/pi-link), a multi-terminal coordination extension. Terminals get names like `worker-1` and `reviewer`, and the natural command is `pi --session worker-1 --link-name worker-1`.
+I can't do this from the extension — session selection happens in `main.js` before extensions load. I tried building a launcher that resolves the name and spawns Pi with `--session <path>`, but on Windows any Node parent process breaks shift+enter input. Tried async spawn, spawnSync, detached, cmd /c — all broken. It's a ConPTY thing.
 
-This needs to be in core because session selection happens in `main.js` before extensions load. By the time an extension's `session_start` runs, Pi has already created/opened a session. Wrapper/re-exec workarounds are also fragile for terminal UI behavior, especially on Windows.
-
-`buildSessionInfo()` already extracts `name`, and `SessionManager.list()` / `listAll()` already return it. The data is there; `resolveSessionPath()` just doesn't check it.
+`buildSessionInfo()` already extracts `name` and `list()`/`listAll()` already return it. `resolveSessionPath()` just doesn't check it.
 
 ## How?
 
-In `resolveSessionPath()`, after each ID prefix check, add exact-name matching:
+After each ID prefix check in `resolveSessionPath()`, add a name check:
 
 ```js
 const localNameMatches = localSessions.filter((s) => s.name === sessionArg);
@@ -28,6 +26,6 @@ if (localNameMatches.length > 1)
   return { type: "ambiguous_name", arg: sessionArg, matches: localNameMatches };
 ```
 
-Same pattern after the global ID check. Handle `ambiguous_name` in `createSessionManager()` by printing candidates and exiting.
+Same after the global ID check. Handle `ambiguous_name` in `createSessionManager()` by printing candidates and exiting.
 
-Happy to submit a PR if this direction looks right.
+I can submit a PR if you're open to this.

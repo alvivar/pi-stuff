@@ -2,10 +2,11 @@
 
 // pi-link CLI — utilities for pi-link
 //
-// Subcommands:
-//   resolve <name>  Find a Pi session by display name.
-//                   Prints session path to stdout (1 match), nothing (0), or
-//                   candidates to stderr + exit 1 (ambiguous).
+// Usage:
+//   pi-link <name> [flags...]   Print the pi command to resume/create a named session.
+//   pi-link resolve <name>      Print just the session path (machine-readable).
+//
+// Use with command substitution:  $(pi-link worker-1)
 
 import { readdir, stat } from "fs/promises";
 import { createReadStream } from "fs";
@@ -85,28 +86,45 @@ async function findSessionsByName(targetName) {
 
 const [command, ...args] = process.argv.slice(2);
 
+function printCandidates(name, matches) {
+  console.error(`Multiple sessions named "${name}":\n`);
+  for (const m of matches) {
+    console.error(`  ${m.modified.toISOString().slice(0, 19)}  cwd: ${m.cwd}`);
+    console.error(`  ${m.path}\n`);
+  }
+  console.error(`Use: pi --session <path> --link-name ${name}`);
+  process.exit(1);
+}
+
 if (command === "resolve") {
   const name = args[0]?.trim().replace(/\s+/g, " ");
   if (!name) {
     console.error("Usage: pi-link resolve <name>");
     process.exit(1);
   }
-
   const matches = await findSessionsByName(name);
-
   if (matches.length === 1) {
     process.stdout.write(matches[0].path);
   } else if (matches.length > 1) {
-    console.error(`Multiple sessions named "${name}":\n`);
-    for (const m of matches) {
-      console.error(`  ${m.modified.toISOString().slice(0, 19)}  cwd: ${m.cwd}`);
-      console.error(`  ${m.path}\n`);
-    }
-    console.error(`Use: pi --session <path> --link-name ${name}`);
+    printCandidates(name, matches);
+  }
+} else if (command && command !== "--help" && command !== "-h") {
+  // pi-link <name> [flags...] — print the full pi command
+  const name = command.trim().replace(/\s+/g, " ");
+  if (!name) {
+    console.error("Usage: pi-link <name> [pi flags...]");
     process.exit(1);
   }
-  // 0 matches: print nothing, exit 0
+  const matches = await findSessionsByName(name);
+  if (matches.length > 1) {
+    printCandidates(name, matches);
+  }
+  const parts = ["pi"];
+  if (matches.length === 1) parts.push("--session", matches[0].path);
+  parts.push("--link-name", name);
+  parts.push(...args);
+  process.stdout.write(parts.join(" "));
 } else {
-  console.error(`Usage: pi-link <command>\n\nCommands:\n  resolve <name>  Find a Pi session by display name`);
-  process.exit(command ? 1 : 0);
+  console.error("Usage: pi-link <name> [pi flags...]\n       pi-link resolve <name>\n\nUse: $(pi-link worker-1)");
+  process.exit(0);
 }

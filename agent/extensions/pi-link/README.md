@@ -73,7 +73,7 @@ $ pi --link-name builder              $ pi --link-name reviewer
 ✓ Link hub started on :9900 as "builder"  ✓ Joined link as "reviewer" (2 online)
 ```
 
-To resume a named session, use the `pl` shell function (see [Session Resume](#session-resume)).
+To resume a named session, use `$(pi-link <name>)` (see [Session Resume](#session-resume)).
 
 Already in a session? Connect mid-session with `/link-connect`.
 
@@ -135,15 +135,15 @@ Every other terminal sees:
 
 Link is **off by default**. Without `--link` or `--link-name`, the extension is completely silent — no status bar, no connections, no warnings.
 
-| Method                  | When                                | Auto-reconnect?                  |
-| ----------------------- | ----------------------------------- | -------------------------------- |
-| `pi --link`             | Connect on startup (random name)    | Yes                              |
-| `pi --link-name <name>` | Connect on startup with a name      | Yes                              |
-| `pl <name>`             | Resume/create named session (shell function) | Yes                     |
-| `/link-connect`         | Opt-in mid-session (no flag needed) | Yes                              |
-| `/link-disconnect`      | Opt-out mid-session                 | Suppressed until `/link-connect` |
+| Method                  | When                                         | Auto-reconnect?                  |
+| ----------------------- | -------------------------------------------- | -------------------------------- |
+| `pi --link`             | Connect on startup (random name)             | Yes                              |
+| `pi --link-name <name>` | Connect on startup with a name               | Yes                              |
+| `$(pi-link <name>)`     | Resume/create named session                  | Yes                              |
+| `/link-connect`         | Opt-in mid-session (no flag needed)          | Yes                              |
+| `/link-disconnect`      | Opt-out mid-session                          | Suppressed until `/link-connect` |
 
-`--link-name` implies `--link` — no need for both. It persists the link name and sets the Pi session name if currently unnamed. It does **not** do session lookup — use a shell function for that (see [Session Resume](#session-resume)).
+`--link-name` implies `--link` — no need for both. It persists the link name and sets the Pi session name if currently unnamed. It does **not** do session lookup — use `pi-link` for that (see [Session Resume](#session-resume)).
 
 **Name precedence:** `--link-name` flag > saved `/link-name` > Pi session name > random `t-xxxx`.
 
@@ -153,60 +153,20 @@ Once connected, terminals discover each other on `127.0.0.1:9900`. See [Limitati
 
 ### Session Resume
 
-Pi's `--session` flag requires a file path, not a display name. `pi-link resolve` bridges this gap — it scans sessions by name and prints the matching path. Add a shell function to combine resolution with launch:
-
-**PowerShell** (add to `$PROFILE`):
-
-```powershell
-function pl {
-    param(
-        [Parameter(Mandatory=$true, Position=0)]
-        [string]$name,
-        [Parameter(ValueFromRemainingArguments=$true)]
-        [string[]]$flags
-    )
-    $session = pi-link resolve $name
-    if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
-    if ($session) {
-        pi --session $session --link-name $name @flags
-    } else {
-        pi --link-name $name @flags
-    }
-}
-```
-
-**Bash/Zsh** (add to `.bashrc` / `.zshrc`):
+Pi's `--session` flag requires a file path, not a display name. `pi-link` bridges this — it resolves a session by name and prints the full `pi` command. Use shell command substitution to run it:
 
 ```bash
-pl() {
-    local name="$1"
-    if [ -z "$name" ]; then
-        echo "Usage: pl <name> [pi flags...]" >&2
-        return 1
-    fi
-    shift
-    local session
-    session=$(pi-link resolve "$name") || return $?
-    if [ -n "$session" ]; then
-        pi --session "$session" --link-name "$name" "$@"
-    else
-        pi --link-name "$name" "$@"
-    fi
-}
+$(pi-link worker-1)                # resume or create session "worker-1"
+$(pi-link worker-1 --model sonnet) # with extra Pi flags
 ```
 
-Usage:
+How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and outputs `pi --session <path> --link-name worker-1`. The `$(...)` executes that output. Pi is launched directly by the shell — full terminal input support.
 
-```bash
-pl worker-1                # resume or create session "worker-1"
-pl worker-1 --model sonnet # with extra Pi flags
-```
-
-`pi-link resolve` behavior:
-
-- **One match** → prints session path to stdout
-- **No match** → prints nothing (shell function creates a new session)
+- **One match** → outputs `pi --session <path> --link-name <name>`
+- **No match** → outputs `pi --link-name <name>` (creates new session)
 - **Multiple matches** → prints candidates to stderr, exits 1
+
+`pi-link resolve <name>` is also available for machine-readable output (prints just the session path).
 
 ---
 
