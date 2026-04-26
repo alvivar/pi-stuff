@@ -91,7 +91,7 @@ function printCandidates(name, matches) {
     console.error(`  ${m.modified.toISOString().slice(0, 19)}  cwd: ${m.cwd}`);
     console.error(`  ${m.path}\n`);
   }
-  console.error(`Use: pi --session <path> --link-name ${name}`);
+  console.error(`Use: pi --session <path> --link`);
   process.exit(1);
 }
 
@@ -118,8 +118,12 @@ if (command === "resolve") {
   // Reject conflicting flags
   for (const flag of args) {
     const key = flag.split("=")[0];
-    if (["--session", "--link-name", "--continue", "-c", "--resume", "-r", "--fork", "--no-session", "--session-dir"].includes(key)) {
+    if (["--session", "--continue", "-c", "--resume", "-r", "--fork", "--no-session", "--session-dir"].includes(key)) {
       console.error(`Error: ${key} is managed by pi-link. Remove it.`);
+      process.exit(1);
+    }
+    if (key === "--link-name") {
+      console.error("Error: --link-name was removed. Use: pi-link <name>");
       process.exit(1);
     }
   }
@@ -136,13 +140,16 @@ if (command === "resolve") {
   } else {
     console.error("No existing session found. Starting new session.");
   }
-  piArgs.push("--link-name", name, ...args);
+  piArgs.push("--link", ...args);
 
   const isWin = process.platform === "win32";
   const cmd = isWin ? "cmd.exe" : "pi";
   const cmdArgs = isWin ? ["/d", "/c", "pi", ...piArgs] : piArgs;
 
-  const child = spawn(cmd, cmdArgs, { stdio: "inherit" });
+  const child = spawn(cmd, cmdArgs, {
+    stdio: "inherit",
+    env: { ...process.env, PI_LINK_NAME: name },
+  });
   child.once("exit", (code, signal) => {
     if (code !== null) process.exit(code);
     process.exit(signal === "SIGINT" ? 130 : 1);

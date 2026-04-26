@@ -2,7 +2,7 @@
  * Pi Link — WebSocket-based inter-terminal communication
  *
  * Connects multiple Pi terminals over a local WebSocket link.
- * Opt-in via --link / --link-name flag or /link-connect command.
+ * Opt-in via --link flag, pi-link CLI, or /link-connect command.
  * First terminal to connect becomes the hub; others join as clients.
  * Hub loss triggers automatic promotion of a surviving client.
  *
@@ -113,11 +113,6 @@ export default function (pi: ExtensionAPI) {
     description: "Connect to link on startup",
     type: "boolean",
     default: false,
-  });
-
-  pi.registerFlag("link-name", {
-    description: "Connect to link with this terminal name",
-    type: "string",
   });
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -920,12 +915,10 @@ export default function (pi: ExtensionAPI) {
     ctx = _ctx;
     currentCwd = _ctx.cwd;
 
-    // Resolve terminal name: --link-name flag > saved link-name > session name > random
-    const rawLinkName = pi.getFlag("link-name");
-    const flagName =
-      typeof rawLinkName === "string"
-        ? rawLinkName.trim().replace(/\s+/g, " ") || undefined
-        : undefined;
+    // Resolve terminal name: PI_LINK_NAME env > saved link-name > session name > random
+    const rawLinkName = process.env.PI_LINK_NAME;
+    delete process.env.PI_LINK_NAME;
+    const flagName = rawLinkName?.trim().replace(/\s+/g, " ") || undefined;
 
     if (flagName) {
       preferredName = flagName;

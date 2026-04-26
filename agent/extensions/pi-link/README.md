@@ -2,7 +2,7 @@
 
 A WebSocket-based inter-terminal communication system that creates a local network between multiple Pi coding agent terminals. Enables terminals to discover each other, exchange messages, and orchestrate work across agents - all automatically on `localhost`.
 
-> Self-contained TypeScript in a single `index.ts` file. Start Pi with `--link` or `--link-name <name>` to enable
+> Self-contained TypeScript in a single `index.ts` file. Start Pi with `--link` to enable, or use `pi-link <name>` to resume/create named sessions
 
 ---
 
@@ -66,14 +66,14 @@ $ pi --link                           $ pi --link
 ✓ Link hub started on :9900 as "t-a1b2"  ✓ Joined link as "t-c3d4" (2 online)
 ```
 
-Use `--link-name` to connect with a meaningful name instead:
+Use `pi-link <name>` to connect with a meaningful name and session resume:
 
 ```
-$ pi --link-name builder              $ pi --link-name reviewer
+$ pi-link builder                     $ pi-link reviewer
 ✓ Link hub started on :9900 as "builder"  ✓ Joined link as "reviewer" (2 online)
 ```
 
-To resume a named session, use `pi-link <name>` (see [Session Resume](#session-resume)).
+See [Session Resume](#session-resume) for details.
 
 Already in a session? Connect mid-session with `/link-connect`.
 
@@ -133,19 +133,16 @@ Every other terminal sees:
 
 ## Configuration
 
-Link is **off by default**. Without `--link` or `--link-name`, the extension is completely silent — no status bar, no connections, no warnings.
+Link is **off by default**. Without `--link` or `pi-link`, the extension is completely silent — no status bar, no connections, no warnings.
 
-| Method                  | When                                | Auto-reconnect?                  |
-| ----------------------- | ----------------------------------- | -------------------------------- |
-| `pi --link`             | Connect on startup (random name)    | Yes                              |
-| `pi --link-name <name>` | Connect on startup with a name      | Yes                              |
-| `pi-link <name>`        | Resume/create named session         | Yes                              |
-| `/link-connect`         | Opt-in mid-session (no flag needed) | Yes                              |
-| `/link-disconnect`      | Opt-out mid-session                 | Suppressed until `/link-connect` |
+| Method             | When                                | Auto-reconnect?                  |
+| ------------------ | ----------------------------------- | -------------------------------- |
+| `pi-link <name>`   | Resume/create named session         | Yes                              |
+| `pi --link`        | Connect on startup (random name)    | Yes                              |
+| `/link-connect`    | Opt-in mid-session (no flag needed) | Yes                              |
+| `/link-disconnect` | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
-`--link-name` implies `--link` — no need for both. It persists the link name and sets the Pi session name if currently unnamed. It does **not** do session lookup — use `pi-link` for that (see [Session Resume](#session-resume)).
-
-**Name precedence:** `--link-name` flag > saved `/link-name` > Pi session name > random `t-xxxx`.
+**Name precedence:** `PI_LINK_NAME` env (set by `pi-link`) > saved `/link-name` > Pi session name > random `t-xxxx`.
 
 `/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
@@ -160,7 +157,7 @@ pi-link worker-1                # resume or create session "worker-1"
 pi-link worker-1 --model sonnet # with extra Pi flags
 ```
 
-How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and launches `pi --session <path> --link-name worker-1`.
+How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and launches `pi --session <path> --link`.
 
 - **One match** → resumes that session
 - **No match** → creates a new session
@@ -325,7 +322,7 @@ The network topology is **hub-spoke (star)**:
 
 ### Auto-Discovery Protocol
 
-The discovery sequence runs on startup (with `--link` or `--link-name`) or when `/link-connect` is used. See [Configuration](#configuration) for details.
+The discovery sequence runs on startup (with `--link` or `pi-link`) or when `/link-connect` is used. See [Configuration](#configuration) for details.
 
 The sequence is a simple fallback:
 

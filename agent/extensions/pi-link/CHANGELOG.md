@@ -12,7 +12,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 - **`pi-link start <name>` simplified to `pi-link <name>`.** Resolves session by name and launches Pi directly. `pi-link resolve <name>` available for machine-readable path-only output. Rejects conflicting flags (`--session`, `--continue`, etc.).
 
-- **`--link-name` no longer attempts session resume.** It sets the link name, persists it, and connects. Session lookup is `pi-link`'s job.
+- **`--link-name` flag replaced with `PI_LINK_NAME` env var.** The flag was a footgun — `pi --link-name worker-1` created duplicate sessions on every run. Now `pi-link <name>` passes the name via env var internally. Users should use `pi-link <name>` or `/link-name` mid-session.
 
 ### Fixed
 
