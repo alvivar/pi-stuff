@@ -157,11 +157,12 @@ pi-link worker-1                # resume or create session "worker-1"
 pi-link worker-1 --model sonnet # with extra Pi flags
 ```
 
-How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and launches `pi --session <path> --link`.
+How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and spawns `pi --session <path> --link` with the name passed via `PI_LINK_NAME` env var.
 
 - **One match** → resumes that session
 - **No match** → creates a new session
 - **Multiple matches** → prints candidates to stderr, exits 1
+- **Conflicting flags** (`--session`, `--continue`, `--resume`, `--fork`, etc.) → rejected with an error
 
 ### Discovering sessions
 
@@ -172,6 +173,17 @@ $ pi-link list
 NAME             MODIFIED  MESSAGES  ID
 opus@pi-link     2m ago    4632      6332faab
 gpt@pi-link      5m ago    1493      20d43841
+
+Resume: pi-link <name>
+```
+
+With `--all`:
+
+```
+$ pi-link list --all
+NAME             CWD                   MODIFIED  MESSAGES  ID
+opus@pi-link     ~/workshop/pi-link    2m ago    4632      6332faab
+gpt@pi-link      ~/other-project       5m ago    1493      20d43841
 
 Resume: pi-link <name>
 ```
@@ -447,7 +459,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 ### Protocol
 
-The wire protocol consists of **9 message types**, all serialized as JSON over WebSocket frames. Cwd-related fields are optional for backward compatibility.
+The wire protocol consists of **9 message types**, all serialized as JSON over WebSocket frames. Cwd-related fields are optional.
 
 | Type              | Direction       | Purpose                                                                 |
 | ----------------- | --------------- | ----------------------------------------------------------------------- |

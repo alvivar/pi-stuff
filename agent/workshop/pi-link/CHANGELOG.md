@@ -10,13 +10,13 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ### Added
 
-- **`pi-link list` command.** Lists pi-link sessions in the current cwd. Use `--all` (or `-a`) to list sessions across all directories. Shows name, last-modified time, entry count, and short ID. Sessions are detected by presence of a `link-name` entry.
+- **`pi-link list` command.** Lists pi-link sessions in the current cwd. Use `--all` (or `-a`) to list sessions across all directories — adds a CWD column with `~` substituted for `$HOME`. Shows name, last-modified time, message count, and short ID. Sessions are detected by presence of a `link-name` entry. ANSI styling (bold headers, dim secondary columns) in TTY; plain when piped (`NO_COLOR` honored).
 
 ### Changed
 
-- **`pi-link start <name>` simplified to `pi-link <name>`.** Resolves session by name and launches Pi directly. `pi-link resolve <name>` available for machine-readable path-only output. Rejects conflicting flags (`--session`, `--continue`, etc.).
+- **`pi-link <name>` spawns Pi directly.** Resolves session by name and spawns `pi` with `stdio: "inherit"`, passing the link name via `PI_LINK_NAME` env var. `pi-link resolve <name>` available for machine-readable path-only output. Conflicting flags (`--session`, `--continue`, etc.) are rejected.
 
-- **`--link-name` flag replaced with `PI_LINK_NAME` env var.** The flag was a footgun — `pi --link-name worker-1` created duplicate sessions on every run. Now `pi-link <name>` passes the name via env var internally. Users should use `pi-link <name>` or `/link-name` mid-session.
+- **`--link-name` flag replaced by `PI_LINK_NAME` env var.** `pi-link <name>` sets the env var internally. Use `pi-link <name>` to start/resume, or `/link-name` to rename mid-session.
 
 ### Fixed
 
