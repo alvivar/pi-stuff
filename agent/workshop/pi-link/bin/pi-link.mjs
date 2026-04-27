@@ -61,6 +61,25 @@ function normalizePath(p) {
   return s;
 }
 
+// Replace $HOME with ~ in display paths. Comparison is normalized
+// (case-insensitive on Windows) but display preserves original casing.
+function displayPath(p) {
+  if (!p) return p;
+  const home = homedir();
+  const normP = normalizePath(p);
+  const normHome = normalizePath(home);
+  if (normP === normHome) return "~";
+  if (normP.startsWith(normHome + "/")) return "~" + p.slice(home.length).replace(/\\/g, "/");
+  return p;
+}
+
+const useAnsi =
+  !!process.stdout.isTTY &&
+  process.env.NO_COLOR === undefined &&
+  process.env.TERM !== "dumb";
+const bold = (s) => (useAnsi ? `\x1b[1m${s}\x1b[22m` : s);
+const dim = (s) => (useAnsi ? `\x1b[2m${s}\x1b[22m` : s);
+
 function relTime(d) {
   const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
   if (sec < 60) return `${sec}s ago`;
@@ -143,12 +162,18 @@ async function listSessions({ all }) {
     .sort((a, b) => b.modified.getTime() - a.modified.getTime());
 }
 
+// Renders a plain-text table. Widths are computed from unstyled cells; ANSI
+// styles are applied after padding so column alignment is preserved when piped
+// or styled. Mark a column with `dim: true` to render its cells dim.
 function renderTable(rows, columns) {
   const widths = columns.map((c) => Math.max(c.header.length, ...rows.map((r) => String(c.get(r)).length)));
-  const fmt = (cells) => cells.map((c, i) => i === cells.length - 1 ? c : c.padEnd(widths[i])).join("  ");
-  const lines = [fmt(columns.map((c) => c.header))];
-  for (const r of rows) lines.push(fmt(columns.map((c) => String(c.get(r)))));
-  return lines.join("\n");
+  const padCell = (text, i) => (i === columns.length - 1 ? text : text.padEnd(widths[i]));
+  const styleBody = (text, i) => (columns[i].dim ? dim(text) : text);
+  const headerLine = columns.map((c, i) => bold(padCell(c.header, i))).join("  ");
+  const bodyLines = rows.map((r) =>
+    columns.map((c, i) => styleBody(padCell(String(c.get(r)), i), i)).join("  "),
+  );
+  return [headerLine, ...bodyLines].join("\n");
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────
@@ -178,23 +203,28 @@ if (command === "list") {
   const sessions = await listSessions({ all });
   if (sessions.length === 0) {
     console.log(all ? "No pi-link sessions found." : "No pi-link sessions found in this cwd.");
+    console.log("Start one: pi-link <name>");
     process.exit(0);
   }
   const columns = all
     ? [
         { header: "NAME", get: (s) => s.name },
-        { header: "CWD", get: (s) => s.cwd },
-        { header: "MODIFIED", get: (s) => relTime(s.modified) },
-        { header: "MESSAGES", get: (s) => s.messages },
-        { header: "ID", get: (s) => s.id },
+        { header: "CWD", get: (s) => displayPath(s.cwd) },
+        { header: "MODIFIED", get: (s) => relTime(s.modified), dim: true },
+        { header: "MESSAGES", get: (s) => s.messages, dim: true },
+        { header: "ID", get: (s) => s.id, dim: true },
       ]
     : [
         { header: "NAME", get: (s) => s.name },
-        { header: "MODIFIED", get: (s) => relTime(s.modified) },
-        { header: "MESSAGES", get: (s) => s.messages },
-        { header: "ID", get: (s) => s.id },
+        { header: "MODIFIED", get: (s) => relTime(s.modified), dim: true },
+        { header: "MESSAGES", get: (s) => s.messages, dim: true },
+        { header: "ID", get: (s) => s.id, dim: true },
       ];
   console.log(renderTable(sessions, columns));
+  if (process.stdout.isTTY) {
+    console.log("");
+    console.log(dim("Resume: pi-link <name>"));
+  }
 } else if (command === "resolve") {
   const name = args[0]?.trim().replace(/\s+/g, " ");
   if (!name) {

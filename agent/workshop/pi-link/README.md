@@ -165,7 +165,20 @@ How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the sessio
 
 `pi-link resolve <name>` is also available for machine-readable output (prints just the session path).
 
+### Discovering sessions
+
 `pi-link list` shows pi-link sessions in the current cwd; `pi-link list --all` (or `-a`) lists them across all directories. Sorted by last activity.
+
+```
+$ pi-link list
+NAME             MODIFIED  MESSAGES  ID
+opus@pi-link     2m ago    4632      6332faab
+gpt@pi-link      5m ago    1493      20d43841
+
+Resume: pi-link <name>
+```
+
+`--all` adds a `CWD` column with `~` substituted for `$HOME`. Output is plain when piped (`NO_COLOR` honored).
 
 ---
 
