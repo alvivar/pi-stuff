@@ -142,7 +142,7 @@ Link is **off by default**. Without `--link` or `pi-link`, the extension is comp
 | `/link-connect`    | Opt-in mid-session (no flag needed) | Yes                              |
 | `/link-disconnect` | Opt-out mid-session                 | Suppressed until `/link-connect` |
 
-**Name precedence:** `PI_LINK_NAME` env (set by `pi-link`) > saved `/link-name` > Pi session name > random `t-xxxx`.
+**Name precedence:** `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`.
 
 `/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
@@ -157,7 +157,7 @@ pi-link worker-1                # resume or create session "worker-1"
 pi-link worker-1 --model sonnet # with extra Pi flags
 ```
 
-How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and spawns `pi --session <path> --link` with the name passed via `PI_LINK_NAME` env var.
+How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and spawns `pi --session <path> --link`.
 
 - **One match** → resumes that session
 - **No match** → creates a new session
@@ -182,7 +182,7 @@ With `--all`:
 ```
 $ pi-link list --all
 NAME             CWD                   MODIFIED  MESSAGES  ID
-opus@pi-link     ~/workshop/pi-link    2m ago    4632      6332faab
+opus@pi-link     ~/my-project          2m ago    4632      6332faab
 gpt@pi-link      ~/other-project       5m ago    1493      20d43841
 
 Resume: pi-link <name>
@@ -526,6 +526,8 @@ The hub enforces unique terminal names via a `uniqueName()` function. If `"build
 Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 
 **Persistence:** `/link-name` saves the preferred name to the session via `pi.appendEntry("link-name", { name })`. On session resume, the saved name is restored and requested from the hub. Only explicit `/link-name` calls persist - hub-assigned variants like `"builder-2"` are not saved. On reconnect, the terminal always requests the preferred name, not the last runtime name.
+
+**Internal handoff (`PI_LINK_NAME`):** the `pi-link` launcher passes the chosen name to Pi via the `PI_LINK_NAME` environment variable. The extension reads it once on `session_start` and immediately removes it from `process.env` so child processes don't inherit it. This is an internal mechanism — don't set `PI_LINK_NAME` manually; use `pi-link <name>` to start a session or `/link-name` to rename mid-session.
 
 **Rename guards:**
 

@@ -277,6 +277,8 @@ if (command === "list") {
   const cmd = isWin ? "cmd.exe" : "pi";
   const cmdArgs = isWin ? ["/d", "/c", "pi", ...piArgs] : piArgs;
 
+  // PI_LINK_NAME is the internal handoff to the pi-link extension on the Pi side.
+  // The extension consumes and deletes it on startup; never expose this as a public API.
   const child = spawn(cmd, cmdArgs, {
     stdio: "inherit",
     env: { ...process.env, PI_LINK_NAME: name },
