@@ -252,6 +252,7 @@ if (command === "list") {
       console.error(`Error: ${key} is managed by pi-link. Remove it.`);
       process.exit(1);
     }
+    // Catch the removed extension flag before forwarding args to Pi.
     if (key === "--link-name") {
       console.error("Error: --link-name was removed. Use: pi-link <name>");
       process.exit(1);

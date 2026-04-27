@@ -8,9 +8,11 @@ ID prefix matching should stay first for backward compat. If multiple sessions s
 
 ## Why?
 
-I maintain [pi-link](https://www.npmjs.com/package/pi-link), a multi-terminal coordination extension. Each terminal gets a name like `worker-1` or `reviewer`, and I want users to resume sessions by that name: `pi --session worker-1 --link-name worker-1`.
+I maintain [pi-link](https://www.npmjs.com/package/pi-link), a multi-terminal coordination extension. Each terminal gets a name like `worker-1` or `reviewer`, and resuming a session by that name is the common case: `pi-link worker-1`.
 
-I can't do this from the extension — session selection happens in `main.js` before extensions load. I tried building a launcher that resolves the name and spawns Pi with `--session <path>`, but on Windows any Node parent process breaks shift+enter input. Tried async spawn, spawnSync, detached, cmd /c — all broken. It's a ConPTY thing.
+The extension can't do name resolution from inside Pi — session selection happens in `main.js` before extensions load. So `pi-link` ships a launcher that walks `~/.pi/agent/sessions/`, reads session metadata, finds the match, and spawns `pi --session <path>`. It works, but it duplicates logic that already lives in `SessionManager` (`buildSessionInfo()`, `list()`, `listAll()`) — the launcher reimplements file scanning, name extraction, and ambiguity handling outside the package that owns that data.
+
+If `--session` matched by display name natively, the launcher could be removed and `pi --session worker-1` would just work for everyone, not only pi-link users.
 
 `buildSessionInfo()` already extracts `name` and `list()`/`listAll()` already return it. `resolveSessionPath()` just doesn't check it.
 
