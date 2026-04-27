@@ -6,17 +6,21 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
-## Unreleased
+## 0.1.11 — 2026-04-27
 
 ### Added
 
 - **`pi-link list` command.** Lists pi-link sessions in the current cwd. Use `--all` (or `-a`) to list sessions across all directories — adds a CWD column with `~` substituted for `$HOME`. Shows name, last-modified time, message count, and short ID. Sessions are detected by presence of a `link-name` entry. ANSI styling (bold headers, dim secondary columns) in TTY; plain when piped (`NO_COLOR` honored).
 
+---
+
+## 0.1.10 — 2026-04-26
+
 ### Changed
 
-- **`pi-link <name>` spawns Pi directly.** Resolves session by name and spawns `pi` with `stdio: "inherit"`, passing the link name via `PI_LINK_NAME` env var. `pi-link resolve <name>` available for machine-readable path-only output. Conflicting flags (`--session`, `--continue`, etc.) are rejected.
+- **`pi-link start <name>` simplified to `pi-link <name>`.** Resolves session by name and launches Pi directly. `pi-link resolve <name>` available for machine-readable path-only output. Rejects conflicting flags (`--session`, `--continue`, etc.).
 
-- **`--link-name` flag replaced by `PI_LINK_NAME` env var.** `pi-link <name>` sets the env var internally. Use `pi-link <name>` to start/resume, or `/link-name` to rename mid-session.
+- **`--link-name` flag replaced with `PI_LINK_NAME` env var.** The flag was a footgun — `pi --link-name worker-1` created duplicate sessions on every run. Now `pi-link <name>` passes the name via env var internally. Users should use `pi-link <name>` or `/link-name` mid-session.
 
 ### Fixed
 
