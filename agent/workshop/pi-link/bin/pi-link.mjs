@@ -4,8 +4,8 @@
 //
 // Usage:
 //   pi-link <name> [flags...]   Resume or create a named session, connected to link.
-//   pi-link resolve <name>      Print just the session path (machine-readable).
 //   pi-link list [--all|-a]     List pi-link sessions in current cwd (or everywhere).
+//   pi-link resolve <name>      Print just the session path (machine-readable).
 
 import { readdir, stat } from "fs/promises";
 import { createReadStream } from "fs";
@@ -290,7 +290,7 @@ if (command === "list") {
   });
 } else {
   console.error("Usage: pi-link <name> [pi flags...]");
-  console.error("       pi-link resolve <name>");
   console.error("       pi-link list [--all|-a]");
+  console.error("       pi-link resolve <name>");
   process.exit(0);
 }
