@@ -31,7 +31,7 @@ Pick one mode per terminal per task. Mixing sync and async on the same terminal 
 
 Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Use before delegating when availability or path context is uncertain. Your own entry is marked `(you)` — use this to discover your link name when replying to broadcast tasks.
 
-`link_list` shows currently connected terminals only. To discover _named sessions on disk_ (live or not), use the shell: `pi-link list` (current cwd) or `pi-link list --all` (everywhere). Resume any of them with `pi-link <name>`.
+Only currently connected terminals are visible. If a target is missing, it is offline; messages to offline terminals are not queued.
 
 ### `link_prompt`
 
