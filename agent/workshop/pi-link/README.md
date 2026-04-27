@@ -165,6 +165,8 @@ How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the sessio
 
 `pi-link resolve <name>` is also available for machine-readable output (prints just the session path).
 
+`pi-link list` shows pi-link sessions in the current cwd; `pi-link list --all` (or `-a`) lists them across all directories. Sorted by last activity.
+
 ---
 
 ## LLM Tools

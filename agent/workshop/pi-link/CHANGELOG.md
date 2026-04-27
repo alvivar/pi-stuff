@@ -8,6 +8,10 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ## Unreleased
 
+### Added
+
+- **`pi-link list` command.** Lists pi-link sessions in the current cwd. Use `--all` (or `-a`) to list sessions across all directories. Shows name, last-modified time, entry count, and short ID. Sessions are detected by presence of a `link-name` entry.
+
 ### Changed
 
 - **`pi-link start <name>` simplified to `pi-link <name>`.** Resolves session by name and launches Pi directly. `pi-link resolve <name>` available for machine-readable path-only output. Rejects conflicting flags (`--session`, `--continue`, etc.).
