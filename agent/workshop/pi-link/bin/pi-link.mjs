@@ -3,9 +3,11 @@
 // pi-link CLI — launch Pi with session resume by name
 //
 // Usage:
-//   pi-link <name> [flags...]   Resume or create a named session, connected to link.
-//   pi-link list [--all|-a]     List pi-link sessions in current cwd (or everywhere).
-//   pi-link resolve <name>      Print just the session path (machine-readable).
+//   pi-link <name> [--global|-g] [flags...]
+//                                Resume or create a named session, connected to link.
+//   pi-link list [--global|-g]   List pi-link sessions in current cwd (or everywhere).
+//   pi-link resolve <name> [--global|-g]
+//                                Print just the session path (machine-readable).
 
 import { readdir, stat } from "fs/promises";
 import { createReadStream, existsSync, readFileSync } from "fs";
@@ -181,21 +183,19 @@ async function scanSessions(dir, isCustom) {
   return (await Promise.all(tasks)).filter((s) => s !== null);
 }
 
-// Find sessions whose current display name matches `targetName`. Local cwd
-// matches sort first, then by recency. Falls back to `session_info.name` for
-// sessions without a link-name (so `pi-link <name>` can attach link to a
-// previously-unlinked named session).
+// Find sessions whose current display name matches `targetName`. Returns both
+// local-cwd matches and all matches (cross-cwd) so the caller can default to
+// local while still surfacing a hint when non-local matches exist. Falls back
+// to `session_info.name` for sessions without a link-name (so `pi-link <name>`
+// can attach link to a previously-unlinked named session).
 async function findSessionsByName(targetName, dir, isCustom) {
   const localCwd = normalizePath(process.cwd());
-  return (await scanSessions(dir, isCustom))
+  const all = (await scanSessions(dir, isCustom))
     .filter((s) => s.name === targetName)
     .map((s) => ({ path: s.path, cwd: s.cwd || "?", modified: s.modified }))
-    .sort((a, b) => {
-      const aLocal = normalizePath(a.cwd) === localCwd ? 1 : 0;
-      const bLocal = normalizePath(b.cwd) === localCwd ? 1 : 0;
-      if (aLocal !== bLocal) return bLocal - aLocal;
-      return b.modified.getTime() - a.modified.getTime();
-    });
+    .sort((a, b) => b.modified.getTime() - a.modified.getTime());
+  const local = all.filter((s) => normalizePath(s.cwd) === localCwd);
+  return { local, all };
 }
 
 // List pi-link sessions (those with at least one link-name entry). Default
@@ -234,6 +234,17 @@ function renderTable(rows, columns) {
 
 const [command, ...args] = process.argv.slice(2);
 
+// Reject pi-link flags renamed in 0.1.12 with a clear pointer to the new name.
+// Same intent as `rejectManagedFlag` (specific message > generic "Unknown argument")
+// but for our own renames, not Pi-managed flags.
+function rejectRenamedFlag(token) {
+  if (token === "--all" || token === "-a") {
+    const replacement = token === "-a" ? "-g" : "--global";
+    console.error(`Error: ${token} was renamed to ${replacement}.`);
+    process.exit(1);
+  }
+}
+
 // Reject Pi flags that pi-link manages, plus the removed --link-name extension flag.
 // Runs on both the first token (so `pi-link --session foo` errors clearly) and on each
 // flag in args (so `pi-link foo --session bar` does too).
@@ -260,23 +271,24 @@ function printCandidates(name, matches) {
 }
 
 if (command === "list") {
-  let all = false;
+  let global = false;
   for (const a of args) {
-    if (a === "--all" || a === "-a") all = true;
+    rejectRenamedFlag(a);
+    if (a === "--global" || a === "-g") global = true;
     else {
       console.error(`Unknown argument: ${a}`);
-      console.error("Usage: pi-link list [--all|-a]");
+      console.error("Usage: pi-link list [--global|-g]");
       process.exit(1);
     }
   }
   const { dir, isCustom } = resolveSessionDir(process.cwd(), resolveAgentDir());
-  const sessions = await listSessions({ all, dir, isCustom });
+  const sessions = await listSessions({ all: global, dir, isCustom });
   if (sessions.length === 0) {
-    console.log(all ? "No pi-link sessions found." : "No pi-link sessions found in this cwd.");
+    console.log(global ? "No pi-link sessions found." : "No pi-link sessions found in this cwd.");
     console.log("Start one: pi-link <name>");
     process.exit(0);
   }
-  const columns = all
+  const columns = global
     ? [
         { header: "NAME", get: (s) => s.name },
         { header: "CWD", get: (s) => displayPath(s.cwd) },
@@ -296,31 +308,66 @@ if (command === "list") {
     console.log(dim("Resume: pi-link <name>"));
   }
 } else if (command === "resolve") {
-  const name = args[0]?.trim().replace(/\s+/g, " ");
-  if (!name) {
-    console.error("Usage: pi-link resolve <name>");
+  let global = false;
+  const positional = [];
+  for (const a of args) {
+    rejectRenamedFlag(a);
+    if (a === "--global" || a === "-g") global = true;
+    else if (a.startsWith("-")) {
+      console.error(`Unknown argument: ${a}`);
+      console.error("Usage: pi-link resolve <name> [--global|-g]");
+      process.exit(1);
+    } else positional.push(a);
+  }
+  if (positional.length !== 1) {
+    console.error("Usage: pi-link resolve <name> [--global|-g]");
     process.exit(1);
   }
+  const name = positional[0].trim().replace(/\s+/g, " ");
   const { dir, isCustom } = resolveSessionDir(process.cwd(), resolveAgentDir());
-  const matches = await findSessionsByName(name, dir, isCustom);
+  const { local, all } = await findSessionsByName(name, dir, isCustom);
+  const matches = global ? all : local;
   if (matches.length === 1) {
     process.stdout.write(matches[0].path);
   } else if (matches.length > 1) {
     printCandidates(name, matches);
   }
 } else if (command && command !== "--help" && command !== "-h") {
-  // pi-link <name> [flags...] — resolve and launch Pi
-  rejectManagedFlag(command);
-  const name = command.trim().replace(/\s+/g, " ");
+  // pi-link [--global|-g] <name> [pi flags...] — resolve and launch Pi.
+  // Walk every token in one pass: pull out --global wherever it appears, treat
+  // the first non-flag token as the name, reject managed flags, forward the rest.
+  let global = false;
+  let name = null;
+  const piPassthrough = [];
+  for (const token of [command, ...args]) {
+    rejectRenamedFlag(token);
+    if (token === "--global" || token === "-g") { global = true; continue; }
+    rejectManagedFlag(token);
+    if (name === null) {
+      // Before the name is set, an unknown leading flag is almost certainly a
+      // user mistake (`pi-link --model gpt-4 foo`) — don't silently treat it
+      // as a session name. After the name is set, anything goes (forwarded to Pi).
+      if (token.startsWith("-")) {
+        console.error(`Unknown argument before name: ${token}`);
+        console.error("Usage: pi-link <name> [--global|-g] [pi flags...]");
+        process.exit(1);
+      }
+      name = token;
+    } else piPassthrough.push(token);
+  }
   if (!name) {
-    console.error("Usage: pi-link <name> [pi flags...]");
+    console.error("Usage: pi-link <name> [--global|-g] [pi flags...]");
+    process.exit(1);
+  }
+  name = name.trim().replace(/\s+/g, " ");
+  if (!name) {
+    console.error("Usage: pi-link <name> [--global|-g] [pi flags...]");
     process.exit(1);
   }
 
-  for (const flag of args) rejectManagedFlag(flag);
-
   const { dir, isCustom } = resolveSessionDir(process.cwd(), resolveAgentDir());
-  const matches = await findSessionsByName(name, dir, isCustom);
+  const { local, all } = await findSessionsByName(name, dir, isCustom);
+  const matches = global ? all : local;
   if (matches.length > 1) {
     printCandidates(name, matches);
   }
@@ -330,9 +377,13 @@ if (command === "list") {
     console.error(`Resuming session: ${matches[0].path}`);
     piArgs.push("--session", matches[0].path);
   } else {
-    console.error("No existing session found. Starting new session.");
+    if (!global && all.length > local.length) {
+      const elsewhere = all.length - local.length;
+      console.error(`No "${name}" in this cwd. (${elsewhere} match${elsewhere === 1 ? "" : "es"} in other cwds — use --global to consider ${elsewhere === 1 ? "it" : "them"}.)`);
+    }
+    console.error("Starting new session.");
   }
-  piArgs.push("--link", ...args);
+  piArgs.push("--link", ...piPassthrough);
 
   const isWin = process.platform === "win32";
   const cmd = isWin ? "cmd.exe" : "pi";
@@ -353,8 +404,11 @@ if (command === "list") {
     process.exit(1);
   });
 } else {
-  console.error("Usage: pi-link <name> [pi flags...]");
-  console.error("       pi-link list [--all|-a]");
-  console.error("       pi-link resolve <name>");
+  console.error("Usage: pi-link <name> [--global|-g] [pi flags...]");
+  console.error("       pi-link list [--global|-g]");
+  console.error("       pi-link resolve <name> [--global|-g]");
+  console.error("");
+  console.error("By default, name lookup is scoped to the current cwd.");
+  console.error("--global / -g widens the search to sessions in any cwd.");
   process.exit(0);
 }
