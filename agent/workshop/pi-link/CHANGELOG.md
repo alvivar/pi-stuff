@@ -8,6 +8,10 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ## Unreleased
 
+### Changed
+
+- **TypeBox import migrated from `@sinclair/typebox` to `typebox`.** Pi 0.69.0 renamed the package; both names still resolve to the same module via Pi's loader alias, so behavior is unchanged. Aligns with Pi's preferred naming and futureproofs against alias removal. README's "Provided by Pi" table updated to match.
+
 ### Fixed
 
 - **`pi-link list/resolve/<name>` now respect Pi's session-dir configuration.** The CLI hardcoded `~/.pi/agent/sessions` and ignored Pi's actual lookup chain, so users with a custom session location saw "no sessions" from `list`/`resolve` and — worse — `pi-link <name>` silently started a new session instead of resuming the existing one, fragmenting history into orphans across the real session dir. Resolution now mirrors Pi (minus `--session-dir`, which the CLI rejects): `PI_CODING_AGENT_SESSION_DIR` → `<cwd>/.pi/settings.json` `sessionDir` → `<agentDir>/settings.json` `sessionDir` → default `<agentDir>/sessions/<encoded-cwd>`. `<agentDir>` follows `PI_CODING_AGENT_DIR`. Tilde expansion (`~`, `~/...`) matches Pi's `expandTildePath`. Custom layouts are scanned flat; default keeps the encoded-cwd subdirs. Malformed `settings.json` warns to stderr and falls through. Empty env vars and empty/non-string `sessionDir` values are treated as absent.

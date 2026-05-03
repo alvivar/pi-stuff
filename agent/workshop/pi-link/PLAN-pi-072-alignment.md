@@ -4,6 +4,11 @@
 
 Bring pi-link in line with Pi changes between 0.65.0 (last documented migration) and 0.72.0 (current installed). Two independent fixes, worked sequentially.
 
+## Status: both phases complete, bundled into next publish.
+
+- Phase 1 (correctness fix): `bin/pi-link.mjs` resolves session-dir like Pi. 12 functional tests + 6 smoke tests pass. CHANGELOG entry under "Fixed".
+- Phase 2 (no-op rename): `index.ts` import migrated to `typebox`; README dependencies row updated. typebox 1.1.37 verified to export the full Type surface pi-link uses. CHANGELOG entry under "Changed".
+
 ## Phase 1 — Session-dir resolution in CLI
 
 ### Why
@@ -94,34 +99,36 @@ Match Pi exactly — resolve once, scan only the active layout (no double-scan):
 
 ### Why
 
-Pi 0.69.0 migrated from `@sinclair/typebox` 0.34.x to `typebox` 1.x. Legacy alias keeps current code working but Pi's docs now direct new extensions to import from `typebox`. README still says "`@sinclair/typebox` provided by Pi" — becoming misleading.
+Pi 0.69.0 renamed the package from `@sinclair/typebox` to `typebox`. Pi's loader (`dist/core/extensions/loader.js`) aliases both names to the same bundled module — only `typebox@1.1.37` is physically installed. So the migration is a byte-perfect no-op at runtime; the value is documentary (matches Pi's preferred naming, futureproofs against alias removal).
 
 ### Scope
 
-pi-link uses only: `Type.Object`, `Type.String`, `Type.Boolean`, `Type.Optional`. No compiler subpath. Surface should be identical in `typebox` 1.x.
+pi-link uses only: `Type.Object`, `Type.String`, `Type.Boolean`, `Type.Optional`. No compiler subpath.
 
 ### Changes
 
 1. `index.ts` line 18: `import { Type } from "@sinclair/typebox"` → `import { Type } from "typebox"`
-2. `README.md` Dependencies → "Provided by Pi" table: replace `@sinclair/typebox` row with `typebox`
-3. CHANGELOG Unreleased entry
+2. `README.md` "Provided by Pi" table: replace `@sinclair/typebox` row with `typebox`
+3. CHANGELOG `Unreleased` entry under `Changed`
 
-### Test
+### Verification
 
-- Extension loads without errors in current Pi (0.72.0)
-- All three registered tools still validate args correctly: `link_send`, `link_prompt`, `link_list`
-- No runtime errors on tool invocation
+Not a behavioral change — same module loaded under either name. The check is that the assumptions hold:
+
+- `typebox@1.1.37` exports `Type.Object/String/Boolean/Optional` (confirmed)
+- Schema build produces the expected JSON Schema shape (confirmed via direct invocation)
+- Workshop sweep finds no other `@sinclair/typebox` references in code, docs, or skills
 
 ### Done
 
 - Import migrated
-- README accurate
-- All tools work
+- README updated
 - CHANGELOG entry added
+- Workshop swept clean of legacy name
 
 ### Rollback
 
-If `typebox` 1.x has incompatible `Type.*` shape (unlikely given pi-link's narrow usage), revert the import. Pi's legacy alias keeps `@sinclair/typebox` working.
+Revert the one-line import. Pi's loader alias keeps `@sinclair/typebox` resolving to the same module indefinitely (no signal Pi plans to remove it).
 
 ---
 

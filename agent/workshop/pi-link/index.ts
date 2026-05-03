@@ -15,7 +15,7 @@ import type {
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import * as crypto from "node:crypto";
 import * as os from "node:os";
 

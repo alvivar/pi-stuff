@@ -426,7 +426,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | ------------------------------- | ------------------------------------------------ |
 | `@mariozechner/pi-coding-agent` | Pi SDK types (ExtensionAPI, ExtensionContext)    |
 | `@mariozechner/pi-tui`          | TUI Text widget for custom message rendering     |
-| `@sinclair/typebox`             | JSON Schema type definitions for tool parameters |
+| `typebox`                       | JSON Schema type definitions for tool parameters |
 
 ### `package.json`
 
