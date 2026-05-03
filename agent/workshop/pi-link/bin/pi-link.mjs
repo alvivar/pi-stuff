@@ -8,13 +8,58 @@
 //   pi-link resolve <name>      Print just the session path (machine-readable).
 
 import { readdir, stat } from "fs/promises";
-import { createReadStream } from "fs";
+import { createReadStream, existsSync, readFileSync } from "fs";
 import { createInterface } from "readline";
 import { join } from "path";
 import { homedir } from "os";
 import { spawn } from "child_process";
 
-const SESSIONS_DIR = join(homedir(), ".pi", "agent", "sessions");
+// ── Pi config resolution ───────────────────────────────────────────────────
+// Match Pi's session-dir lookup order so list/resolve/<name> see what Pi sees.
+// Custom sessionDir → flat layout; default → <agentDir>/sessions/<encoded-cwd>.
+
+// Match Pi's expandTildePath: only `~` and `~/...`.
+function expandTilde(p) {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
+  return p;
+}
+
+function readSessionDirFromSettings(settingsPath) {
+  if (!existsSync(settingsPath)) return undefined;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(settingsPath, "utf-8"));
+  } catch (err) {
+    console.error(`pi-link: ignored ${settingsPath}: ${err.message}`);
+    return undefined;
+  }
+  const value = parsed?.sessionDir;
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return value;
+}
+
+// PI_CODING_AGENT_DIR also relocates global settings.json to <agentDir>/settings.json.
+function resolveAgentDir() {
+  const env = process.env.PI_CODING_AGENT_DIR;
+  if (env) return expandTilde(env);
+  return join(homedir(), ".pi", "agent");
+}
+
+// Returns { dir, isCustom }. isCustom drives layout in scanSessions:
+// true → flat <dir>/*.jsonl, false → <dir>/<encoded-cwd>/*.jsonl.
+function resolveSessionDir(cwd, agentDir) {
+  const env = process.env.PI_CODING_AGENT_SESSION_DIR;
+  if (env) return { dir: expandTilde(env), isCustom: true };
+
+  const projectDir = readSessionDirFromSettings(join(cwd, ".pi", "settings.json"));
+  if (projectDir) return { dir: expandTilde(projectDir), isCustom: true };
+
+  const globalDir = readSessionDirFromSettings(join(agentDir, "settings.json"));
+  if (globalDir) return { dir: expandTilde(globalDir), isCustom: true };
+
+  return { dir: join(agentDir, "sessions"), isCustom: false };
+}
 
 // Reads a session JSONL file and returns its display name, cwd, id, link
 // status, and message count.
@@ -92,35 +137,44 @@ function relTime(d) {
   return d.toISOString().slice(0, 10);
 }
 
-// Walks SESSIONS_DIR in parallel, returning meta + mtime + path for every
-// readable session. Callers filter and sort. Errors on individual files/dirs
-// are silently skipped — active or partially-written sessions are tolerated.
-async function scanSessions() {
-  let cwdDirs;
+async function loadSessionRecord(filePath) {
   try {
-    cwdDirs = await readdir(SESSIONS_DIR, { withFileTypes: true });
+    const meta = await getSessionMeta(filePath);
+    const stats = await stat(filePath);
+    return { ...meta, modified: stats.mtime, path: filePath };
+  } catch {
+    return null;
+  }
+}
+
+// Returns meta + mtime + path for every readable session in `dir`. Custom
+// layout is flat (<dir>/*.jsonl); default layout has one subdir level per
+// encoded cwd (<dir>/<sub>/*.jsonl). Errors on individual files/dirs are
+// silently skipped — active or partially-written sessions are tolerated.
+async function scanSessions(dir, isCustom) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
   } catch {
     return [];
   }
 
   const tasks = [];
-  for (const dir of cwdDirs) {
-    if (!dir.isDirectory()) continue;
-    const dirPath = join(SESSIONS_DIR, dir.name);
-    let files;
-    try { files = await readdir(dirPath); } catch { continue; }
-    for (const file of files) {
-      if (!file.endsWith(".jsonl")) continue;
-      const filePath = join(dirPath, file);
-      tasks.push((async () => {
-        try {
-          const meta = await getSessionMeta(filePath);
-          const stats = await stat(filePath);
-          return { ...meta, modified: stats.mtime, path: filePath };
-        } catch {
-          return null;
-        }
-      })());
+  if (isCustom) {
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+      tasks.push(loadSessionRecord(join(dir, entry.name)));
+    }
+  } else {
+    for (const sub of entries) {
+      if (!sub.isDirectory()) continue;
+      const subPath = join(dir, sub.name);
+      let files;
+      try { files = await readdir(subPath); } catch { continue; }
+      for (const file of files) {
+        if (!file.endsWith(".jsonl")) continue;
+        tasks.push(loadSessionRecord(join(subPath, file)));
+      }
     }
   }
 
@@ -131,9 +185,9 @@ async function scanSessions() {
 // matches sort first, then by recency. Falls back to `session_info.name` for
 // sessions without a link-name (so `pi-link <name>` can attach link to a
 // previously-unlinked named session).
-async function findSessionsByName(targetName) {
+async function findSessionsByName(targetName, dir, isCustom) {
   const localCwd = normalizePath(process.cwd());
-  return (await scanSessions())
+  return (await scanSessions(dir, isCustom))
     .filter((s) => s.name === targetName)
     .map((s) => ({ path: s.path, cwd: s.cwd || "?", modified: s.modified }))
     .sort((a, b) => {
@@ -146,9 +200,9 @@ async function findSessionsByName(targetName) {
 
 // List pi-link sessions (those with at least one link-name entry). Default
 // scope is current cwd; `all` widens to every directory.
-async function listSessions({ all }) {
+async function listSessions({ all, dir, isCustom }) {
   const localCwd = normalizePath(process.cwd());
-  return (await scanSessions())
+  return (await scanSessions(dir, isCustom))
     .filter((s) => s.hasLinkName)
     .filter((s) => all || (s.cwd && normalizePath(s.cwd) === localCwd))
     .map((s) => ({
@@ -200,7 +254,8 @@ if (command === "list") {
       process.exit(1);
     }
   }
-  const sessions = await listSessions({ all });
+  const { dir, isCustom } = resolveSessionDir(process.cwd(), resolveAgentDir());
+  const sessions = await listSessions({ all, dir, isCustom });
   if (sessions.length === 0) {
     console.log(all ? "No pi-link sessions found." : "No pi-link sessions found in this cwd.");
     console.log("Start one: pi-link <name>");
@@ -231,7 +286,8 @@ if (command === "list") {
     console.error("Usage: pi-link resolve <name>");
     process.exit(1);
   }
-  const matches = await findSessionsByName(name);
+  const { dir, isCustom } = resolveSessionDir(process.cwd(), resolveAgentDir());
+  const matches = await findSessionsByName(name, dir, isCustom);
   if (matches.length === 1) {
     process.stdout.write(matches[0].path);
   } else if (matches.length > 1) {
@@ -259,7 +315,8 @@ if (command === "list") {
     }
   }
 
-  const matches = await findSessionsByName(name);
+  const { dir, isCustom } = resolveSessionDir(process.cwd(), resolveAgentDir());
+  const matches = await findSessionsByName(name, dir, isCustom);
   if (matches.length > 1) {
     printCandidates(name, matches);
   }

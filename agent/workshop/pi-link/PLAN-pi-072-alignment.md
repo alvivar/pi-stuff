@@ -49,9 +49,12 @@ Match Pi exactly — resolve once, scan only the active layout (no double-scan):
 
 ### Decisions (settled)
 
-- **Malformed `settings.json`**: warn to stderr (`pi-link: ignored malformed <path>: <error>`), fall through to next source.
+- **Malformed `settings.json`**: warn to stderr (`pi-link: ignored malformed <path>: <error>`), fall through to next source. Project malformed still allows global fallback; global malformed still allows the default. Missing file: silent.
 - **Non-string `sessionDir`** in settings: treat as absent, fall through silently. Different from JSON parse errors.
-- **Single-resolve**: resolve `agentDir` and `sessionDir` once at CLI entry, pass into `scanSessions(dir, isCustom)`.
+- **Empty/whitespace `sessionDir`**: treat as absent (don't preserve Pi's `""` footgun in `getSessionDir()`).
+- **Empty env vars** (`PI_CODING_AGENT_SESSION_DIR=""`, `PI_CODING_AGENT_DIR=""`): treat as unset — use truthy check, not `??`.
+- **Tilde expansion**: only `~` and `~/...`. No `~\...` Windows variant. Match Pi's `expandTildePath`.
+- **Lazy resolve**: resolve agentDir + sessionDir only inside scan-using branches (`list`, `resolve`, `<name>`). Skip for `--help`, `-h`, no-args, or argument-validation errors. Each branch resolves once.
 - **Don't import Pi's `SettingsManager`**: keep launcher lightweight, parse JSON ourselves.
 
 ### Implementation
