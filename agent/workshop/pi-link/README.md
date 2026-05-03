@@ -103,7 +103,7 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi 
 
 ```
 > /link-name researcher
-✓ Reconnecting as "researcher" (hub may assign a different name if taken)...
+✓ Reconnecting, requesting "researcher" (hub may assign a different name if taken)...
 ```
 
 **Now ask Terminal 1's LLM to delegate work:**
@@ -157,7 +157,7 @@ pi-link worker-1                # resume or create session "worker-1"
 pi-link worker-1 --model sonnet # with extra Pi flags
 ```
 
-How it works: `pi-link worker-1` scans `~/.pi/agent/sessions/`, finds the session named "worker-1", and spawns `pi --session <path> --link`.
+How it works: `pi-link worker-1` scans Pi's session directory, finds the session named "worker-1", and spawns `pi --session <path> --link`. Session-dir resolution mirrors Pi's: `PI_CODING_AGENT_SESSION_DIR` env > `<cwd>/.pi/settings.json` `sessionDir` > `<agentDir>/settings.json` `sessionDir` > default `<agentDir>/sessions/`. `<agentDir>` follows `PI_CODING_AGENT_DIR` and defaults to `~/.pi/agent/`.
 
 - **One match** → resumes that session
 - **No match** → creates a new session
