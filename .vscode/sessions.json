@@ -8,18 +8,16 @@
       {
         "name": "opus@pi-link",
         "autoExecuteCommands": true,
-        "cwd": ".",
+        "focus": true,
         "icon": "link",
         "color": "terminal.ansiMagenta",
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-link"
-        ],
-        "focus": true
+        ]
       },
       {
         "name": "gpt@pi-link",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "link",
         "color": "terminal.ansiGreen",
         "commands": [
@@ -29,7 +27,6 @@
       {
         "name": "docs@pi-link",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "link",
         "color": "terminal.ansiCyan",
         "commands": [
@@ -39,7 +36,6 @@
       {
         "name": "pi-link-test1",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "commands": [
@@ -49,7 +45,6 @@
       {
         "name": "pi-link-test2",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "commands": [
@@ -59,7 +54,6 @@
       {
         "name": "pi-link-test3",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "commands": [
@@ -69,7 +63,6 @@
       {
         "name": "pi-link-test4",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "commands": [
@@ -79,7 +72,6 @@
       {
         "name": "committer@.pi",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "git-commit",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -89,7 +81,6 @@
       {
         "name": "bash",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -101,7 +92,6 @@
       {
         "name": "opus@pi-bugs",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "bug",
         "color": "terminal.ansiMagenta",
         "commands": [
@@ -112,7 +102,6 @@
       {
         "name": "gpt@pi-bugs",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "bug",
         "color": "terminal.ansiGreen",
         "commands": [
@@ -122,7 +111,6 @@
       {
         "name": "committer@.pi",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "git-commit",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -132,7 +120,6 @@
       {
         "name": "bash",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -144,7 +131,6 @@
       {
         "name": "opus@pi-rules",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "law",
         "color": "terminal.ansiMagenta",
         "commands": [
@@ -155,7 +141,6 @@
       {
         "name": "gpt@pi-rules",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "law",
         "color": "terminal.ansiGreen",
         "commands": [
@@ -165,7 +150,6 @@
       {
         "name": "committer@.pi",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "git-commit",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -175,7 +159,6 @@
       {
         "name": "bash",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -187,7 +170,6 @@
       {
         "name": "opus@pi.claude.hack",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "tools",
         "color": "terminal.ansiMagenta",
         "commands": [
@@ -198,7 +180,6 @@
       {
         "name": "gpt@pi.claude.hack",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "tools",
         "color": "terminal.ansiGreen",
         "commands": [
@@ -208,7 +189,6 @@
       {
         "name": "committer@.pi",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "git-commit",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -218,7 +198,6 @@
       {
         "name": "bash",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -230,7 +209,6 @@
       {
         "name": "opus@claude-code-provider",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "plug",
         "color": "terminal.ansiMagenta",
         "commands": [
@@ -241,7 +219,6 @@
       {
         "name": "gpt@claude-code-provider",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "plug",
         "color": "terminal.ansiGreen",
         "commands": [
@@ -251,7 +228,6 @@
       {
         "name": "claude-code-provider-test",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "commands": [
@@ -261,7 +237,6 @@
       {
         "name": "committer@.pi",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "git-commit",
         "color": "terminal.ansiWhite",
         "commands": [
@@ -271,7 +246,6 @@
       {
         "name": "bash",
         "autoExecuteCommands": true,
-        "cwd": ".",
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
         "commands": [
