@@ -676,13 +676,15 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      // Route chat / prompt messages
+      // Route chat / prompt messages.
+      // Normalize `from` to the hub's authoritative socket→name mapping,
+      // mirroring the status_update path above. Don't trust the client.
       if (
         msg.type === "chat" ||
         msg.type === "prompt_request" ||
         msg.type === "prompt_response"
       ) {
-        routeMessage(msg);
+        routeMessage({ ...msg, from: clientName });
       }
     });
 
@@ -1395,13 +1397,12 @@ export default function (pi: ExtensionAPI) {
         savePreference();
         _ctx.ui.notify(`Renamed to "${newName}"`, "info");
       } else if (role === "client") {
-        // Reconnect with new name — hub will enforce uniqueness via register
+        // Don't update terminalName here — welcome will assign authoritatively
+        // after reconnect. Hub may dedupe newName to newName-2 if taken.
         savePreference();
-        terminalName = newName;
         ws?.close();
-        // Reconnect will happen via the onClose handler → scheduleReconnect
         _ctx.ui.notify(
-          `Reconnecting as "${newName}" (hub may assign a different name if taken)...`,
+          `Reconnecting requesting "${newName}" (hub may assign a different name if taken)...`,
           "info",
         );
       } else {
