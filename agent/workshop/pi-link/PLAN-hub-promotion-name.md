@@ -1,65 +1,79 @@
-# Hub Promotion Honors Preferred Name
+# Hub Promotion Honors Pending Rename — DONE (0.1.12)
 
-## Goal
+## Status
 
-After a rename, if the client falls through to `startHub()` (because the existing hub vanished during the reconnect cycle), the hub should announce under the requested name, not the pre-rename name.
+Folded into 0.1.12 alongside the name-trust fixes. Originally drafted as deferred follow-up; promoted to in-release after review caught that the regression was _introduced_ by the name-trust Phase 2 fix in the same release.
 
-This is a **narrow regression introduced by `name-trust` Phase 2**: removing the optimistic `terminalName = newName` assignment closed the cross-terminal misrouting bug, but exposed a latent inconsistency between the two reconnect destinations:
+## Problem
 
-| Path                           | Uses                              |
-| ------------------------------ | --------------------------------- |
-| `connectAsClient` → `register` | `preferredName ?? terminalName` ✓ |
-| `startHub` (line 733-737)      | `terminalName` only ✗             |
+`startHub` (line ~735) used `terminalName` to establish the hub's identity. `connectAsClient → register` (line ~778) used `preferredName ?? terminalName`. Asymmetry meant: rename + hub crashes during reconnect window → reconnect cycle falls through to `startHub` → promoted hub announces under the _old_ local name.
 
-`scheduleReconnect → initialize` tries `connectAsClient` first; if it fails (no hub) it falls through to `startHub`. So the rare-but-real failure case is: rename + hub crashes during reconnect window → promoted hub announces under the old name.
+The asymmetry was latent before name-trust Phase 2 because the optimistic `terminalName = newName` assignment in `/link-name` covered for it — by the time the rename's `ws.close` triggered reconnect, `terminalName` already held the new name. Removing that optimistic assignment closed the cross-terminal misrouting bug but exposed this regression.
 
-## Guardrail
+## Fix (implemented)
 
-One-line fix. If the diff grows, the plan is wrong about the cause.
+Reviewer (gpt) flagged that an unconditional `terminalName = preferredName ?? terminalName` in `startHub` would over-correct: in the stale-after-dedup case (client B has `preferredName=beta`, `terminalName=beta-2` because hub deduped), promotion would re-adopt the deduped-away `beta` and could swap identities with whichever client legitimately holds `beta` and reconnects later.
 
-## Fix
+Adopted approach: gate the adoption behind a flag that's only true while a `/link-name` rename is pending confirmation.
 
-In `startHub()`, immediately before `role = "hub"`, adopt the preferred name as authoritative (the hub IS the authority — no dedup concern):
+Four touch sites, ~4 substantive lines:
 
-```ts
-if (preferredName && preferredName !== terminalName) {
-  terminalName = preferredName;
-}
-```
+1. State (line ~123):
 
-Placed inside the `server.on("listening", ...)` handler, just before `connectedTerminals = [terminalName]` so the join broadcast and notify use the right name.
+   ```ts
+   let pendingClientRename = false;
+   ```
 
-Mirrors the existing `register` precedence (`preferredName ?? terminalName`) at the only other identity-establishing site.
+2. `welcome` handler (line ~487) — clear after authoritative assignment:
 
-## Out of scope
+   ```ts
+   terminalName = msg.name;
+   pendingClientRename = false;
+   ```
 
-- **Persistence cleanup when hub dedupes.** If a client requests `alpha`, hub assigns `alpha-2`, the saved `preferredName` still reads `alpha`. This was already noted as out-of-scope in `PLAN-name-trust.md` and isn't affected by this fix.
-- **Connection retry promotion policy.** Whether `scheduleReconnect` should ever fall through to `startHub` at all (vs. retrying connect indefinitely) is a separate product question. Today it does, so this plan handles that case.
+3. `/link-name` client branch (line ~1413) — set before close:
+
+   ```ts
+   savePreference();
+   pendingClientRename = true;
+   ws?.close();
+   ```
+
+4. `startHub` listening handler (line ~735) — consume on promotion:
+   ```ts
+   if (pendingClientRename && preferredName) terminalName = preferredName;
+   pendingClientRename = false;
+   ```
+
+The flag is local extension state, not persisted. Cleared on welcome, on hub promotion, and on extension dispose by virtue of process exit. No teardown branch needs explicit reset.
+
+## Why not just `preferredName ?? terminalName` in `startHub`
+
+Reviewer's catch:
+
+- Client C registered as `beta` (legitimately, hub-assigned).
+- Client B requested `beta`, hub assigned B `beta-2`.
+- B's `preferredName=beta` lingers (out-of-scope cleanup per name-trust plan), `terminalName=beta-2`.
+- Hub dies before C reconnects.
+- B promotes via `startHub`. Unconditional fallback would have B adopt `beta`.
+- C reconnects → new hub (B) sees `beta` taken → assigns C `beta-2`.
+- **Identities swap.**
+
+The flag-gated version only adopts `preferredName` when a rename was actually in flight, preserving "promoted hub keeps its last hub-assigned identity" as the default.
 
 ## Verification
 
-Single manual scenario:
+Code review against existing precedence in `register` (line 778) — both identity-establishing sites now agree on what the requested name is. Race scenario is fiddly to reproduce but the fix is mechanical.
 
-1. Two terminals A (`alpha`, hub) and B (`beta`, client).
-2. From B, run `/link-name gamma`. B closes its socket and starts reconnecting.
-3. While B is between reconnects, kill A's process (or `disconnect` its hub).
-4. B's next reconnect cycle: `connectAsClient` fails → `startHub` succeeds.
-5. **Expected**: B's `notify` says `Link hub started on :PORT as "gamma"`. `link_list` from a new terminal joining shows `gamma`, not `beta`.
-6. **Without the fix**: B announces as `beta`, the old name.
+Smoke pass on the rename happy-path (no hub crash) confirms `pendingClientRename` is set on `/link-name`, cleared on subsequent `welcome`, and the existing `/link-name` UX is unchanged.
 
-If reproducing the race is fiddly, code-review the diff against `register`'s precedence pattern — they should be visually identical.
+## Out of scope
 
-## Done
+- **Persisted `preferredName` cleanup when hub dedupes.** Still out of scope (noted in `PLAN-name-trust.md`). This fix doesn't touch persistence.
+- **Reconnect-promotion policy.** Whether `scheduleReconnect → initialize` should ever fall through to `startHub` (vs. retrying connect indefinitely) remains a separate product question.
 
-- One-line guarded reassignment in `startHub`.
-- CHANGELOG `Unreleased` entry under `Fixed` (one bullet, references that it's a follow-up to the name-trust fixes from 0.1.12).
-- Manual scenario passes, or a code-review confirmation that the precedence matches `register`.
+## CHANGELOG
 
-## Rollback
+Added 5th `Fixed` bullet under `Unreleased`, framed as same-release follow-up to the `/link-name` no-optimistic fix:
 
-Revert the one-line reassignment. Restores the regression; no other code is affected.
-
-## Notes
-
-- This plan exists because `PLAN-name-trust.md` Phase 2 quietly relied on `terminalName = newName` being optimistic to feed `startHub`. Removing it surfaced the latent bug. Don't treat it as a separate bug class.
-- Keep separate from any larger reconnect-policy work; this is the minimum to restore intended behavior.
+> **Hub promotion now preserves a pending client rename request.** [...]

@@ -120,6 +120,9 @@ export default function (pi: ExtensionAPI) {
   let role: "hub" | "client" | "disconnected" = "disconnected";
   let terminalName = `t-${crypto.randomUUID().slice(0, 4)}`;
   let preferredName: string | null = null;
+  // True between a client `/link-name` close and the next welcome/promotion.
+  // Lets `startHub` adopt the requested name if it wins promotion before welcome.
+  let pendingClientRename = false;
   let connectedTerminals: string[] = [];
   let ctx: ExtensionContext | undefined;
   let disposed = false;
@@ -481,6 +484,7 @@ export default function (pi: ExtensionAPI) {
       // ── Client receives after registering ──
       case "welcome":
         terminalName = msg.name;
+        pendingClientRename = false;
         connectedTerminals = msg.terminals;
         terminalStatuses.clear();
         terminalCwds.clear();
@@ -727,6 +731,12 @@ export default function (pi: ExtensionAPI) {
           return;
         }
         wss = server;
+        // If a client `/link-name` was in flight when the previous hub vanished,
+        // this terminal is now establishing hub identity, so honor that pending
+        // request. Otherwise keep the last hub-assigned identity — don't replay
+        // a stale `preferredName` that may already have been deduped.
+        if (pendingClientRename && preferredName) terminalName = preferredName;
+        pendingClientRename = false;
         role = "hub";
         connectedTerminals = [terminalName];
         updateStatus();
@@ -1400,6 +1410,7 @@ export default function (pi: ExtensionAPI) {
         // Don't update terminalName here — welcome will assign authoritatively
         // after reconnect. Hub may dedupe newName to newName-2 if taken.
         savePreference();
+        pendingClientRename = true;
         ws?.close();
         _ctx.ui.notify(
           `Reconnecting, requesting "${newName}" (hub may assign a different name if taken)...`,
