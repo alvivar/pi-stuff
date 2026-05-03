@@ -1402,7 +1402,7 @@ export default function (pi: ExtensionAPI) {
         savePreference();
         ws?.close();
         _ctx.ui.notify(
-          `Reconnecting requesting "${newName}" (hub may assign a different name if taken)...`,
+          `Reconnecting, requesting "${newName}" (hub may assign a different name if taken)...`,
           "info",
         );
       } else {

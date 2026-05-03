@@ -234,6 +234,21 @@ function renderTable(rows, columns) {
 
 const [command, ...args] = process.argv.slice(2);
 
+// Reject Pi flags that pi-link manages, plus the removed --link-name extension flag.
+// Runs on both the first token (so `pi-link --session foo` errors clearly) and on each
+// flag in args (so `pi-link foo --session bar` does too).
+function rejectManagedFlag(token) {
+  const key = token.split("=")[0];
+  if (key === "--link-name") {
+    console.error("Error: --link-name was removed. Use: pi-link <name>");
+    process.exit(1);
+  }
+  if (["--session", "--continue", "-c", "--resume", "-r", "--fork", "--no-session", "--session-dir"].includes(key)) {
+    console.error(`Error: ${key} is managed by pi-link. Remove it.`);
+    process.exit(1);
+  }
+}
+
 function printCandidates(name, matches) {
   console.error(`Multiple sessions named "${name}":\n`);
   for (const m of matches) {
@@ -295,25 +310,14 @@ if (command === "list") {
   }
 } else if (command && command !== "--help" && command !== "-h") {
   // pi-link <name> [flags...] — resolve and launch Pi
+  rejectManagedFlag(command);
   const name = command.trim().replace(/\s+/g, " ");
   if (!name) {
     console.error("Usage: pi-link <name> [pi flags...]");
     process.exit(1);
   }
 
-  // Reject conflicting flags
-  for (const flag of args) {
-    const key = flag.split("=")[0];
-    if (["--session", "--continue", "-c", "--resume", "-r", "--fork", "--no-session", "--session-dir"].includes(key)) {
-      console.error(`Error: ${key} is managed by pi-link. Remove it.`);
-      process.exit(1);
-    }
-    // Catch the removed extension flag before forwarding args to Pi.
-    if (key === "--link-name") {
-      console.error("Error: --link-name was removed. Use: pi-link <name>");
-      process.exit(1);
-    }
-  }
+  for (const flag of args) rejectManagedFlag(flag);
 
   const { dir, isCustom } = resolveSessionDir(process.cwd(), resolveAgentDir());
   const matches = await findSessionsByName(name, dir, isCustom);
