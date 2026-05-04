@@ -133,7 +133,7 @@ Every other terminal sees:
 
 ## Configuration
 
-Link is **off by default**. Without `--link` or `pi-link`, the extension is completely silent — no status bar, no connections, no warnings.
+Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, the extension is completely silent — no status bar, no connections, no warnings.
 
 | Method                  | When                                                             | Auto-reconnect?                  |
 | ----------------------- | ---------------------------------------------------------------- | -------------------------------- |

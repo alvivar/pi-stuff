@@ -2,7 +2,7 @@
  * Pi Link — WebSocket-based inter-terminal communication
  *
  * Connects multiple Pi terminals over a local WebSocket link.
- * Opt-in via --link flag, pi-link CLI, or /link-connect command.
+ * Opt-in via --link flag, --link-name flag, pi-link CLI, or /link-connect command.
  * First terminal to connect becomes the hub; others join as clients.
  * Hub loss triggers automatic promotion of a surviving client.
  *
@@ -960,7 +960,26 @@ export default function (pi: ExtensionAPI) {
     if (flagName) {
       preferredName = flagName;
       terminalName = flagName;
-      pi.appendEntry("link-name", { name: flagName });
+
+      // Skip append if the saved name already matches; persistence is needed
+      // only for first-time set or actual change. Reduces session-file growth
+      // on repeated startups (common in automation).
+      let latestSaved: string | undefined;
+      const entries = _ctx.sessionManager.getEntries();
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i] as {
+          type: string;
+          customType?: string;
+          data?: { name?: unknown };
+        };
+        if (e.type !== "custom" || e.customType !== "link-name") continue;
+        if (typeof e.data?.name === "string") latestSaved = e.data.name;
+        break;
+      }
+      if (latestSaved?.trim().replace(/\s+/g, " ") !== flagName) {
+        pi.appendEntry("link-name", { name: flagName });
+      }
+
       // Critical: only the env path (wrapper combined mode) seeds session name.
       // Public --link-name is link-only.
       if (fromEnv && !pi.getSessionName()) pi.setSessionName(flagName);
