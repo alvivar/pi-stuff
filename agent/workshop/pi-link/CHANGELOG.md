@@ -8,6 +8,10 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ## 0.1.13 — 2026-05-03
 
+### Added
+
+- **`--link-name <name>` flag for link-only startup naming.** Run `pi --link-name worker` to join the link as `worker` while leaving Pi's normal session selection/resume behavior untouched. This restores link-name startup naming in a cleaner form than the previous session-coupled implementation: it sets only the pi-link identity, with hub collision handling unchanged. Use `pi-link <name>` when you want the combined session-by-name + link-name workflow. Empty or whitespace-only `--link-name` values are rejected with a clear error. The `pi-link` wrapper itself does not accept `--link-name` — its rejection message now points to either `pi-link <name>` (combined) or `pi --link-name <name>` (direct, link-only).
+
 ### Fixed
 
 - **`pi-link resolve <name>` now rejects whitespace-only names.** Previously a name that normalized to empty (e.g. `pi-link resolve "   "`) fell through to session lookup and silently reported no match. The empty-name check that already covered `pi-link <name>` now also runs in `resolve`, printing usage and exiting non-zero.

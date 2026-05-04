@@ -135,14 +135,17 @@ Every other terminal sees:
 
 Link is **off by default**. Without `--link` or `pi-link`, the extension is completely silent — no status bar, no connections, no warnings.
 
-| Method             | When                                | Auto-reconnect?                  |
-| ------------------ | ----------------------------------- | -------------------------------- |
-| `pi-link <name>`   | Resume/create named session         | Yes                              |
-| `pi --link`        | Connect on startup (random name)    | Yes                              |
-| `/link-connect`    | Opt-in mid-session (no flag needed) | Yes                              |
-| `/link-disconnect` | Opt-out mid-session                 | Suppressed until `/link-connect` |
+| Method                  | When                                                             | Auto-reconnect?                  |
+| ----------------------- | ---------------------------------------------------------------- | -------------------------------- |
+| `pi-link <name>`        | Resume/create named session                                      | Yes                              |
+| `pi --link-name <name>` | Connect with a specific link name; Pi session behavior unchanged | Yes                              |
+| `pi --link`             | Connect on startup (random name)                                 | Yes                              |
+| `/link-connect`         | Opt-in mid-session (no flag needed)                              | Yes                              |
+| `/link-disconnect`      | Opt-out mid-session                                              | Suppressed until `/link-connect` |
 
-**Name precedence:** `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`.
+`pi --link-name <name>` sets only the pi-link terminal name; Pi's session selection/resume runs as normal. Use this when you want a stable link identity without coupling it to a same-named session. Use `pi-link <name>` when you want the combined session-by-name + link-name workflow. The `pi-link` wrapper itself does not accept `--link-name`.
+
+**Name precedence:** `pi --link-name` > `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`.
 
 `/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
