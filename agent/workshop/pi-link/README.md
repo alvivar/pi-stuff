@@ -171,7 +171,7 @@ Lookup is **scoped to the current cwd by default**; pass `--global` (`-g`) to co
 
 ### Discovering sessions
 
-`pi-link list` shows pi-link sessions in the current cwd; `pi-link list --global` (or `-g`) lists them across all directories. Sorted by last activity.
+`pi-link list` shows pi-link sessions in the current cwd; `pi-link list --global` (or `-g`) lists them across all directories. Sorted by last activity — starting a session with the same name it already has does not bump recency; only real activity (messages, tool calls, edits, name changes) does.
 
 ```
 $ pi-link list
