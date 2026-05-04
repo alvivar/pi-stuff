@@ -6,7 +6,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
-## 0.1.13 — 2026-05-03
+## 0.1.14 — 2026-05-04
 
 ### Added
 
@@ -15,6 +15,10 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 ### Changed
 
 - **`link-name` session entries no longer accumulate on no-op restarts.** Both `pi-link <name>` and `pi --link-name <name>` skip the append when the saved name already matches. Sessions opened and exited without any persisted activity will no longer bump `pi-link list` recency from the same-name startup alone; recency still updates on messages, tool calls, edits, and real link-name changes.
+
+---
+
+## 0.1.13 — 2026-05-03
 
 ### Fixed
 
