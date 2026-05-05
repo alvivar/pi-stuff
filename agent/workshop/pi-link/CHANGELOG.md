@@ -6,6 +6,14 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Pi-bundled imports now declared as peer dependencies.** `package.json` adds `@mariozechner/pi-coding-agent`, `@mariozechner/pi-tui`, and `typebox` as `peerDependencies` with `"*"` ranges, matching Pi's `docs/packages.md` convention for packages that import Pi-bundled modules. Previously only `ws` was declared, so consumers whose toolchain didn't auto-resolve modules through Pi's loader (e.g. some Docker setups) hit `ERR_MODULE_NOT_FOUND` on `typebox`. With modern npm/pnpm, peer deps auto-install alongside the package; older toolchains may need explicit `npm install`.
+
+---
+
 ## 0.1.14 — 2026-05-04
 
 ### Added
@@ -31,7 +39,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ### Changed
 
-- **TypeBox import migrated from `@sinclair/typebox` to `typebox`.** Pi 0.69.0 renamed the package; both names still resolve to the same module via Pi's loader alias, so behavior is unchanged. Aligns with Pi's preferred naming and futureproofs against alias removal. README's "Provided by Pi" table updated to match.
+- **TypeBox import migrated from `@sinclair/typebox` to `typebox`.** Pi 0.69.0 migrated to typebox 1.x's bare-package name; `@sinclair/typebox` still resolves to the same module via Pi's legacy alias, so behavior is unchanged for our root `Type.*` imports. Aligns with Pi's preferred naming and avoids future churn if the alias is dropped. README's "Provided by Pi" table updated to match.
 
 ### Fixed
 
