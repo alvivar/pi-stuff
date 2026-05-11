@@ -1,6 +1,6 @@
 {
   "active": "pi-link",
-  "activateOnStartup": true,
+  "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
   "sessions": {
@@ -89,16 +89,6 @@
       }
     ],
     "pi-bugs": [
-      {
-        "name": "opus@pi-bugs",
-        "autoExecuteCommands": true,
-        "icon": "bug",
-        "color": "terminal.ansiMagenta",
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-bugs"
-        ],
-        "focus": true
-      },
       {
         "name": "gpt@pi-bugs",
         "autoExecuteCommands": true,
