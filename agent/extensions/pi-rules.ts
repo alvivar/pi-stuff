@@ -81,6 +81,15 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("rules", {
     description:
       "Prompt guidance for every turn (current branch). Use /rules clear to remove.",
+    getArgumentCompletions: (prefix: string) => {
+      const items = [
+        { value: "clear", label: "clear", description: "Clear current rules" },
+      ];
+      const filtered = items.filter((i) =>
+        i.value.startsWith(prefix.trimStart()),
+      );
+      return filtered.length > 0 ? filtered : null;
+    },
     handler: (args, ctx) => {
       const trimmed = (args ?? "").trim();
 
@@ -89,7 +98,7 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(`⚙ ${rulesText}`, "info");
         } else {
           ctx.ui.notify(
-            "No branch rules set. Use /rules <text> to add branch-local prompt guidance.\n\nNote: rules are guidance appended to the prompt each turn, the model is not enforced to follow them.",
+            "No rules set. Use /rules <text> to add branch-local prompt guidance.\n\nNote: rules are guidance appended to the prompt each turn, the model is not enforced to follow them.",
             "info",
           );
         }
@@ -100,7 +109,7 @@ export default function (pi: ExtensionAPI) {
         rulesText = null;
         pi.appendEntry("rules", { text: null });
         updateWidget(ctx);
-        ctx.ui.notify("Session rules cleared", "info");
+        ctx.ui.notify("Rules cleared", "info");
         return;
       }
 
@@ -117,7 +126,7 @@ export default function (pi: ExtensionAPI) {
           return;
         }
         if (!text) {
-          ctx.ui.notify(`Rules file is empty: ${resolved}`, "warning");
+          ctx.ui.notify(`File is empty: ${resolved}`, "warning");
           return;
         }
         rulesText = text;
