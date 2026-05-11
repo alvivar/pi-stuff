@@ -119,7 +119,7 @@ Routing: hub forwards `control_request` and `control_response` between clients i
 
 ## Capabilities advertisement
 
-Builds on the `capabilities` field shipped in 0.1.15 context-display work. In 0.1.15 every terminal advertises `{ remoteControl: false }`. In 0.1.16+:
+New in 0.1.16. (Earlier plan drafts pre-baked `capabilities` in 0.1.15; on GPT's second pass we deferred it because absent and `{ remoteControl: false }` are semantically identical to a 0.1.16 orchestrator — pre-baking saves no migration work.)
 
 ```ts
 type Capabilities = {
@@ -151,12 +151,14 @@ interface StatusUpdateMsg {
 }
 ```
 
-Pushed on the same events as context: `agent_start`, `agent_end`, `tool_execution_*`, `session_compact`, plus the new event:
+Pushed on the same events as context: `agent_start`, `agent_end`, `tool_execution_*`, `session_compact`, plus two Pi events confirmed available in 0.71+:
 
-- **`session_model_change`** — does Pi expose this? Check `dist/core/extensions/types.d.ts` for events. If not present, push synchronously inside `link_set_model` after `pi.setModel()` resolves.
-- **`session_thinking_change`** — same question. If not exposed, push synchronously after `pi.setThinkingLevel()`.
+- **`model_select`** — fires on `/model` command, model cycling (Ctrl+P), session restore, and `pi.setModel()`. Event has `event.model`, `event.previousModel`, `event.source: "set" | "cycle" | "restore"`. State is finalized before the event fires; safe to read `ctx.model` inside the handler.
+- **`thinking_level_select`** — fires on `/thinking`, keybinding, `pi.setThinkingLevel()`, and model changes that clamp. Notification-only; return values ignored.
 
-(Action item during implementation: verify event names. Fall back to forced push from inside the action handler if no event exists.)
+Hook both events as universal push triggers (not just from inside our orchestration handlers). This catches user-initiated changes too, so other terminals' `link_list` stays current across all model/thinking state transitions — not just remote-orchestrated ones.
+
+**Restore-before-connect caveat (per GPT)**: `model_select` with `source: "restore"` may fire during `session_start` before the link is connected. Capture model + thinking state at `session_start` into local variables and include them on the first `pushStatus` after link connect, so we don't miss the initial broadcast.
 
 ## Tool surface
 
@@ -401,7 +403,30 @@ function sameModelRef(a, b) {
 }
 ```
 
-### 5. Hub forwarding for control_request / control_response
+### 5. Universal event hooks for model + thinking changes
+
+Replace the synthetic per-handler push approach (earlier draft had `pushStatus(true)` inline after `pi.setModel()`). Instead, hook Pi's `model_select` and `thinking_level_select` events as universal triggers:
+
+```ts
+pi.on("model_select", async (_event, _ctx) => {
+  // Fires for /model, Ctrl+P, session restore, and pi.setModel() (incl. remote orchestration).
+  // State is already finalized when event fires — safe to read ctx.model.
+  pushStatus(true);
+});
+
+pi.on("thinking_level_select", async (_event, _ctx) => {
+  pushStatus(true);
+});
+```
+
+Benefits:
+- Single push path regardless of trigger (user UI vs. remote control)
+- Catches user-initiated `/model` changes — orchestrator's `link_list` stays current even when target user manually switches models
+- Removes need for explicit `pushStatus(true)` in `link_set_model` / `link_set_thinking` handlers (kept in plan as a comment for documentation, but the actual push comes from the event hook)
+
+**Restore-before-connect handling**: `model_select` with `source: "restore"` may fire during `session_start` before the WebSocket is connected (clients) or the hub is listening. The hook calls `pushStatus(true)` but it's a no-op when `role === "disconnected"`. The subsequent `pushStatus` call in the link-connect flow then picks up the current state (since `currentModelRef()` reads live state from `ctx.model`). No special handling required — the existing model state is always queried fresh on push. Verify during implementation that `ctx.model` is populated by the time `session_start` fires.
+
+### 6. Hub forwarding for control_request / control_response
 
 In `hubHandleClient`, extend the routing block:
 
@@ -417,7 +442,7 @@ if (
 }
 ```
 
-### 6. Receiver-side handling
+### 7. Receiver-side handling
 
 Extend the message switch in the client/hub local handler to add cases for `control_request`. Outline:
 
@@ -520,7 +545,8 @@ async function handleControlRequest(msg: ControlRequestMsg) {
         });
       }
       const current = currentModelRef()!;
-      pushStatus(true);
+      // No explicit pushStatus needed — pi.setModel() emits model_select,
+      // which our universal hook handles. Status broadcast happens automatically.
       pi.appendEntry("link-control-action", {
         from: msg.from,
         action: "set_model",
@@ -549,7 +575,8 @@ async function handleControlRequest(msg: ControlRequestMsg) {
       pi.setThinkingLevel(msg.params.level);
       const current = pi.getThinkingLevel();
       const clamped = current !== msg.params.level;
-      pushStatus(true);
+      // No explicit pushStatus needed — pi.setThinkingLevel() emits thinking_level_select,
+      // which our universal hook handles.
       pi.appendEntry("link-control-action", {
         from: msg.from,
         action: "set_thinking",
@@ -572,7 +599,7 @@ async function handleControlRequest(msg: ControlRequestMsg) {
 }
 ```
 
-### 7. Tool implementations
+### 8. Tool implementations
 
 Mirror `link_prompt`'s request/response timeout pattern. Per-tool:
 
@@ -612,11 +639,11 @@ async function sendControlRequest(
 
 Each of the three tools (`link_compact`, `link_set_model`, `link_set_thinking`) is a thin wrapper around `sendControlRequest` with appropriate `params` and `parameters` schema.
 
-### 8. Skill file update
+### 9. Skill file update
 
 `skills/pi-link-coordination/SKILL.md` — document the three new tools, their consent model, and how to read `capabilities.remoteControl` from `link_list` results before attempting actions. Critical: instruct the LLM not to assume any target accepts orchestration; check capabilities first.
 
-### 9. README + CHANGELOG
+### 10. README + CHANGELOG
 
 README adds a section explaining `/link-control` and the orchestration tools. CHANGELOG entry below.
 
@@ -640,8 +667,8 @@ README adds a section explaining `/link-control` and the orchestration tools. CH
 ## Backwards compatibility
 
 - All wire format additions optional
-- 0.1.15 terminals advertise `capabilities: { remoteControl: false }` always (no `/link-control` command exists), so 0.1.16 orchestrators correctly identify them as unable to accept control
-- 0.1.14 terminals don't advertise capabilities at all → undefined → also treated as unsupported
+- 0.1.15 terminals don't advertise capabilities at all → undefined → treated as unsupported by 0.1.16 orchestrators (correct outcome)
+- 0.1.14 terminals same: no capabilities → unsupported
 - 0.1.16 hub forwarding new message types (`control_request`, `control_response`): older clients ignore unknown types in their switch; messages just get dropped on the floor at older endpoints. Since pre-check filters by `capabilities.remoteControl`, an orchestrator on 0.1.16 won't actually send to a non-supporting target.
 
 ## Testing plan
@@ -727,17 +754,19 @@ Estimated implementation: 200–300 LOC of new code in `index.ts` + ~60 LOC for 
 
 1. **Per-action consent toggles**: GPT recommended single gate. Should we leave the door open in the schema to add `acceptCompact`, `acceptModelSwitch`, `acceptThinking` later? (Yes — `Capabilities` type is open-ended; we'd add more boolean fields.)
 
-2. **`session_model_change` / `session_thinking_change` events**: do these exist in Pi's API? If yes, hook them. If no, push from inside the action handler (already in the plan).
+2. ~~**`session_model_change` / `session_thinking_change` events**~~ — **CLOSED.** Confirmed `model_select` (source: "set" | "cycle" | "restore") and `thinking_level_select` exist in Pi 0.71+. Plan uses universal event hooks, not synthetic push from handlers.
 
-3. **Compact `wait` option**: if we want the tool to await compaction completion, add a `wait?: boolean` parameter. v1 ships fire-and-forget per Pi's API; revisit in v2 if orchestrators need synchronous feedback.
+3. **`ctx.compact({ onComplete, onError })` for richer ACK**: Pi's `CompactOptions` accepts callbacks (`onComplete: (result: CompactionResult) => void`, `onError: (error: Error) => void`). Current plan ships `link_compact` as queued-fire-and-forget; orchestrator observes completion via the next status_update push fired from `session_compact`. Worth investigating: send a second `control_response` (or new `control_notify`) when `onComplete` fires, so orchestrator gets explicit success/failure signal. Defer to v2 unless a use case demands it.
 
-4. **Audit entry format**: should `link-control-action` include the orchestrator's full identity (terminal name + cwd?) or just name? Plan currently stores name. Worth deciding.
+4. **Compact `wait` option** in the tool schema: same shape as #3 — if we hook `onComplete`, expose `wait?: boolean` to let orchestrator await final result. Defer with #3.
 
-5. **`/link-control deny` while a control_request is mid-flight**: the request was already in flight when policy flipped. Receiver-side: re-check `linkControlMode` at handler entry (already in the plan), so the request gets `denied` even though pre-check passed. Already correct.
+5. **Audit entry format**: should `link-control-action` include the orchestrator's full identity (terminal name + cwd?) or just name? Plan currently stores name. Worth deciding.
 
-6. **Notification level for failures**: success → info, failure → warning? Or all info? Plan currently uses info for success, warning for setModel failure. Worth nailing down per action.
+6. **`/link-control deny` while a control_request is mid-flight**: the request was already in flight when policy flipped. Receiver-side: re-check `linkControlMode` at handler entry (already in the plan), so the request gets `denied` even though pre-check passed. Already correct.
 
-7. **`Type.Union<Type.Literal>` for ThinkingLevel parameter**: Pi extensions docs warn this doesn't work with Google's API. Need to verify or use `StringEnum` from `@mariozechner/pi-ai`.
+7. **Notification level for failures**: success → info, failure → warning? Or all info? Plan currently uses info for success, warning for setModel failure. Worth nailing down per action.
+
+8. **`Type.Union<Type.Literal>` for ThinkingLevel parameter**: Pi extensions docs warn this doesn't work with Google's API. Need to verify or use `StringEnum` from `@mariozechner/pi-ai`.
 
 ## CHANGELOG entry (draft)
 
@@ -752,9 +781,9 @@ Estimated implementation: 200–300 LOC of new code in `index.ts` + ~60 LOC for 
 
 - **Status payload extended with `model` and `thinkingLevel`.** Orchestrators can verify state changes via `link_list` after issuing actions. Both fields appear in `link_list` tool results as `model: { provider, modelId }` and `thinkingLevel: <level>`.
 
-- **`capabilities.remoteControl` now meaningful.** Previously always advertised as `false` in 0.1.15; now reflects each terminal's `/link-control` setting. Orchestrators check this before sending any control_request and short-circuit with `unsupported` if false.
+- **`capabilities.remoteControl` field introduced.** Reflects each terminal's `/link-control` setting. Orchestrators check this before sending any control_request and short-circuit with `unsupported` if false. Older terminals (0.1.15 and earlier) don't advertise capabilities at all and are treated identically to `remoteControl: false` — correct outcome.
 
 ### Changed
 
-- Status broadcasts now also fire on `session_compact` (force-push), and on every `/link-control` toggle.
+- Status broadcasts now also fire on `model_select`, `thinking_level_select`, and every `/link-control` toggle. (`session_compact` force-push already shipped in 0.1.15.)
 ```

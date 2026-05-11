@@ -91,7 +91,6 @@ interface RegisterMsg {
   name: string;
   cwd?: string;
   context?: ContextSnapshot; // NEW
-  capabilities?: Capabilities; // NEW (forward-compat, see below)
 }
 
 interface WelcomeMsg {
@@ -101,7 +100,6 @@ interface WelcomeMsg {
   statuses?: Record<string, LinkStatus>;
   cwds?: Record<string, string>;
   contexts?: Record<string, ContextSnapshot>; // NEW
-  capabilities?: Record<string, Capabilities>; // NEW
 }
 
 interface TerminalJoinedMsg {
@@ -110,21 +108,12 @@ interface TerminalJoinedMsg {
   terminals: string[];
   cwd?: string;
   context?: ContextSnapshot; // NEW
-  capabilities?: Capabilities; // NEW
 }
 ```
 
-### `Capabilities` — forward-compat for orchestration
+### Capabilities field — deferred to 0.1.16
 
-Per GPT's recommendation, lock the shape now even though we don't use it in 0.1.15. When orchestration ships, terminals not on 0.1.16+ will be missing `capabilities.remoteControl` → tool calls fail clean with "target does not support remote control" instead of timing out.
-
-```ts
-type Capabilities = {
-  remoteControl?: boolean; // future: link_compact / link_set_model / link_set_thinking
-};
-```
-
-For 0.1.15, every terminal advertises `capabilities: { remoteControl: false }` (we send the field, but always false since the actions don't exist yet). For 0.1.16+ this becomes opt-in via `/link-control allow|deny`.
+Earlier draft pre-baked `capabilities: { remoteControl: false }` for forward-compat. Per GPT's second pass: drop it. A 0.1.16 orchestrator treats absent `capabilities` and `{ remoteControl: false }` identically (both mean "doesn't support remote control"), so pre-baking saves zero migration work. Add the field with orchestration.
 
 ## Implementation outline (`index.ts`)
 
@@ -134,9 +123,6 @@ For 0.1.15, every terminal advertises `capabilities: { remoteControl: false }` (
 let lastPushedContext: ContextSnapshot | null = null;
 const hubTerminalContexts = new Map<string, ContextSnapshot>(); // hub-authoritative
 const terminalContexts = new Map<string, ContextSnapshot>(); // client view
-const hubTerminalCapabilities = new Map<string, Capabilities>();
-const terminalCapabilities = new Map<string, Capabilities>();
-const SELF_CAPABILITIES: Capabilities = { remoteControl: false };
 ```
 
 ### 2. Helper: capture current usage
@@ -222,7 +208,7 @@ if (msg.type === "status_update") {
 }
 ```
 
-When a client registers, capture their initial context + capabilities, and send back snapshots in the welcome.
+When a client registers, capture their initial context and send back snapshots in the welcome.
 
 ### 6. Client: store incoming context
 
@@ -329,10 +315,36 @@ The text body also gets the `· 45K/200K (23%)` segment appended after `statusSt
 ## Backwards compatibility
 
 - Wire format changes are purely additive — all new fields optional
-- 0.1.14 hubs ignore unknown `context` / `capabilities` fields (JSON parse drops nothing; the fields just sit unused)
+- 0.1.14 hubs ignore unknown `context` fields (JSON parse drops nothing; the field just sits unused)
 - 0.1.14 clients receiving a status_update with extra fields ignore them (TS structural typing means `JSON.parse` returns the extra props but the message-handler switch doesn't reference them)
 - 0.1.15+ clients connecting to a 0.1.14 hub: hub forwards status_updates as-is, but the hub itself doesn't send context for its own terminal. Mixed-version display: 0.1.15 sees context for other 0.1.15s; 0.1.14 hub appears without context. Acceptable
 - No changes to `register` / `welcome` semantics — new fields ignored by old terminals
+
+### `peerDependenciesMeta` for Pi 0.74 namespace coexistence
+
+Pi 0.74 migrated bundled packages from `@mariozechner/*` to `@earendil-works/*`. Pi's extension loader aliases both name sets at runtime, so existing imports keep working. But our `package.json` currently lists only the old names as peer deps, which miss-validate against new Pi installs.
+
+Decision: leave runtime imports in `index.ts` pointing at `@mariozechner/...` (preserves Pi ≤0.73 compatibility). In `package.json`, list **both** name sets as optional peer deps:
+
+```json
+{
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@mariozechner/pi-coding-agent": { "optional": true },
+    "@mariozechner/pi-tui": { "optional": true },
+    "@earendil-works/pi-coding-agent": { "optional": true },
+    "@earendil-works/pi-tui": { "optional": true }
+  }
+}
+```
+
+Result: npm / pnpm don't warn when either name set is missing. Whichever Pi version the user runs, their installed scope satisfies one of the pairs. Full migration to `@earendil-works/...`-only imports waits until we're ready to require Pi ≥0.74.
 
 ## Testing plan
 
@@ -365,7 +377,6 @@ Cases 1–6 are the smoke priorities. 7–10 are nice-to-have.
 
 ## Open questions / deferred decisions
 
-- **Capabilities schema lock-in**: ship `{ remoteControl: false }` always in 0.1.15? Or wait until orchestration plan finalizes the shape? (Recommendation: ship as-is. Adding fields later is fine; the field itself is forward-compat marker.)
 - **Hub failover context state**: when the hub disappears and a client gets promoted, do we preserve `hubTerminalContexts` from the prior hub's state? (Probably no — follow existing cwd/status precedent: state rebuilds from new connections. Document either way.)
 - **`link_list` JSON shape stability**: external consumers may script against the tool result. Adding `contexts` is additive — safe. Worth noting in CHANGELOG so anyone parsing it knows.
 
@@ -376,5 +387,9 @@ Cases 1–6 are the smoke priorities. 7–10 are nice-to-have.
 
 ### Added
 
-- **Context usage in `link_list` and `/link`.** Each terminal broadcasts its current LLM context (tokens used and window size) as part of its status updates. `/link` displays it inline as `45K/200K (23%)` after the status segment. The `link_list` tool returns nested `contexts: Record<name, { tokens, contextWindow }>`. Tokens may be `null` briefly after compaction; display falls back to `?/200K` then. Old terminals (0.1.14 and earlier) connect normally and simply omit the context segment in their entry. Capabilities advertised in the wire format for forward compatibility with future remote-control features.
+- **Context usage in `link_list` and `/link`.** Each terminal broadcasts its current LLM context (tokens used and window size) as part of its status updates. `/link` displays it inline as `45K/200K (23%)` after the status segment. The `link_list` tool returns nested `contexts: Record<name, { tokens, contextWindow }>`. Tokens may be `null` briefly after compaction; display falls back to `?/200K` then. Old terminals (0.1.14 and earlier) connect normally and simply omit the context segment in their entry.
+
+### Changed
+
+- **`peerDependenciesMeta` for Pi 0.74 namespace migration coexistence.** Both `@mariozechner/*` and `@earendil-works/*` peer-dep names listed as optional. Quiets npm warnings regardless of which Pi scope the user has installed. Runtime imports remain on `@mariozechner/*` (resolved via Pi's bundled alias map) to preserve compatibility with Pi ≤0.73.
 ```
