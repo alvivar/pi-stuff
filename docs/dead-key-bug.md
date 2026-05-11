@@ -10,7 +10,7 @@ Fix dead key accent composition (`´`+`a`→`á`, `~`+`a`→`ã`, etc.) in VSCod
 
 ### Quick Fix
 
-File: `C:\Users\andre\AppData\Roaming\npm\node_modules\@mariozechner\pi-coding-agent\node_modules\@mariozechner\pi-tui\dist\terminal.js`
+File: `C:\Users\andre\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\node_modules\@earendil-works\pi-tui\dist\terminal.js`
 
 In `setupStdinBuffer()`, find:
 
@@ -43,7 +43,7 @@ Stop the laptop `Fn` key (and other unmapped functional keys like CapsLock) from
 
 ### Quick Fix
 
-File: `C:\Users\andre\AppData\Roaming\npm\node_modules\@mariozechner\pi-coding-agent\node_modules\@mariozechner\pi-tui\dist\keys.js`
+File: `C:\Users\andre\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\node_modules\@earendil-works\pi-tui\dist\keys.js`
 
 In `decodeKittyPrintable()` (near the end of the file), find:
 
@@ -85,7 +85,7 @@ When Kitty protocol flag 1 (disambiguate) is on, VSCode's xterm.js wraps key eve
 ### Verification
 
 ```bash
-cd /c/Users/andre/AppData/Roaming/npm/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist
+cd /c/Users/andre/AppData/Roaming/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist
 node -e "import('./keys.js').then(m => { console.log('Fn:', m.decodeKittyPrintable('\x1b[57441u')); console.log('a:', m.decodeKittyPrintable('\x1b[97u')); console.log('é:', m.decodeKittyPrintable('\x1b[233u')); })"
 # Expected: Fn: undefined, a: a, é: é
 ```
