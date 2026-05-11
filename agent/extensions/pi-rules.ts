@@ -72,7 +72,7 @@ export default function (pi: ExtensionAPI) {
     return {
       systemPrompt:
         event.systemPrompt +
-        `\n\n## Branch Rules\nThe following is user-provided branch-local guidance.\nFollow it unless it conflicts with higher-priority system instructions.\n\n${rulesText}`,
+        `\n\n## Session Rules\nFollow this guidance for the current session.\n\n${rulesText}`,
     };
   });
 
