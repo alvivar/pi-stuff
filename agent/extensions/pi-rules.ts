@@ -10,9 +10,11 @@
  * /rules clear    → clear rules
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
+
+const MAX_PREVIEW = 280;
 
 export default function (pi: ExtensionAPI) {
   let rulesText: string | null = null;
@@ -40,17 +42,13 @@ export default function (pi: ExtensionAPI) {
   function updateWidget(ctx: {
     ui: {
       theme: { fg(style: string, text: string): string };
-      setWidget(
-        key: string,
-        content: string[] | undefined,
-        options?: { placement?: string },
-      ): void;
+      setWidget(key: string, content: string[] | undefined): void;
     };
   }) {
     if (rulesText) {
-      const preview = rulesText.split("\n")[0].slice(0, 280);
+      const preview = rulesText.split("\n")[0].slice(0, MAX_PREVIEW);
       const text =
-        rulesText.length > 280 || rulesText.includes("\n")
+        rulesText.length > MAX_PREVIEW || rulesText.includes("\n")
           ? preview + "..."
           : rulesText;
       ctx.ui.setWidget("pi-rules", [ctx.ui.theme.fg("dim", `⚙ ${text}`)]);
@@ -74,7 +72,7 @@ export default function (pi: ExtensionAPI) {
     return {
       systemPrompt:
         event.systemPrompt +
-        `\n\n## Session Rules\nFollow these rules for this session:\n\n${rulesText}`,
+        `\n\n## Branch Rules\nThe following is user-provided branch-local guidance.\nFollow it unless it conflicts with higher-priority system instructions.\n\n${rulesText}`,
     };
   });
 
