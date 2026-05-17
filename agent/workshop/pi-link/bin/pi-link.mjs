@@ -431,6 +431,7 @@ for (let i = 0; i < rawArgs.length; i++) {
   }
 
   // Phase 6: launcher mode entry. state.mode === null here, no name set yet.
+  // (lastWasFlag is still false here — only Phase 7 sets it, and Phase 7 requires launcher mode.)
   if (state.mode === null) {
     rejectManagedFlag(a);
     if (a.startsWith("-")) {
@@ -438,7 +439,6 @@ for (let i = 0; i < rawArgs.length; i++) {
     }
     state.mode = "launcher";
     state.launcherName = a;
-    lastWasFlag = false;
     continue;
   }
 
@@ -491,7 +491,7 @@ switch (state.mode) {
   case "help":
     printHelp();
     process.exit(0);
-    break; // unreachable
+    break; // unreachable; present to satisfy no-fallthrough lints
   case "list":
     await runList(state);
     break;

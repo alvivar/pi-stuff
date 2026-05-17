@@ -2,13 +2,13 @@
 
 // Automated tests for the pi-link CLI flag parser.
 // Runs against bin/pi-link.mjs. Cases that would spawn pi use a stubbed pi
-// shim on PATH that records its argv to a file and exits 0.
+// shim on PATH that records argv + PI_LINK_NAME to a file and exits 0.
 //
 // Usage:
 //   node test/cli-flags-test.mjs           # run all
 //   node test/cli-flags-test.mjs <filter>  # only cases whose label includes <filter>
 
-import { spawnSync, spawn } from "child_process";
+import { spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
 import { tmpdir, platform } from "os";
 import { join, resolve, dirname } from "path";
@@ -16,43 +16,36 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(__dirname, "..", "bin", "pi-link.mjs");
-
 const filter = process.argv[2] || "";
 const isWin = platform() === "win32";
 
-// ── pi stub ─────────────────────────────────────────────────────────────────
-// We create a tmp dir with a `pi` (or `pi.cmd` on Windows) shim that writes
-// argv to STUB_ARGV_FILE and exits 0. Tests that expect a launch read that file.
+// ── Stub pi on PATH ─────────────────────────────────────────────────────────
+// Records argv + PI_LINK_NAME to a file. On Windows the wrapper spawns via
+// `cmd.exe /d /c pi ...` so we need a `.cmd` shim; elsewhere a shebanged
+// Node script is enough.
 
 const stubDir = mkdtempSync(join(tmpdir(), "pi-link-test-"));
-const stubArgvFile = join(stubDir, "argv.txt");
+const stubRecordFile = join(stubDir, "record.json");
+
+const stubBody =
+  `import { writeFileSync } from "fs";\n` +
+  `writeFileSync(${JSON.stringify(stubRecordFile)}, JSON.stringify({\n` +
+  `  argv: process.argv.slice(2),\n` +
+  `  piLinkName: process.env.PI_LINK_NAME ?? null,\n` +
+  `}));\n` +
+  `process.exit(0);\n`;
 
 if (isWin) {
-  // Use a tiny Node script for both platforms; on Windows wrap via a .cmd shim
-  // so that PATH lookup finds it. The wrapper invokes via `cmd.exe /d /c pi ...`
-  // on Windows so a .cmd file is the right shim type.
   const stubJs = join(stubDir, "pi-stub.mjs");
-  writeFileSync(
-    stubJs,
-    `import { writeFileSync } from "fs";\nwriteFileSync(${JSON.stringify(stubArgvFile)}, JSON.stringify(process.argv.slice(2)));\nprocess.exit(0);\n`,
-  );
-  writeFileSync(
-    join(stubDir, "pi.cmd"),
-    `@echo off\r\nnode "${stubJs}" %*\r\n`,
-  );
+  writeFileSync(stubJs, stubBody);
+  writeFileSync(join(stubDir, "pi.cmd"), `@echo off\r\nnode "${stubJs}" %*\r\n`);
 } else {
-  const stubJs = join(stubDir, "pi-stub.mjs");
-  writeFileSync(
-    stubJs,
-    `#!/usr/bin/env node\nimport { writeFileSync } from "fs";\nwriteFileSync(${JSON.stringify(stubArgvFile)}, JSON.stringify(process.argv.slice(2)));\nprocess.exit(0);\n`,
-  );
   const piShim = join(stubDir, "pi");
-  writeFileSync(piShim, `#!/usr/bin/env node\n${readFileSync(stubJs, "utf-8").replace(/^#![^\n]*\n/, "")}`);
+  writeFileSync(piShim, `#!/usr/bin/env node\n${stubBody}`);
   chmodSync(piShim, 0o755);
 }
 
-// ── Isolated agent dir so we don't touch real sessions ──────────────────────
-
+// Isolated agent dir so we don't touch real sessions.
 const agentDir = join(stubDir, "agent");
 mkdirSync(join(agentDir, "sessions"), { recursive: true });
 
@@ -60,10 +53,9 @@ const baseEnv = {
   ...process.env,
   PATH: stubDir + (isWin ? ";" : ":") + process.env.PATH,
   PI_CODING_AGENT_DIR: agentDir,
-  // Avoid leaking the launcher into stub spawns:
-  PI_LINK_NAME: undefined,
   NO_COLOR: "1",
 };
+delete baseEnv.PI_LINK_NAME; // never leak the test runner's own env into spawns
 
 // ── Test harness ────────────────────────────────────────────────────────────
 
@@ -71,35 +63,37 @@ let pass = 0;
 let fail = 0;
 const failures = [];
 
-function clearStubArgv() {
-  if (existsSync(stubArgvFile)) rmSync(stubArgvFile);
+function clearRecord() {
+  if (existsSync(stubRecordFile)) rmSync(stubRecordFile);
 }
 
-function readStubArgv() {
-  if (!existsSync(stubArgvFile)) return null;
-  return JSON.parse(readFileSync(stubArgvFile, "utf-8"));
+function readRecord() {
+  if (!existsSync(stubRecordFile)) return null;
+  return JSON.parse(readFileSync(stubRecordFile, "utf-8"));
 }
 
-function run(args, opts = {}) {
-  clearStubArgv();
+function run(args) {
+  clearRecord();
   const result = spawnSync("node", [CLI, ...args], {
     encoding: "utf-8",
-    env: { ...baseEnv, ...(opts.env || {}) },
-    cwd: opts.cwd || stubDir,
+    env: baseEnv,
+    cwd: stubDir,
     timeout: 10000,
   });
   return {
     code: result.status,
     stdout: result.stdout || "",
     stderr: result.stderr || "",
-    argv: readStubArgv(),
-    signal: result.signal,
+    record: readRecord(),
   };
 }
 
-function check(label, condition, detail) {
+// Single place the filter is applied: caller passes a thunk that runs the spawn
+// and returns [ok, detail]. Skipped cases never spawn.
+function runCase(label, body) {
   if (filter && !label.toLowerCase().includes(filter.toLowerCase())) return;
-  if (condition) {
+  const [ok, detail] = body();
+  if (ok) {
     pass++;
     process.stdout.write(".");
   } else {
@@ -109,48 +103,40 @@ function check(label, condition, detail) {
   }
 }
 
-// substring may appear in either stdout or stderr (combined output check).
-function expectExit(label, args, code, substring, opts) {
-  if (filter && !label.toLowerCase().includes(filter.toLowerCase())) return;
-  const r = run(args, opts);
-  const combined = r.stdout + r.stderr;
-  const ok = r.code === code && (substring === undefined || combined.includes(substring));
-  if (ok) {
-    pass++;
-    process.stdout.write(".");
-  } else {
-    fail++;
-    failures.push(
-      `${label}\n  args: ${JSON.stringify(args)}\n  expected: exit ${code}${substring ? `, output~"${substring}"` : ""}\n  actual:   exit ${r.code}, stdout: ${JSON.stringify(r.stdout.slice(0, 200))}, stderr: ${JSON.stringify(r.stderr.slice(0, 200))}`,
-    );
-    process.stdout.write("F");
-  }
+// Asserts exit code, and (if given) that `substring` appears in stdout+stderr.
+function expectExit(label, args, code, substring) {
+  runCase(label, () => {
+    const r = run(args);
+    const combined = r.stdout + r.stderr;
+    const ok = r.code === code && (substring === undefined || combined.includes(substring));
+    return [
+      ok,
+      `args: ${JSON.stringify(args)}\n  expected: exit ${code}${substring ? `, output~"${substring}"` : ""}\n  actual:   exit ${r.code}, stdout: ${JSON.stringify(r.stdout.slice(0, 200))}, stderr: ${JSON.stringify(r.stderr.slice(0, 200))}`,
+    ];
+  });
 }
 
-function expectStub(label, args, expectedArgvSubseq, opts) {
-  if (filter && !label.toLowerCase().includes(filter.toLowerCase())) return;
-  const r = run(args, opts);
-  const argv = r.argv;
-  const hasAll = argv !== null && expectedArgvSubseq.every((t) => argv.includes(t));
-  if (r.code === 0 && hasAll) {
-    pass++;
-    process.stdout.write(".");
-  } else {
-    fail++;
-    failures.push(
-      `${label}\n  args: ${JSON.stringify(args)}\n  expected stub argv to include: ${JSON.stringify(expectedArgvSubseq)}\n  actual:   exit ${r.code}, argv ${JSON.stringify(argv)}, stderr ${JSON.stringify(r.stderr.slice(0, 300))}`,
-    );
-    process.stdout.write("F");
-  }
+// Asserts pi was spawned with exactly `argv` (order + length both checked) and
+// PI_LINK_NAME equals `piLinkName`.
+function expectSpawn(label, args, argv, piLinkName) {
+  runCase(label, () => {
+    const r = run(args);
+    const rec = r.record;
+    const argvOk = rec !== null && JSON.stringify(rec.argv) === JSON.stringify(argv);
+    const nameOk = rec !== null && rec.piLinkName === piLinkName;
+    const ok = r.code === 0 && argvOk && nameOk;
+    return [
+      ok,
+      `args: ${JSON.stringify(args)}\n  expected: argv=${JSON.stringify(argv)}, PI_LINK_NAME=${JSON.stringify(piLinkName)}\n  actual:   exit ${r.code}, record=${JSON.stringify(rec)}, stderr=${JSON.stringify(r.stderr.slice(0, 200))}`,
+    ];
+  });
 }
 
 // ── Cases ───────────────────────────────────────────────────────────────────
 
 console.log(`Running pi-link CLI flag tests`);
 console.log(`  CLI: ${CLI}`);
-console.log(`  stub dir: ${stubDir}`);
-console.log(`  agent dir: ${agentDir}`);
-console.log("");
+console.log(`  stub dir: ${stubDir}\n`);
 
 // A. Canonical forms
 expectExit("A1: --list empty cwd", ["--list"], 0, "No pi-link sessions");
@@ -163,16 +149,16 @@ expectExit("A7: --resolve missing -g → exit 2", ["--resolve", "nope", "-g"], 2
 expectExit("B8: list (deprecated)", ["list"], 0, "deprecated");
 expectExit("B9: resolve missing (deprecated)", ["resolve", "nope"], 2, "deprecated");
 expectExit("B10: list -g (deprecated)", ["list", "-g"], 0, "deprecated");
-expectExit("B11: resolve --global foo (lenient)", ["resolve", "--global", "nope"], 2, "deprecated");
+expectExit("B11: resolve --global foo (lenient ordering)", ["resolve", "--global", "nope"], 2, "deprecated");
 
-// C. Orphan-positional rejection
+// C. Orphan-positional rejection (launcher mode)
 expectExit("C12: foo extra → unexpected", ["foo", "extra"], 1, "Unexpected argument after session name");
 expectExit("C13: resolv foo (typo) → unexpected", ["resolv", "foo"], 1, "Unexpected argument after session name");
-expectStub("C14: foo --model opus passthrough", ["foo", "--model", "opus"], ["--model", "opus"]);
-expectStub("C15: foo --model=opus passthrough", ["foo", "--model=opus"], ["--model=opus"]);
-expectExit("C16: foo --model=opus extra → reject", ["foo", "--model=opus", "extra"], 1, "Unexpected argument after session name: extra");
-expectExit("C17: foo --model opus extra → reject", ["foo", "--model", "opus", "extra"], 1, "Unexpected argument after session name: extra");
-expectStub("C18: foo -- extra extra2 passthrough", ["foo", "--", "extra", "extra2"], ["extra", "extra2"]);
+expectSpawn("C14: foo --model opus passthrough", ["foo", "--model", "opus"], ["--link", "--model", "opus"], "foo");
+expectSpawn("C15: foo --model=opus passthrough", ["foo", "--model=opus"], ["--link", "--model=opus"], "foo");
+expectExit("C16: foo --model=opus extra → reject (=-form is self-contained)", ["foo", "--model=opus", "extra"], 1, "Unexpected argument after session name: extra");
+expectExit("C17: foo --model opus extra → reject (opus consumed as value)", ["foo", "--model", "opus", "extra"], 1, "Unexpected argument after session name: extra");
+expectSpawn("C18: foo -- extra extra2 passthrough", ["foo", "--", "extra", "extra2"], ["--link", "extra", "extra2"], "foo");
 
 // D. Mode-selecting validation
 expectExit("D19: --list foo → does not accept", ["--list", "foo"], 1, "--list does not accept argument");
@@ -198,19 +184,20 @@ expectExit("E35: --session foo.jsonl", ["--session", "foo.jsonl"], 1, "managed b
 expectExit("E36: foo --session bar.jsonl", ["foo", "--session", "bar.jsonl"], 1, "managed by pi-link");
 expectExit("E37: foo --link-name bar", ["foo", "--link-name", "bar"], 1, "--link-name is not accepted");
 
+// G. Wrapper-vs-pi flag boundaries (added per review)
+expectSpawn("G38: foo --global is consumed by wrapper (not forwarded)", ["foo", "--global"], ["--link"], "foo");
+expectSpawn("G39: foo -- --global escapes through to pi", ["foo", "--", "--global"], ["--link", "--global"], "foo");
+expectSpawn("G40: foo (no extra args) passes only --link", ["foo"], ["--link"], "foo");
+expectSpawn("G41: PI_LINK_NAME equals the resolved name (whitespace normalized)", ["  foo  "], ["--link"], "foo");
+
 // ── Report ──────────────────────────────────────────────────────────────────
 
-console.log("");
-console.log("");
-console.log(`Passed: ${pass}`);
+console.log(`\n\nPassed: ${pass}`);
 console.log(`Failed: ${fail}`);
 if (failures.length) {
-  console.log("");
-  console.log("Failures:");
+  console.log("\nFailures:");
   for (const f of failures) console.log("  - " + f);
 }
 
-// Cleanup
 try { rmSync(stubDir, { recursive: true, force: true }); } catch {}
-
 process.exit(fail === 0 ? 0 : 1);
