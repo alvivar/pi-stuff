@@ -54,12 +54,14 @@ pi-link list ...                # works, prints deprecation warning to stderr
 pi-link resolve <name> ...      # works, prints deprecation warning to stderr
 ```
 
-Removed in a future release. Warning text:
+Removed in a future release. Warning text (single stderr line, prefixed `Warning:`):
 
 ```
-pi-link: 'list' subcommand is deprecated; use --list. Will be removed in a future release.
-pi-link: 'resolve' subcommand is deprecated; use --resolve <name>. Will be removed in a future release.
+Warning: 'pi-link list' is deprecated. Use 'pi-link --list' instead. (Subcommand form will be removed in a future release.)
+Warning: 'pi-link resolve' is deprecated. Use 'pi-link --resolve' instead. (Subcommand form will be removed in a future release.)
 ```
+
+**Warning vs. error ordering:** parse-time errors short-circuit the deprecation warning. `pi-link list extra` fails with `--list does not accept argument: extra` and emits no warning. This is intentional — telling the user their command is deprecated when it's also broken is noise. The warning fires only when the deprecated form would otherwise have run successfully.
 
 ### New validation rules
 
