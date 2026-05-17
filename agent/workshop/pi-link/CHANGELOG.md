@@ -8,6 +8,20 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ## Unreleased
 
+### Added
+
+- **`--list` and `--resolve <name>` flag forms for the `pi-link` CLI wrapper.** Use instead of the `list` / `resolve` subcommands. `--resolve=<name>` joined form also accepted. This fixes the reserved-word collision that prevented sessions named `list` or `resolve`, and the silent-typo failure mode where `pi-link resolv foo` would create a session called `resolv` and pass `foo` as a prompt to Pi.
+
+### Changed
+
+- **`pi-link --resolve <missing-name>` now exits with code `2`** (was `0`). Single match still exits `0`; ambiguous still exits `1`; not found is now distinguishable from success in scripts. The legacy `pi-link resolve <missing-name>` form gets the same fix.
+- **`pi-link <name> <extra-positional>` now errors** instead of silently passing the extra to Pi as a prompt. Catches typos like `pi-link resolv foo`. Tokens that follow a flag without `=` are still accepted as that flag's value (e.g. `pi-link worker --model opus` works). Use `--` to pass bare positionals through unchanged: `pi-link worker -- some-arg`.
+- **`pi-link foo --help` now errors** with "cannot combine session name and --help" instead of silently passing `--help` to Pi. Run `pi --help` for Pi's own help.
+
+### Deprecated
+
+- **`pi-link list` and `pi-link resolve` subcommands.** Use `--list` / `--resolve` instead. Subcommands still work for one release with a stderr deprecation warning, then will be removed. The `--global` flag placement is more flexible in the deprecated `resolve` form than the canonical `--resolve` form: `pi-link resolve --global foo` is still accepted, while `pi-link --resolve --global foo` is an error (use `pi-link --resolve foo --global` or `--resolve=foo --global`).
+
 ### Fixed
 
 - **Pi-bundled imports now declared as peer dependencies.** `package.json` adds `@mariozechner/pi-coding-agent`, `@mariozechner/pi-tui`, and `typebox` as `peerDependencies` with `"*"` ranges, matching Pi's `docs/packages.md` convention for packages that import Pi-bundled modules. Previously only `ws` was declared, so consumers whose toolchain didn't auto-resolve modules through Pi's loader (e.g. some Docker setups) hit `ERR_MODULE_NOT_FOUND` on `typebox`. With modern npm/pnpm, peer deps auto-install alongside the package; older toolchains may need explicit `npm install`.
