@@ -6,11 +6,38 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
-## Unreleased
+## 0.1.15-beta.1 — 2026-05-17
+
+Second `beta`-tag release. Supersedes `0.1.15-beta.0`. Re-install with `npm i -g pi-link@beta`.
+
+### Breaking
+
+- **Pi 0.74+ is now required.** Runtime imports and peer dependencies migrated to the `@earendil-works/*` namespace introduced in Pi 0.74. Users on Pi ≤0.73 should pin `pi-link@0.1.14` (still on the `latest` tag).
+  - `index.ts`: `@mariozechner/pi-coding-agent` → `@earendil-works/pi-coding-agent`; `@mariozechner/pi-tui` → `@earendil-works/pi-tui`
+  - `package.json` peer deps: same migration, with version constraint bumped from `*` to `>=0.74.0`
+
+### Fixed
+
+- **No more npm deprecation warnings on install.** `0.1.15-beta.0` declared peer deps on `@mariozechner/*`, which Pi 0.74 no longer publishes — npm auto-installed the tombstoned 0.73.1 packages (203 transitive deps) and printed deprecation notices for `pi-agent-core`, `pi-tui`, `pi-ai`, and `pi-coding-agent`. With the namespace migration, Pi 0.74 satisfies the peer deps natively and no extra packages are installed.
+- **Published tarball trimmed to 7 files / 39.6 kB** (was 18 files / 87.5 kB on `0.1.15-beta.0`). Added an explicit `files` allowlist in `package.json` so internal planning artifacts (`PLAN-*.md`, `PROPOSAL-*.md`, `REPORT-*.md`, `REQUEST-*.md`) and the test harness no longer ship to npm. Users get only `bin/`, `skills/`, `index.ts`, `README.md`, `CHANGELOG.md`, `LICENSE`, and `package.json`.
+
+---
+
+## 0.1.15-beta.0 — 2026-05-17 _(superseded by beta.1; do not install)_
+
+Beta release for the 0.1.15 cycle. Install with `npm i -g pi-link@beta` for soak; `npm i -g pi-link` continues to install 0.1.14. Promotion to `latest` after smoke + at least one external user confirmation.
+
+**Superseded by `0.1.15-beta.1`** due to npm deprecation warnings caused by stale peer-dep namespace. See beta.1 entry for fix.
 
 ### Added
 
 - **`--list` and `--resolve <name>` flag forms for the `pi-link` CLI wrapper.** Use instead of the `list` / `resolve` subcommands. `--resolve=<name>` joined form also accepted. This fixes the reserved-word collision that prevented sessions named `list` or `resolve`, and the silent-typo failure mode where `pi-link resolv foo` would create a session called `resolv` and pass `foo` as a prompt to Pi.
+
+  ```
+  pi-link --list [--global|-g]
+  pi-link --resolve <name> [--global|-g]
+  pi-link --resolve=<name>
+  ```
 
 ### Changed
 
@@ -25,6 +52,24 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 ### Fixed
 
 - **Pi-bundled imports now declared as peer dependencies.** `package.json` adds `@mariozechner/pi-coding-agent`, `@mariozechner/pi-tui`, and `typebox` as `peerDependencies` with `"*"` ranges, matching Pi's `docs/packages.md` convention for packages that import Pi-bundled modules. Previously only `ws` was declared, so consumers whose toolchain didn't auto-resolve modules through Pi's loader (e.g. some Docker setups) hit `ERR_MODULE_NOT_FOUND` on `typebox`. With modern npm/pnpm, peer deps auto-install alongside the package; older toolchains may need explicit `npm install`.
+
+### Migration
+
+All existing scripts and aliases continue to work — the deprecated subcommands print a stderr warning but produce identical output (and the new exit-code 2 on missing resolve). Scripts that depended on `pi-link resolve <name>` returning exit 0 for missing names need updating to handle 2. Most callers already treated empty stdout as "not found" and will be unaffected.
+
+To silence the deprecation warning, switch to the flag form:
+
+| Old                            | New                                                                |
+| ------------------------------ | ------------------------------------------------------------------ |
+| `pi-link list`                 | `pi-link --list`                                                   |
+| `pi-link list -g`              | `pi-link --list -g`                                                |
+| `pi-link resolve foo`          | `pi-link --resolve foo`                                            |
+| `pi-link resolve foo -g`       | `pi-link --resolve foo -g`                                         |
+| `pi-link resolve --global foo` | `pi-link --resolve foo --global` (order matters in canonical form) |
+
+### Test coverage
+
+40 automated cases in `test/cli-flags-test.mjs` covering: canonical forms (5), deprecation aliases (4), orphan-positional rejection (7), mode-selecting validation (11), help / unknown / managed-flag rejection (8), wrapper-vs-pi flag boundaries (4). Cases that exercise the launch path use a stubbed `pi` on PATH that records argv + `PI_LINK_NAME`. Run with `node test/cli-flags-test.mjs`.
 
 ---
 
