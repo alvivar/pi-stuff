@@ -36,7 +36,7 @@ A single Pi terminal is powerful. Multiple terminals working together unlock new
 
 ## Prerequisites
 
-- [Pi coding agent](https://github.com/badlogic/pi-mono) installed and working
+- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.74 or later** (for pi-link 0.1.15+). On Pi ≤0.73, pin `pi-link@0.1.14`.
 - Node.js (LTS recommended)
 
 ---
