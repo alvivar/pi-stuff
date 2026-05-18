@@ -45,14 +45,22 @@ A single Pi terminal is powerful. Multiple terminals working together unlock new
 
 ### Install
 
+pi-link ships two things: a Pi extension (loaded inside Pi) and a `pi-link` CLI launcher (run from a shell). On Pi 0.75+ you need both install commands to get full functionality:
+
 ```bash
-pi install npm:pi-link
+npm i -g pi-link              # CLI launcher: puts `pi-link` on PATH
+pi install npm:pi-link        # Pi extension: loaded by Pi at startup
 ```
+
+If you only need the in-Pi tools (`/link`, `link_send`, `link_prompt`) and not the `pi-link <name>` shell launcher, `pi install` alone is enough.
+
+> **Pi 0.74 and earlier:** `pi install npm:pi-link` previously installed to the global npm root and exposed the CLI automatically. Pi 0.75 switched to a private npm root (`~/.pi/agent/npm/`) for safer permission handling ([pi-mono#4587](https://github.com/earendil-works/pi-mono/issues/4587)), which means the CLI is no longer on PATH after `pi install` alone. The `npm i -g pi-link` step restores it. Both installs together are safe and recommended.
 
 ### Uninstall
 
 ```bash
-pi uninstall npm:pi-link
+npm uninstall -g pi-link      # Remove CLI launcher
+pi uninstall npm:pi-link      # Remove Pi extension
 ```
 
 ### Usage

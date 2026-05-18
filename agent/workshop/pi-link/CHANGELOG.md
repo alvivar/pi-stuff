@@ -12,6 +12,21 @@ First recommended beta of the 0.1.15 cycle. Install with `npm i -g pi-link@beta`
 
 _Supersedes `0.1.15-beta.0`, which was pulled within hours due to a peer-dep namespace bug. See the `0.1.15-beta.0` entry below for the postmortem._
 
+### Important: install method change for Pi 0.75 users
+
+Pi 0.75 (released 2026-05-17) installs Pi packages into a private npm root (`~/.pi/agent/npm/`) instead of the global npm root ([#4587](https://github.com/earendil-works/pi-mono/issues/4587)). This solves a permission-error class but means **`pi install npm:pi-link` no longer puts the `pi-link` launcher on PATH** — the bin shim ends up at `~/.pi/agent/npm/node_modules/.bin/pi-link`, which isn't a system PATH location.
+
+**Recommended install for 0.1.15+:**
+
+```sh
+npm i -g pi-link@beta            # CLI launcher (`pi-link <name>` on PATH)
+pi install npm:pi-link@beta      # Pi extension (loads inside Pi)
+```
+
+Run both. Pi loads the extension from its managed npm root; the global install provides the shell launcher. Pi 0.75's package loader handles the dual install correctly. If you only need the in-Pi extension and don't use `pi-link <name>` from a shell, `pi install` alone is sufficient.
+
+Users who previously had only `pi install npm:pi-link` and rely on the shell launcher should run `npm i -g pi-link@beta` to restore it.
+
 ### Breaking
 
 - **Pi 0.74+ is now required.** Runtime imports and peer dependencies use the `@earendil-works/*` namespace introduced in Pi 0.74. Users on Pi ≤0.73 should pin `pi-link@0.1.14` (still on the `latest` tag).
