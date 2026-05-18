@@ -45,22 +45,37 @@ A single Pi terminal is powerful. Multiple terminals working together unlock new
 
 ### Install
 
-pi-link ships two things: a Pi extension (loaded inside Pi) and a `pi-link` CLI launcher (run from a shell). On Pi 0.75+ you need both install commands to get full functionality:
+The minimum install — enables every in-Pi feature (`/link`, `link_send`, `link_prompt`, `/link-connect`, `--link` flag, auto-resume, all LLM tools):
 
 ```bash
-npm i -g pi-link              # CLI launcher: puts `pi-link` on PATH
-pi install npm:pi-link        # Pi extension: loaded by Pi at startup
+pi install npm:pi-link
 ```
 
-If you only need the in-Pi tools (`/link`, `link_send`, `link_prompt`) and not the `pi-link <name>` shell launcher, `pi install` alone is enough.
+That's it. For most users this is all you need.
 
-> **Pi 0.74 and earlier:** `pi install npm:pi-link` previously installed to the global npm root and exposed the CLI automatically. Pi 0.75 switched to a private npm root (`~/.pi/agent/npm/`) for safer permission handling ([pi-mono#4587](https://github.com/earendil-works/pi-mono/issues/4587)), which means the CLI is no longer on PATH after `pi install` alone. The `npm i -g pi-link` step restores it. Both installs together are safe and recommended.
+#### Optional: shell launcher
+
+If you also want the `pi-link <name>` shell command to start named sessions from a terminal prompt (e.g. `pi-link builder` in one window, `pi-link reviewer` in another), install the CLI globally as well:
+
+```bash
+npm i -g pi-link
+```
+
+Or install both in one line:
+
+```bash
+pi install npm:pi-link && npm i -g pi-link
+```
+
+The shell launcher is convenience-only — you can always reach the same functionality from inside Pi via `/link-connect <name>` and `/link-name <name>`.
+
+> **Why two installs?** Pi 0.75 installs Pi packages into a private npm root (`~/.pi/agent/npm/`) for safer permission handling ([pi-mono#4587](https://github.com/earendil-works/pi-mono/issues/4587)). That's where the Pi extension lives, but it means the `pi-link` shell command is no longer on system PATH. `npm i -g pi-link` puts it on PATH separately. Both installs are safe to use together.
 
 ### Uninstall
 
 ```bash
-npm uninstall -g pi-link      # Remove CLI launcher
 pi uninstall npm:pi-link      # Remove Pi extension
+npm uninstall -g pi-link      # Remove CLI launcher (if you installed it)
 ```
 
 ### Usage
