@@ -1,5 +1,6 @@
 agent/auth.json
 agent/bin/
+agent/npm/
 agent/sessions/
 agent/settings.json
 debug.log
