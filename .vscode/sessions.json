@@ -7,82 +7,82 @@
     "pi-link": [
       {
         "name": "opus@pi-link",
-        "autoExecuteCommands": true,
-        "focus": true,
         "icon": "link",
-        "color": "terminal.ansiMagenta",
+        "color": "terminal.ansiBrightMagenta",
+        "focus": true,
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-link"
         ]
       },
       {
         "name": "gpt@pi-link",
-        "autoExecuteCommands": true,
         "icon": "link",
         "color": "terminal.ansiGreen",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi-link"
         ]
       },
       {
         "name": "docs@pi-link",
-        "autoExecuteCommands": true,
         "icon": "link",
-        "color": "terminal.ansiCyan",
+        "color": "terminal.ansiBrightCyan",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link docs@pi-link"
         ]
       },
       {
         "name": "pi-link-test1",
-        "autoExecuteCommands": true,
         "icon": "beaker",
         "color": "terminal.ansiBlue",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link pi-link-test1"
         ]
       },
       {
         "name": "pi-link-test2",
-        "autoExecuteCommands": true,
         "icon": "beaker",
         "color": "terminal.ansiBlue",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link pi-link-test2"
         ]
       },
       {
         "name": "pi-link-test3",
-        "autoExecuteCommands": true,
         "icon": "beaker",
         "color": "terminal.ansiBlue",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link pi-link-test3"
         ]
       },
       {
         "name": "pi-link-test4",
-        "autoExecuteCommands": true,
         "icon": "beaker",
         "color": "terminal.ansiBlue",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link pi-link-test4"
         ]
       },
       {
         "name": "committer@.pi",
-        "autoExecuteCommands": true,
         "icon": "git-commit",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiYellow",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
         ]
       },
       {
         "name": "bash",
-        "autoExecuteCommands": true,
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
         ]
@@ -91,27 +91,27 @@
     "pi-bugs": [
       {
         "name": "gpt@pi-bugs",
-        "autoExecuteCommands": true,
         "icon": "bug",
         "color": "terminal.ansiGreen",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi-bugs"
         ]
       },
       {
         "name": "committer@.pi",
-        "autoExecuteCommands": true,
         "icon": "git-commit",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiYellow",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
         ]
       },
       {
         "name": "bash",
-        "autoExecuteCommands": true,
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
         ]
@@ -120,37 +120,37 @@
     "pi-rules": [
       {
         "name": "opus@pi-rules",
-        "autoExecuteCommands": true,
         "icon": "law",
-        "color": "terminal.ansiMagenta",
+        "color": "terminal.ansiBrightMagenta",
+        "focus": true,
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-rules"
-        ],
-        "focus": true
+        ]
       },
       {
         "name": "gpt@pi-rules",
-        "autoExecuteCommands": true,
         "icon": "law",
         "color": "terminal.ansiGreen",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi-rules"
         ]
       },
       {
         "name": "committer@.pi",
-        "autoExecuteCommands": true,
         "icon": "git-commit",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiYellow",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
         ]
       },
       {
         "name": "bash",
-        "autoExecuteCommands": true,
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
         ]
@@ -159,37 +159,37 @@
     "pi.claude.hack": [
       {
         "name": "opus@pi.claude.hack",
-        "autoExecuteCommands": true,
         "icon": "tools",
-        "color": "terminal.ansiMagenta",
+        "color": "terminal.ansiBrightMagenta",
+        "focus": true,
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi.claude.hack"
-        ],
-        "focus": true
+        ]
       },
       {
         "name": "gpt@pi.claude.hack",
-        "autoExecuteCommands": true,
         "icon": "tools",
         "color": "terminal.ansiGreen",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi.claude.hack"
         ]
       },
       {
         "name": "committer@.pi",
-        "autoExecuteCommands": true,
         "icon": "git-commit",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiYellow",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
         ]
       },
       {
         "name": "bash",
-        "autoExecuteCommands": true,
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
         ]
@@ -198,46 +198,46 @@
     "claude-code-provider": [
       {
         "name": "opus@claude-code-provider",
-        "autoExecuteCommands": true,
         "icon": "plug",
-        "color": "terminal.ansiMagenta",
+        "color": "terminal.ansiBrightMagenta",
+        "focus": true,
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@claude-code-provider"
-        ],
-        "focus": true
+        ]
       },
       {
         "name": "gpt@claude-code-provider",
-        "autoExecuteCommands": true,
         "icon": "plug",
         "color": "terminal.ansiGreen",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@claude-code-provider"
         ]
       },
       {
         "name": "claude-code-provider-test",
-        "autoExecuteCommands": true,
         "icon": "beaker",
         "color": "terminal.ansiBlue",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link claude-code-provider-test"
         ]
       },
       {
         "name": "committer@.pi",
-        "autoExecuteCommands": true,
         "icon": "git-commit",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiYellow",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
         ]
       },
       {
         "name": "bash",
-        "autoExecuteCommands": true,
         "icon": "terminal-bash",
         "color": "terminal.ansiWhite",
+        "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
         ]
