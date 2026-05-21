@@ -48,17 +48,20 @@ Synchronous RPC. Send a prompt, wait for the response.
 
 Fire-and-forget. Send to one terminal or `to: "*"` to broadcast to every other connected terminal; there is no exclusion filter.
 
-Set `triggerTurn: true` to queue async work on the receiver. Delivery happens at turn boundaries: pending messages are batched and surface together when the receiver next becomes idle. The sender does **not** get the response back.
+Set `triggerTurn: true` to queue async work on the receiver. The sender does **not** get an automatic response back.
 
-If multiple messages are delivered together, they arrive as `[Link: N message(s) received]` followed by `From "name":` blocks. A single callback may arrive as plain message content.
+Delivery shape depends on the message's `triggerTurn`:
 
-**Callback contract for `triggerTurn: true`:** ask the receiver to reply via `link_send` with:
+- **`triggerTurn: true`** messages go through the receiver's idle-gated inbox and surface at a turn boundary wrapped as `[Link: N message(s) received]` followed by one `From "name":` block per message. Multiple pending messages are batched into one turn.
+- **`triggerTurn: false`** messages bypass the inbox and surface directly as raw content — no wrapper, no `From` block. The receiver sees only the message text, so the sender must include their own identity, task tag, or artifact paths in the body.
+
+**Callback contract for `triggerTurn: true`:** ask the receiver to reply via `link_send(..., triggerTurn: true)` so the result arrives at a proper turn boundary with the wrapper intact. The reply should include:
 
 - `DONE` / `BLOCKED`
 - Output paths / artifacts created
-- Short result summary or next question
+- Result summary or next question
 
-Keep callbacks concise. Put long details in files and return the paths.
+Use `triggerTurn: false` for fire-and-forget status notifications only — when you don't need to act on the reply.
 
 ---
 
@@ -81,11 +84,11 @@ For answers, review, analysis you need back now. One terminal at a time. Keep sc
 
 ### Async delegate — `link_send(triggerTurn: true)`
 
-For autonomous work. Require the callback contract (DONE/BLOCKED + paths + short summary). Do your own work in parallel. Expect the callback at a turn boundary, possibly batched with others. Don't `link_prompt` the target until the callback arrives.
+For autonomous work. Require the callback contract (DONE/BLOCKED + paths + summary). Do your own work in parallel. Expect the callback at a turn boundary, possibly batched with others. Don't `link_prompt` the target until the callback arrives.
 
 ### Parallel batch — async to multiple terminals
 
-Distribute independent tasks. Worker callbacks may return together in one batched turn when you become idle. Use explicit paths (absolute if cwds differ), require short callbacks + artifact paths, wait for all callbacks, then synthesize. Don't prompt any dispatched terminal until its callback arrives.
+Distribute independent tasks. Worker callbacks may return together in one batched turn when you become idle. Use explicit paths (absolute if cwds differ), require callbacks with artifact paths, wait for all callbacks, then synthesize. Don't prompt any dispatched terminal until its callback arrives.
 
 ---
 
@@ -101,16 +104,13 @@ No direct response comes back to the sender. Use `link_prompt` when you need the
 "Fix the bug" is useless. Include file, line, root cause, expected fix.
 
 **❌ No completion callback on async work**
-Always require DONE/BLOCKED + artifact paths + short summary.
+Always require DONE/BLOCKED + artifact paths + summary.
 
 **❌ Circular delegation**
 A → B → C → A = deadlock. Maintain clear hierarchy.
 
 **❌ Skipping `link_list` before retrying a busy target**
 Check status before re-sending.
-
-**❌ Long async callbacks**
-Long callbacks crowd a whole batched turn. Ask workers to write detailed output to files and return paths + short summaries.
 
 ---
 
