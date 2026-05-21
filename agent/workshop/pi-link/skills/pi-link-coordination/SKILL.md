@@ -21,6 +21,8 @@ How to coordinate work across Pi terminals via pi-link.
 
 > After `link_send(triggerTurn: true)` to terminal X, do not `link_prompt` X until X sends a completion callback.
 
+The `DONE` / `BLOCKED` callback arrives as a normal later user message; treat that callback as the signal that it is safe to send a follow-up `link_prompt`.
+
 Pick one mode per terminal per task. Mixing sync and async on the same terminal is the most common coordination failure.
 
 ---
@@ -44,11 +46,11 @@ Synchronous RPC. Send a prompt, wait for the response.
 
 ### `link_send`
 
-Fire-and-forget. Send to one terminal or `to: "*"` to broadcast (excludes sender).
+Fire-and-forget. Send to one terminal or `to: "*"` to broadcast to every other connected terminal; there is no exclusion filter.
 
 Set `triggerTurn: true` to queue async work on the receiver. Delivery happens at turn boundaries: pending messages are batched and surface together when the receiver next becomes idle. The sender does **not** get the response back.
 
-Batched callback shape: `[Link: N message(s) received]` then one or more `From "name":` / `content` blocks.
+If multiple messages are delivered together, they arrive as `[Link: N message(s) received]` followed by `From "name":` blocks. A single callback may arrive as plain message content.
 
 **Callback contract for `triggerTurn: true`:** ask the receiver to reply via `link_send` with:
 
