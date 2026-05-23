@@ -75,7 +75,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
         ]
       },
       {
@@ -104,7 +104,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
         ]
       },
       {
@@ -143,7 +143,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
         ]
       },
       {
@@ -182,7 +182,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
         ]
       },
       {
@@ -230,7 +230,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
         ]
       },
       {
