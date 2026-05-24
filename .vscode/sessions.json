@@ -25,8 +25,17 @@
         ]
       },
       {
+        "name": "updater@pi-link",
+        "icon": "sync",
+        "color": "terminal.ansiBrightBlue",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link updater@pi-link"
+        ]
+      },
+      {
         "name": "docs@pi-link",
-        "icon": "link",
+        "icon": "book",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
         "commands": [
