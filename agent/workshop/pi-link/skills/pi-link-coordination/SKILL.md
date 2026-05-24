@@ -41,8 +41,7 @@ Synchronous RPC. Send a prompt, wait for the response.
 
 - Fails immediately if target is missing, self, disconnects, or busy (local work or another remote prompt)
 - 90s inactivity timeout, 30min hard ceiling
-- Remote agent doesn't share your context — prompts must be self-contained
-- Include: goal, scope, constraints, output format, done condition
+- Remote agent doesn't share your context — include enough detail to complete the task
 
 ### `link_send`
 
@@ -72,23 +71,13 @@ Use `triggerTurn: false` for fire-and-forget status notifications only — when 
 - **Messages are ephemeral.** Offline terminals lose messages.
 - **Localhost only.** Same machine.
 - **Cwd is a hint, not proof.** Same cwd ≠ same workspace/branch/access. Use explicit paths; absolute when cwds differ or shared-root assumptions are unclear.
-- **Naming:** `role@domain` (e.g., `builder@pi-link`). Only talk to your own domain unless told otherwise.
+- **Naming:** Prefer descriptive names such as `role@domain` (e.g., `builder@pi-link`) for coordination. Only talk to your own domain unless told otherwise.
 
 ---
 
-## Coordination Modes
+## Parallel batch
 
-### Sync ask — `link_prompt`
-
-For answers, review, analysis you need back now. One terminal at a time. Keep scope focused to avoid timeout.
-
-### Async delegate — `link_send(triggerTurn: true)`
-
-For autonomous work. Require the callback contract (DONE/BLOCKED + paths + summary). Do your own work in parallel. Expect the callback at a turn boundary, possibly batched with others. Don't `link_prompt` the target until the callback arrives.
-
-### Parallel batch — async to multiple terminals
-
-Distribute independent tasks. Worker callbacks may return together in one batched turn when you become idle. Use explicit paths (absolute if cwds differ), require callbacks with artifact paths, wait for all callbacks, then synthesize. Don't prompt any dispatched terminal until its callback arrives.
+Distribute independent tasks to multiple terminals via `link_send(triggerTurn: true)`, and keep doing your own work while you wait. Worker callbacks may return together in one batched turn when you become idle. Use explicit paths (absolute if cwds differ), wait for all callbacks, then synthesize. Don't prompt any dispatched terminal until its callback arrives.
 
 ---
 
