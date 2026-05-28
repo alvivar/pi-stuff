@@ -2,7 +2,7 @@
 
 A WebSocket-based inter-terminal communication system that creates a local network between multiple Pi coding agent terminals. Enables terminals to discover each other, exchange messages, and orchestrate work across agents - all automatically on `localhost`.
 
-> Self-contained TypeScript in a single `index.ts` file. Start Pi with `--link` to enable, or use `pi-link <name>` to resume/create named sessions
+> Three patterns out of the box: ask another agent for an answer (`link_prompt`), delegate async work (`link_send` with `triggerTurn:true`), or broadcast to every other terminal (`/link-broadcast`). Start two Pi terminals with `--link` — they find each other automatically.
 
 ---
 
@@ -67,9 +67,7 @@ Or install both in one line:
 pi install npm:pi-link && npm i -g pi-link
 ```
 
-The shell launcher is convenience-only — you can always reach the same functionality from inside Pi via `/link-connect <name>` and `/link-name <name>`.
-
-> **Why two installs?** Pi 0.75 installs Pi packages into a private npm root (`~/.pi/agent/npm/`) for safer permission handling ([pi-mono#4587](https://github.com/earendil-works/pi-mono/issues/4587)). That's where the Pi extension lives, but it means the `pi-link` shell command is no longer on system PATH. `npm i -g pi-link` puts it on PATH separately. Both installs are safe to use together.
+The shell launcher is convenience-only — you can always reach the same functionality from inside Pi via `/link-connect` and `/link-name <name>`.
 
 ### Uninstall
 
@@ -80,27 +78,18 @@ npm uninstall -g pi-link      # Remove CLI launcher (if you installed it)
 
 ### Usage
 
-Link is **off by default**. Start Pi with `--link` to auto-connect on startup:
+Link is **off by default**. Two ways to start:
 
-```
-Terminal 1                            Terminal 2
-----------                            ----------
-$ pi --link                           $ pi --link
-✓ Link hub started on :9900 as "t-a1b2"  ✓ Joined link as "t-c3d4" (2 online)
+```bash
+pi --link            # try it now, random name like t-a3f9
+pi-link mybot        # named session you can resume by name
 ```
 
-Use `pi-link <name>` to connect with a meaningful name and session resume:
+Already in a session? Use `/link-connect`. Use `/link` any time to check status, or let the LLM tools handle cross-terminal coordination. See [Session Resume](#session-resume) for `pi-link <name>` details.
 
-```
-$ pi-link builder                     $ pi-link reviewer
-✓ Link hub started on :9900 as "builder"  ✓ Joined link as "reviewer" (2 online)
-```
+### Notes on installation
 
-See [Session Resume](#session-resume) for details.
-
-Already in a session? Connect mid-session with `/link-connect`.
-
-Use `/link` in any terminal to check status, or let the LLM tools handle cross-terminal coordination.
+**Why two installs?** Pi 0.75 installs Pi packages into a private npm root (`~/.pi/agent/npm/`) for safer permission handling ([pi-mono#4587](https://github.com/earendil-works/pi-mono/issues/4587)). That's where the Pi extension lives, but it means the `pi-link` shell command is no longer on system PATH. `npm i -g pi-link` puts it on PATH separately. Both installs are safe to use together.
 
 ---
 
@@ -158,17 +147,24 @@ Every other terminal sees:
 
 Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, the extension is completely silent — no status bar, no connections, no warnings.
 
-| Method                  | When                                                             | Auto-reconnect?                  |
-| ----------------------- | ---------------------------------------------------------------- | -------------------------------- |
-| `pi-link <name>`        | Resume/create named session                                      | Yes                              |
-| `pi --link-name <name>` | Connect with a specific link name; Pi session behavior unchanged | Yes                              |
-| `pi --link`             | Connect on startup (random name)                                 | Yes                              |
-| `/link-connect`         | Opt-in mid-session (no flag needed)                              | Yes                              |
-| `/link-disconnect`      | Opt-out mid-session                                              | Suppressed until `/link-connect` |
+**Naming concepts**
 
-`pi --link-name <name>` sets only the pi-link terminal name; Pi's session selection/resume runs as normal. Use this when you want a stable link identity without coupling it to a same-named session. Use `pi-link <name>` when you want the combined session-by-name + link-name workflow. The `pi-link` wrapper itself does not accept `--link-name`.
+- **link name** — identity used on the network (visible in `link_list`, `/link`, prompts).
+- **Pi session name** — identity Pi gives the session itself; lives in the session JSONL's latest `session_info` entry.
+- **saved link name** — the link name persisted to the session, restored on resume. Set by `/link-name`, `pi-link <name>`, or `pi --link-name <name>`.
+- **`--link-name` flag vs `/link-name` command** — same concept (the link name) at different times (startup vs mid-session).
 
-**Name precedence:** `pi --link-name` > `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`.
+| What you want                        | Use                     |
+| ------------------------------------ | ----------------------- |
+| Resume/create a named session        | `pi-link <name>`        |
+| Stable link identity, normal Pi flow | `pi --link-name <name>` |
+| Quick try, random name               | `pi --link`             |
+| Already in a session                 | `/link-connect`         |
+| Disconnect mid-session               | `/link-disconnect`      |
+
+`pi-link <name>` resumes/creates a session AND sets your link identity in one step. `pi --link-name <name>` sets only the link identity, leaving Pi's normal session selection (latest in cwd, or fresh) untouched.
+
+**Name precedence:** `pi --link-name` > `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`. _(The `pi-link` wrapper itself does not accept `--link-name`; pick one or the other.)_
 
 `/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
