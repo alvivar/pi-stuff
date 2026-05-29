@@ -12,7 +12,21 @@ Fix dead key accent composition (`´`+`a`→`á`, `~`+`a`→`ã`, etc.) in VSCod
 
 File: `C:\Users\andre\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\node_modules\@earendil-works\pi-tui\dist\terminal.js`
 
-In `setupStdinBuffer()`, find:
+Find the Kitty protocol flags setup.
+
+Current Pi versions define a constant near the top:
+
+```javascript
+const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
+```
+
+Replace with:
+
+```javascript
+const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = process.env.TERM_PROGRAM === "vscode" ? 5 : 7;
+```
+
+Older Pi versions did this inline in `setupStdinBuffer()`:
 
 ```javascript
 process.stdout.write("\x1b[>7u");
@@ -24,8 +38,6 @@ Replace with:
 const kittyFlags = process.env.TERM_PROGRAM === "vscode" ? 5 : 7;
 process.stdout.write(`\x1b[>${kittyFlags}u`);
 ```
-
-That's it. One line.
 
 ## Why
 
