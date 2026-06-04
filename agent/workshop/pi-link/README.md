@@ -105,9 +105,9 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi 
 
 > /link
 ⚡ Link: builder (hub) · 2 online
-  builder: idle (5s)
+  builder: idle (5s) · 45K/272K (26%)
     cwd: ~/my-project
-  researcher: idle (12s)
+  researcher: idle (12s) · 80K/272K (29%)
     cwd: ~/my-project
 ```
 
@@ -228,11 +228,11 @@ The extension registers three tools that the LLM can invoke during agent runs. p
 
 ### Which tool should I use?
 
-| Tool          | Behavior                                             | Returns                                   |
-| ------------- | ---------------------------------------------------- | ----------------------------------------- |
-| `link_send`   | Send a message; optionally trigger the remote LLM    | Send/delivery status only                 |
-| `link_prompt` | Run a prompt on a remote terminal and wait for reply | The remote terminal's assistant response  |
-| `link_list`   | List currently connected terminals                   | Terminal list with roles, status, and cwd |
+| Tool          | Behavior                                             | Returns                                            |
+| ------------- | ---------------------------------------------------- | -------------------------------------------------- |
+| `link_send`   | Send a message; optionally trigger the remote LLM    | Send/delivery status only                          |
+| `link_prompt` | Run a prompt on a remote terminal and wait for reply | The remote terminal's assistant response           |
+| `link_list`   | List currently connected terminals                   | Terminal list with roles, status, cwd, and context |
 
 **If you need the other terminal's answer back, use `link_prompt`.** Use `link_send` to notify or steer without waiting.
 
@@ -275,9 +275,11 @@ Send a prompt to a remote terminal and **wait** for the LLM's response (synchron
 
 ### `link_list`
 
-Lists all connected terminals with role info, live agent status, working directory, and self-identification. Takes no parameters.
+Lists all connected terminals with role info, live agent status, working directory, context usage, and self-identification. Takes no parameters.
 
 Each terminal reports its current working directory on connect. `link_list` shows the full absolute path so agents can choose the right target, use explicit paths when terminals differ, and catch wrong-project mistakes early.
+
+Each terminal also reports its current LLM context usage, rendered as `45K/272K (26%)` — tokens used over the context window, with percent. Briefly after compaction it shows as `?/272K` until the next live token count arrives. Treat it as an advisory signal when choosing a worker; prefer a less-loaded terminal for context-heavy delegation.
 
 Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Three states:
 
@@ -295,11 +297,11 @@ Working directories use full absolute paths in tool output. In the TUI (`/link`)
 
 ```
 Connected terminals:
-  • opus@pi-link (you)  idle (12s)
+  • opus@pi-link (you)  idle (12s)  · 45K/272K (26%)
     cwd: C:\Users\andre\.pi
-  • gpt@pi-link  thinking (3s)
+  • gpt@pi-link  thinking (3s)  · ?/272K
     cwd: C:\Users\andre\.pi
-  • docs@pi-link  idle (1m)
+  • docs@pi-link  idle (1m)  · 90K/272K (33%)
     cwd: C:\Users\andre\.pi
 ```
 
@@ -317,7 +319,7 @@ The three tools compose into coordination shapes worth naming:
 
 | Command                 | Purpose                                                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `/link`                 | Show link status (name, role, online count, agent status, and cwd per terminal)                                          |
+| `/link`                 | Show link status (name, role, online count, agent status, context usage, and cwd per terminal)                           |
 | `/link-name [name]`     | Rename and save as this session's preferred link name. With no argument, adopts the Pi session name. Restored on resume. |
 | `/link-broadcast <msg>` | Broadcast a chat message to all other terminals                                                                          |
 | `/link-connect`         | Connect to Pi Link (works anytime, with or without `--link`)                                                             |
@@ -328,11 +330,11 @@ The three tools compose into coordination shapes worth naming:
 ```
 > /link
 ⚡ Link: builder (hub) · 3 online
-  builder: idle (12s)
+  builder: idle (12s) · 45K/272K (26%)
     cwd: ~/my-project
-  worker-1: thinking (3s)
+  worker-1: thinking (3s) · ?/272K
     cwd: ~/my-project
-  worker-2: tool:bash (5s)
+  worker-2: tool:bash (5s) · 180K/272K (66%)
     cwd: ~/other-project
 
 > /link-name orchestrator
@@ -497,19 +499,19 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 ### Protocol
 
-The wire protocol consists of **9 message types**, all serialized as JSON over WebSocket frames. Cwd-related fields are optional.
+The wire protocol consists of **9 message types**, all serialized as JSON over WebSocket frames. Cwd and context fields are optional.
 
-| Type              | Direction       | Purpose                                                                 |
-| ----------------- | --------------- | ----------------------------------------------------------------------- |
-| `register`        | Client → Hub    | First message after connecting; requests a name, optionally reports cwd |
-| `welcome`         | Hub → Client    | Confirms assigned name, terminal list + status/cwd snapshots            |
-| `terminal_joined` | Hub → All       | Broadcast when a terminal joins; may include cwd                        |
-| `terminal_left`   | Hub → All       | Broadcast when a terminal disconnects                                   |
-| `chat`            | Any → Any/All   | Fire-and-forget message; optionally triggers LLM turn                   |
-| `prompt_request`  | Any → Any       | Request a remote terminal to execute a prompt                           |
-| `prompt_response` | Any → Any       | Response carrying the remote prompt result                              |
-| `status_update`   | Any → Hub → All | Terminal broadcasts its agent status change                             |
-| `error`           | Hub → Client    | Error notification                                                      |
+| Type              | Direction       | Purpose                                                                             |
+| ----------------- | --------------- | ----------------------------------------------------------------------------------- |
+| `register`        | Client → Hub    | First message after connecting; requests a name, optionally reports cwd and context |
+| `welcome`         | Hub → Client    | Confirms assigned name, terminal list + status/cwd/context snapshots                |
+| `terminal_joined` | Hub → All       | Broadcast when a terminal joins; may include cwd and context                        |
+| `terminal_left`   | Hub → All       | Broadcast when a terminal disconnects                                               |
+| `chat`            | Any → Any/All   | Fire-and-forget message; optionally triggers LLM turn                               |
+| `prompt_request`  | Any → Any       | Request a remote terminal to execute a prompt                                       |
+| `prompt_response` | Any → Any       | Response carrying the remote prompt result                                          |
+| `status_update`   | Any → Hub → All | Terminal broadcasts agent status change; carries updated context                    |
+| `error`           | Hub → Client    | Error notification                                                                  |
 
 ### Message Flow Examples
 
@@ -528,7 +530,7 @@ Client                         Hub
   |                             |
 ```
 
-Hub then broadcasts `terminal_joined` to the other connected terminals. The `welcome` message includes status and cwd snapshots for all connected terminals (fields omitted above for brevity). `terminal_joined` also includes the new terminal's optional cwd.
+Hub then broadcasts `terminal_joined` to the other connected terminals. The `welcome` message includes status, cwd, and context snapshots for all connected terminals (fields omitted above for brevity). `terminal_joined` also includes the new terminal's optional cwd and context.
 
 **Sending a chat message:**
 
@@ -622,6 +624,7 @@ The extension hooks into Pi's agent lifecycle events:
 - **`agent_end`** → Wakes up the inbox flush (idle-gated delivery for `triggerTurn:true` messages). Checks if a remote prompt was running; if so, extracts the last assistant response from `event.messages` and sends back a `prompt_response`. Broadcasts `status_update` (`idle`).
 - **`tool_execution_start`** → Broadcasts `status_update` (`tool:<name>`).
 - **`tool_execution_end`** → Clears tool status; broadcasts `status_update` (`thinking`) while the agent run continues.
+- **`session_compact`** → Force-pushes a `status_update` so peers see the new (post-compaction) context usage immediately.
 - **`session_shutdown`** → Full cleanup via `cleanup()`: closes all sockets, resolves pending promises, and disposes the extension.
 
 Status updates are push-based: each terminal broadcasts changes to the hub, which fans them out. New joiners receive a status snapshot for all terminals in the `welcome` message.
