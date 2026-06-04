@@ -105,7 +105,7 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi 
 
 > /link
 ⚡ Link: builder (hub) · 2 online
-  builder: idle (5s) · 45K/272K (26%)
+  builder: idle (5s) · 45K/272K (17%)
     cwd: ~/my-project
   researcher: idle (12s) · 80K/272K (29%)
     cwd: ~/my-project
@@ -279,7 +279,7 @@ Lists all connected terminals with role info, live agent status, working directo
 
 Each terminal reports its current working directory on connect. `link_list` shows the full absolute path so agents can choose the right target, use explicit paths when terminals differ, and catch wrong-project mistakes early.
 
-Each terminal also reports its current LLM context usage, rendered as `45K/272K (26%)` — tokens used over the context window, with percent. Briefly after compaction it shows as `?/272K` until the next live token count arrives. Treat it as an advisory signal when choosing a worker; prefer a less-loaded terminal for context-heavy delegation.
+Each terminal also reports its current LLM context usage, rendered as `45K/272K (17%)` — tokens used over the context window, with percent. Briefly after compaction it shows as `?/272K` until the next live token count arrives. Treat it as an advisory signal when choosing a worker; prefer a less-loaded terminal for context-heavy delegation.
 
 Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Three states:
 
@@ -297,7 +297,7 @@ Working directories use full absolute paths in tool output. In the TUI (`/link`)
 
 ```
 Connected terminals:
-  • opus@pi-link (you)  idle (12s)  · 45K/272K (26%)
+  • opus@pi-link (you)  idle (12s)  · 45K/272K (17%)
     cwd: C:\Users\andre\.pi
   • gpt@pi-link  thinking (3s)  · ?/272K
     cwd: C:\Users\andre\.pi
@@ -330,7 +330,7 @@ The three tools compose into coordination shapes worth naming:
 ```
 > /link
 ⚡ Link: builder (hub) · 3 online
-  builder: idle (12s) · 45K/272K (26%)
+  builder: idle (12s) · 45K/272K (17%)
     cwd: ~/my-project
   worker-1: thinking (3s) · ?/272K
     cwd: ~/my-project
