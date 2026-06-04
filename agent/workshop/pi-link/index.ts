@@ -6,7 +6,7 @@
  * First terminal to connect becomes the hub; others join as clients.
  * Hub loss triggers automatic promotion of a surviving client.
  *
- * Tools: link_send, link_prompt, link_list
+ * Tools: link_send, link_prompt, link_list, link_compact
  * Commands: /link, /link-name, /link-broadcast, /link-connect, /link-disconnect
  */
 
@@ -95,6 +95,12 @@ interface ErrorMsg {
   type: "error";
   message: string;
 }
+interface CompactRequestMsg {
+  type: "compact_request";
+  from: string;
+  to: string;
+  instructions?: string;
+}
 
 type LinkStatus =
   | { kind: "idle"; since: number }
@@ -112,7 +118,8 @@ type LinkMessage =
   | PromptRequestMsg
   | PromptResponseMsg
   | StatusUpdateMsg
-  | ErrorMsg;
+  | ErrorMsg
+  | CompactRequestMsg;
 
 // ─── Extension ───────────────────────────────────────────────────────────────
 
@@ -477,7 +484,7 @@ export default function (pi: ExtensionAPI) {
    * still reject via protocol-level error responses).
    */
   function routeMessage(
-    msg: ChatMsg | PromptRequestMsg | PromptResponseMsg,
+    msg: ChatMsg | PromptRequestMsg | PromptResponseMsg | CompactRequestMsg,
   ): boolean {
     if (role === "hub") {
       if (msg.to === "*") {
@@ -620,6 +627,12 @@ export default function (pi: ExtensionAPI) {
         }
         break;
 
+      // ── Another terminal asks us to compact our context ──
+      case "compact_request":
+        notify(`"${msg.from}" requested compact`, "info");
+        ctx?.compact?.({ customInstructions: msg.instructions });
+        break;
+
       // ── Another terminal asks us to run a prompt ──
       case "prompt_request":
         if (agentRunning || pendingRemotePrompt) {
@@ -758,7 +771,8 @@ export default function (pi: ExtensionAPI) {
       if (
         msg.type === "chat" ||
         msg.type === "prompt_request" ||
-        msg.type === "prompt_response"
+        msg.type === "prompt_response" ||
+        msg.type === "compact_request"
       ) {
         routeMessage({ ...msg, from: clientName });
       }
@@ -1225,6 +1239,81 @@ export default function (pi: ExtensionAPI) {
       text += theme.fg("accent", target);
       if (args.triggerTurn) text += theme.fg("warning", " (trigger)");
       text += "\n  " + theme.fg("dim", preview);
+      return new Text(text, 0, 0);
+    },
+
+    renderResult(result, _options, theme) {
+      const txt = result.content[0];
+      const details = result.details as Record<string, unknown> | undefined;
+      const icon = details?.error
+        ? theme.fg("error", "✗ ")
+        : theme.fg("success", "✓ ");
+      return new Text(icon + (txt?.type === "text" ? txt.text : ""), 0, 0);
+    },
+  });
+
+  pi.registerTool({
+    name: "link_compact",
+    label: "Link Compact",
+    description: [
+      "Ask another Pi terminal to compact its context window, freeing up space.",
+      "Fire-and-forget; watch link_list to see the target's context usage drop.",
+    ].join(" "),
+    promptSnippet: "Ask another Pi terminal to compact its context window",
+    parameters: Type.Object({
+      to: Type.String({ description: "Target terminal name" }),
+      instructions: Type.Optional(
+        Type.String({
+          description: "Optional custom compaction instructions for the target",
+        }),
+      ),
+    }),
+
+    async execute(_toolCallId, params) {
+      if (role === "disconnected") return notConnectedResult();
+
+      if (params.to === terminalName) {
+        return textResult("Cannot compact yourself - use /compact.", {
+          to: params.to,
+          error: "self_target",
+        });
+      }
+
+      if (!connectedTerminals.includes(params.to)) {
+        return textResult(
+          `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
+          { to: params.to, error: "not_found" },
+        );
+      }
+
+      const delivered = routeMessage({
+        type: "compact_request",
+        from: terminalName,
+        to: params.to,
+        instructions: params.instructions,
+      });
+      if (!delivered) {
+        return textResult(`Failed to request compact on "${params.to}"`, {
+          to: params.to,
+          error: "not_delivered",
+        });
+      }
+
+      const verb =
+        role === "hub"
+          ? "Requested compact on"
+          : "Requested compact (via hub) on";
+      return textResult(
+        `${verb} "${params.to}". Watch link_list for its context to drop.`,
+        { to: params.to },
+      );
+    },
+
+    renderCall(args, theme) {
+      let text = theme.fg("toolTitle", theme.bold("link_compact "));
+      text += theme.fg("accent", String(args.to));
+      if (typeof args.instructions === "string")
+        text += "\n  " + theme.fg("dim", truncatePreview(args.instructions));
       return new Text(text, 0, 0);
     },
 

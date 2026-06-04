@@ -62,6 +62,10 @@ Delivery shape depends on the message's `triggerTurn`:
 
 Use `triggerTurn: false` for fire-and-forget status notifications only — when you don't need to act on the reply.
 
+### `link_compact`
+
+Fire-and-forget. Ask another terminal to compact its context window, freeing space. Use when `link_list` shows a worker's context running high — compact it before handing over more work so it can keep going without blowing its window. No response is returned; confirm by watching the target's context usage drop in `link_list`. You decide the threshold; pi-link only sends the request.
+
 ---
 
 ## Operating Constraints
