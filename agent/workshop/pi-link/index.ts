@@ -150,7 +150,6 @@ export default function (pi: ExtensionAPI) {
   let stateSince = Date.now();
   let lastPushedKind: string | null = null;
   let lastPushedTool: string | null = null;
-  let lastPushedContext: ContextSnapshot | null = null;
   const terminalStatuses = new Map<string, LinkStatus>(); // other terminals
   const terminalContexts = new Map<string, ContextSnapshot>(); // other terminals' context
   let currentCwd = "";
@@ -235,31 +234,16 @@ export default function (pi: ExtensionAPI) {
     return { tokens: usage.tokens, contextWindow: usage.contextWindow };
   }
 
-  function sameContext(
-    a: ContextSnapshot | undefined,
-    b: ContextSnapshot | null,
-  ): boolean {
-    if (!a && !b) return true;
-    if (!a || !b) return false;
-    return a.tokens === b.tokens && a.contextWindow === b.contextWindow;
-  }
-
   function pushStatus(force = false) {
     if (role === "disconnected") return;
     const status = deriveStatus();
     const context = captureContext();
     const newKind = status.kind;
     const newTool = status.kind === "tool" ? status.toolName : null;
-    if (
-      !force &&
-      newKind === lastPushedKind &&
-      newTool === lastPushedTool &&
-      sameContext(context, lastPushedContext)
-    )
+    if (!force && newKind === lastPushedKind && newTool === lastPushedTool)
       return;
     lastPushedKind = newKind;
     lastPushedTool = newTool;
-    lastPushedContext = context ?? null;
     const msg: StatusUpdateMsg = {
       type: "status_update",
       name: terminalName,
@@ -613,7 +597,6 @@ export default function (pi: ExtensionAPI) {
       // ── Status update from another terminal ──
       case "status_update":
         terminalStatuses.set(msg.name, msg.status);
-        // Truthy object stores; explicit null clears; absent leaves as-is.
         if (msg.context) terminalContexts.set(msg.name, msg.context);
         else if (msg.context === null) terminalContexts.delete(msg.name);
         resetInactivityFor(msg.name);
@@ -753,7 +736,6 @@ export default function (pi: ExtensionAPI) {
       // Status update — store and fan out to other clients only (not back to hub)
       if (msg.type === "status_update") {
         hubTerminalStatuses.set(clientName, msg.status);
-        // Truthy object stores; explicit null clears; absent leaves as-is.
         if (msg.context) hubTerminalContexts.set(clientName, msg.context);
         else if (msg.context === null) hubTerminalContexts.delete(clientName);
         resetInactivityFor(clientName);
@@ -761,8 +743,7 @@ export default function (pi: ExtensionAPI) {
           type: "status_update",
           name: clientName,
           status: msg.status,
-          // Forward null through so downstream peers clear too.
-          ...(msg.context !== undefined ? { context: msg.context } : {}),
+          context: msg.context, // undefined omitted by JSON; null forwarded to clear
         };
         const json = JSON.stringify(normalized);
         for (const [otherWs, name] of hubClients) {
@@ -991,7 +972,6 @@ export default function (pi: ExtensionAPI) {
     hubTerminalCwds.clear();
     lastPushedKind = null;
     lastPushedTool = null;
-    lastPushedContext = null;
     updateStatus();
 
     // Inbox survives disconnect — messages are local state waiting for local delivery.
