@@ -11,7 +11,7 @@ opus@pi-link: idle (2m) · 45K/200K (23%)
   cwd: ~/.pi
 ```
 
-This is the foundation for orchestrator patterns: an orchestrator terminal can see "worker is at 80% context" before deciding to ask for compaction. Compaction-as-action is **out of scope** for this release — it ships in a separate plan (`PLAN-orchestration.md`, 0.1.16+).
+This is the foundation for orchestrator patterns: an orchestrator terminal can see "worker is at 80% context" before deciding to ask for compaction. Compaction-as-action is **out of scope** for this release — it ships in a separate plan (`PLAN-orchestration.md`).
 
 ## Non-goals
 
@@ -39,8 +39,8 @@ interface ExtensionContext {
 
 Three states to handle:
 
-1. `getContextUsage()` returns `undefined` — no model, or pre-init. Omit `context` field from status.
-2. Returns object with `tokens: null` — post-compaction or pre-first-turn. Send `{ tokens: null, contextWindow: N }`.
+1. `getContextUsage()` returns `undefined` (or `contextWindow <= 0`) — no model, or pre-init. Send `context: null` so peers **clear** any previously-stored value. (Omitting the field would leave a stale snapshot on peers forever — see context-clearing below.)
+2. Returns object with `tokens: null` — post-compaction or pre-first-turn. Send `{ tokens: null, contextWindow: N }`. Note `tokens: null` is **valid data**, not "missing": display falls back to `?/200K`. Only a whole-snapshot `null` means clear.
 3. Returns full object — send `{ tokens, contextWindow }`. `percent` derived at display time.
 
 Relevant Pi events for triggering re-push:
@@ -72,7 +72,7 @@ interface StatusUpdateMsg {
   type: "status_update";
   name: string;
   status: LinkStatus;
-  context?: ContextSnapshot;
+  context?: ContextSnapshot | null; // null = "I no longer have context" (clear stored value); absent = old terminal
 }
 type ContextSnapshot = { tokens: number | null; contextWindow: number };
 ```
@@ -83,7 +83,7 @@ type ContextSnapshot = { tokens: number | null; contextWindow: number };
 
 ### Register / Welcome / TerminalJoined — initial snapshot
 
-These carry `cwd` today as the per-terminal snapshot at join time. Add `context` the same way:
+These carry `cwd` today as the per-terminal snapshot at join time. Add `context` the same way. They stay `context?: ContextSnapshot` (no `| null`): these are join-time snapshots, so a terminal either has context (object) or doesn't yet (omit) — there is nothing to clear at join. The `null`-clear semantic is **only** a `status_update` concern.
 
 ```ts
 interface RegisterMsg {
@@ -111,9 +111,9 @@ interface TerminalJoinedMsg {
 }
 ```
 
-### Capabilities field — deferred to 0.1.16
+### Capabilities field — deferred
 
-Earlier draft pre-baked `capabilities: { remoteControl: false }` for forward-compat. Per GPT's second pass: drop it. A 0.1.16 orchestrator treats absent `capabilities` and `{ remoteControl: false }` identically (both mean "doesn't support remote control"), so pre-baking saves zero migration work. Add the field with orchestration.
+Earlier draft pre-baked `capabilities: { remoteControl: false }` for forward-compat. Per GPT's second pass: drop it. A future orchestrator treats absent `capabilities` and `{ remoteControl: false }` identically (both mean "doesn't support remote control"), so pre-baking saves zero migration work. Add the field with orchestration.
 
 ## Implementation outline (`index.ts`)
 
@@ -132,6 +132,7 @@ function captureContext(): ContextSnapshot | undefined {
   if (!ctx) return undefined;
   const usage = ctx.getContextUsage();
   if (!usage) return undefined;
+  if (usage.contextWindow <= 0) return undefined; // 0/negative window = no real context to report
   return { tokens: usage.tokens, contextWindow: usage.contextWindow };
 }
 ```
@@ -162,7 +163,7 @@ function pushStatus(force = false) {
     type: "status_update",
     name: terminalName,
     status,
-    ...(context ? { context } : {}),
+    context: context ?? null, // explicit null tells peers to clear; never omit from a live terminal
   };
   // ... existing send logic
 }
@@ -194,21 +195,26 @@ In `hubHandleClient`, when a status_update arrives, also persist `msg.context` a
 ```ts
 if (msg.type === "status_update") {
   hubTerminalStatuses.set(clientName, msg.status);
-  if (msg.context !== undefined) {
+  // Truthy object stores; explicit null clears; absent (old client) leaves as-is.
+  if (msg.context) {
     hubTerminalContexts.set(clientName, msg.context);
+  } else if (msg.context === null) {
+    hubTerminalContexts.delete(clientName);
   }
   resetInactivityFor(clientName);
   const normalized: StatusUpdateMsg = {
     type: "status_update",
     name: clientName,
     status: msg.status,
-    ...(msg.context ? { context: msg.context } : {}),
+    ...(msg.context !== undefined ? { context: msg.context } : {}), // forward null through so downstream clears too
   };
   // ... existing fan-out
 }
 ```
 
 When a client registers, capture their initial context and send back snapshots in the welcome.
+
+On client disconnect/close, delete the entry: `hubTerminalContexts.delete(clientName)` — mirror the existing `hubTerminalStatuses.delete(clientName)` cleanup. Without it, a same-named terminal reconnecting later (or another consumer) could read stale context from the departed terminal.
 
 ### 6. Client: store incoming context
 
@@ -217,14 +223,16 @@ In the existing `status_update` handler:
 ```ts
 case "status_update":
   terminalStatuses.set(msg.name, msg.status);
-  if (msg.context !== undefined) {
+  if (msg.context) {
     terminalContexts.set(msg.name, msg.context);
+  } else if (msg.context === null) {
+    terminalContexts.delete(msg.name);
   }
   resetInactivityFor(msg.name);
   break;
 ```
 
-Welcome/terminal_joined handlers absorb `contexts`/`context` similarly.
+Welcome/terminal_joined handlers absorb `contexts`/`context` similarly. The `terminal_left` handler deletes the entry: `terminalContexts.delete(msg.name)`, alongside the existing `terminalStatuses.delete(msg.name)`.
 
 ### 7. Display
 
@@ -301,10 +309,11 @@ The text body also gets the `· 45K/200K (23%)` segment appended after `statusSt
 
 | Case                                                      | Behavior                                                                                                      |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `ctx` is undefined (pre-init)                             | `captureContext()` returns undefined → `context` field omitted → display shows just `idle (2m)`               |
+| `ctx` is undefined (pre-init)                             | `captureContext()` returns undefined → send `context: null` → peers clear, display shows just `idle (2m)`     |
 | `getContextUsage()` returns undefined (no model selected) | Same as above                                                                                                 |
-| `tokens` is null (post-compaction)                        | Send `{ tokens: null, contextWindow: N }` → display shows `?/200K`                                            |
-| `contextWindow` is 0                                      | Treat as missing — omit context entirely                                                                      |
+| Context was present, becomes unavailable (model deselected) | Terminal sends `context: null` → hub/clients **delete** stored entry → display drops segment (no stale value) |
+| `tokens` is null (post-compaction)                        | Send `{ tokens: null, contextWindow: N }` → display shows `?/200K` (valid data, not a clear)                 |
+| `contextWindow` is 0                                      | `captureContext()` returns undefined → send `context: null` → peers clear                                    |
 | Old terminal (0.1.14 or earlier) connects                 | Doesn't send context field → maps stay empty for that terminal → display omits segment for that terminal only |
 | Self-context                                              | `getContextFor(self)` calls `captureContext()` directly, always fresh                                         |
 | Status push during streaming                              | Existing cadence applies (agent_start, tool boundaries, agent_end) — no new high-frequency pushes             |
@@ -319,32 +328,6 @@ The text body also gets the `· 45K/200K (23%)` segment appended after `statusSt
 - 0.1.14 clients receiving a status_update with extra fields ignore them (TS structural typing means `JSON.parse` returns the extra props but the message-handler switch doesn't reference them)
 - 0.1.15+ clients connecting to a 0.1.14 hub: hub forwards status_updates as-is, but the hub itself doesn't send context for its own terminal. Mixed-version display: 0.1.15 sees context for other 0.1.15s; 0.1.14 hub appears without context. Acceptable
 - No changes to `register` / `welcome` semantics — new fields ignored by old terminals
-
-### `peerDependenciesMeta` for Pi 0.74 namespace coexistence
-
-Pi 0.74 migrated bundled packages from `@mariozechner/*` to `@earendil-works/*`. Pi's extension loader aliases both name sets at runtime, so existing imports keep working. But our `package.json` currently lists only the old names as peer deps, which miss-validate against new Pi installs.
-
-Decision: leave runtime imports in `index.ts` pointing at `@mariozechner/...` (preserves Pi ≤0.73 compatibility). In `package.json`, list **both** name sets as optional peer deps:
-
-```json
-{
-  "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "*"
-  },
-  "peerDependenciesMeta": {
-    "@mariozechner/pi-coding-agent": { "optional": true },
-    "@mariozechner/pi-tui": { "optional": true },
-    "@earendil-works/pi-coding-agent": { "optional": true },
-    "@earendil-works/pi-tui": { "optional": true }
-  }
-}
-```
-
-Result: npm / pnpm don't warn when either name set is missing. Whichever Pi version the user runs, their installed scope satisfies one of the pairs. Full migration to `@earendil-works/...`-only imports waits until we're ready to require Pi ≥0.74.
 
 ## Testing plan
 
@@ -362,8 +345,9 @@ Manual smoke (10 cases, similar pattern to 0.1.14 batch):
 | 8   | Hub failover: context state survives promotion (or starts fresh — document either way)   | Disconnect hub, observe                   |
 | 9   | Long-running streaming: context pushes fire on agent_end, not per-token                  | Confirm by message-frequency observation  |
 | 10  | `formatTokens` rounds correctly: 999 → `999`, 1500 → `2K`, 1500000 → `1.5M`              | Unit assertion or eyeball                 |
+| 11  | Context-clearing: terminal reports context then loses it (`context: null`) → segment drops on peers, no stale value | Compare peer's `/link` before/after       |
 
-Cases 1–6 are the smoke priorities. 7–10 are nice-to-have.
+Cases 1–6 are the smoke priorities. 7–11 are nice-to-have.
 
 ## Rollout
 
@@ -389,7 +373,4 @@ Cases 1–6 are the smoke priorities. 7–10 are nice-to-have.
 
 - **Context usage in `link_list` and `/link`.** Each terminal broadcasts its current LLM context (tokens used and window size) as part of its status updates. `/link` displays it inline as `45K/200K (23%)` after the status segment. The `link_list` tool returns nested `contexts: Record<name, { tokens, contextWindow }>`. Tokens may be `null` briefly after compaction; display falls back to `?/200K` then. Old terminals (0.1.14 and earlier) connect normally and simply omit the context segment in their entry.
 
-### Changed
-
-- **`peerDependenciesMeta` for Pi 0.74 namespace migration coexistence.** Both `@mariozechner/*` and `@earendil-works/*` peer-dep names listed as optional. Quiets npm warnings regardless of which Pi scope the user has installed. Runtime imports remain on `@mariozechner/*` (resolved via Pi's bundled alias map) to preserve compatibility with Pi ≤0.73.
 ```
