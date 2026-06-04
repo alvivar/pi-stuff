@@ -8,56 +8,24 @@ Sequencing plan for the next several pi-link work items. Captures the decision (
 
 The README reshape (rev 3, compressed) landed. Four shipped plans were archived. A comparison against Claude Code's "Dynamic Workflows" feature confirmed that **context visibility is the one externally-validated feature** worth pulling into pi-link — every other workflow concept is an artifact of script-orchestration and doesn't fit pi-link's peer-LLM coordination model.
 
-Key finding from that analysis: context visibility is substrate-independent. It answers "how much room does this agent have left?" — a question true of any multi-agent system regardless of orchestration model. Two independent designs (Claude Code's progress view, pi-link's `PLAN-context-usage.md`) converged on it, which marks it as fundamental rather than incidental.
+Key finding from that analysis: context visibility is substrate-independent. It answers "how much room does this agent have left?" — a question true of any multi-agent system regardless of orchestration model. Two independent designs (Claude Code's progress view, pi-link's own context-usage design) converged on it, which marks it as fundamental rather than incidental.
 
 ## The sequence
 
-| Step | Work item                                           | Plan file                     | Est.    | Status          |
-| ---- | --------------------------------------------------- | ----------------------------- | ------- | --------------- |
-| 1    | Prep `PLAN-context-usage.md` for execution          | this file → that file         | ~15 min | **next action** |
-| 2    | Execute context usage                               | `PLAN-context-usage.md`       | ~4h     | queued          |
-| 3    | Coordination recipes documentation                  | new (small)                   | ~1–2h   | follow-on       |
-| 4    | Re-decide: orchestration vs README Walkthrough seam | `PLAN-orchestration.md` / new | TBD     | after step 3    |
+| Step | Work item                                           | Plan file                     | Est.    | Status             |
+| ---- | --------------------------------------------------- | ----------------------------- | ------- | ------------------ |
+| 1    | Prep `PLAN-context-usage.md` for execution          | (folded into that file)       | ~15 min | ✓ done             |
+| 2    | Execute context usage                               | (shipped)                     | ~4h     | ✓ done + validated |
+| 3    | Coordination recipes documentation                  | new (small)                   | ~1–2h   | **next action**    |
+| 4    | Re-decide: orchestration vs README Walkthrough seam | `PLAN-orchestration.md` / new | TBD     | after step 3       |
 
-## Step 1 — Prep `PLAN-context-usage.md` (next action)
+## Steps 1 & 2 — context usage (done)
 
-`PLAN-context-usage.md` was drafted earlier but never executed. Before it's execution-ready, apply:
+Shipped and validated live. `index.ts` broadcasts a per-terminal `context` field — a snapshot on register/welcome/terminal_joined, live updates riding along on `status_update` (with explicit `null` to clear). The hub stores + fans it out, clients absorb it, and `session_compact` force-pushes the post-compaction drop. `/link` and `link_list` render `45K/272K (26%)`, or `?/272K` when tokens are momentarily `null`. One advisory line added to SKILL.md.
 
-### Cleanup (stale content)
+opus implemented; gpt reviewed twice — correctness, then a simplicity pass that cut the dead `sameContext` / `lastPushedContext` dedup and an unnecessary conditional-spread. Validated across the live link: per-peer attribution, mixed context windows (`272K` and `1.0M` side by side), incremental growth, and the transient `?/window` post-compaction state all confirmed.
 
-- **Delete the `peerDependenciesMeta` section entirely.** Peer deps were removed from `package.json` during the namespace migration; the whole section is obsolete.
-- The CHANGELOG draft inside that plan can be left as-is or trimmed — version/CHANGELOG details are finalized by hand at ship time, not from the plan.
-
-### Substantive design fix (caught by gpt review)
-
-**Context-clearing semantics.** The plan's current handler only _stores_ `msg.context` when present (`if (msg.context !== undefined)`); it never _clears_. Failure mode: a terminal reports context, later `getContextUsage()` returns undefined (model deselected, edge state), and peers show the stale value forever — same bug class as a sticky cwd or status after a terminal stops reporting.
-
-Fix to fold into the plan:
-
-- Wire format uses `context?: ContextSnapshot | null` — explicit `null` means "I no longer have context."
-- Hub and client handlers **delete** the stored entry when `null` arrives (not just skip the update).
-- `captureContext()` treats `contextWindow <= 0` as missing → returns undefined.
-- Guard against truthiness bugs: `tokens: null` is **valid** post-compaction data (display `?/200K`), not "missing." Only `context === null` or absent means clear.
-
-### API confirmation (already verified against Pi 0.75)
-
-- `ContextUsage` interface, `ctx.getContextUsage()`, `pi.on("session_compact", ...)` all present.
-- `index.ts` is ~1538 lines; plan's line refs are stale but structural anchors (`pushStatus`, `hubHandleClient`, `link_list` tool) are findable.
-
-## Step 2 — Execute context usage
-
-Run `PLAN-context-usage.md` once Step 1 lands. ~4h pass:
-
-- Wire format extension (flat `context` field on `StatusUpdateMsg`, plus register/welcome/terminal_joined snapshots)
-- Hub stores + forwards context; client absorbs it
-- `session_compact` event triggers a force-push (tokens just dropped)
-- Display: `45K/200K (23%)` segment in `/link`; nested `contexts` in `link_list` result
-- One-line SKILL.md note: `/link` and `link_list` may show context; advisory signal when choosing workers
-- Smoke test cases 1–6 (priority), 7–10 (nice-to-have)
-
-Roles: `docs@pi-link` executes, `gpt@pi-link` reviews. Validation handoff specific (accuracy + voice lenses).
-
-**Why this leads:** it's the validated pick, 90% planned, right-sized, and it **unblocks the orchestration line** — `PLAN-orchestration.md` (compact/setModel/setThinking) needs an orchestrator to _see_ worker context before it can act on it. Building the actions before the inputs would be backwards.
+**What it unblocks:** the orchestration line — `PLAN-orchestration.md` (compact/setModel/setThinking) needs an orchestrator to _see_ worker context before acting on it. That input now exists.
 
 ## Step 3 — Coordination recipes documentation
 
@@ -101,4 +69,4 @@ From the Claude Code workflows analysis — these are artifacts of script-orches
 
 ## Immediate next action
 
-Apply Step 1 edits to `PLAN-context-usage.md`. Then it's execution-ready for `docs@pi-link`.
+Step 3 — coordination recipes documentation. Decide placement (`examples/RECIPES.md` vs a README section; leaning `examples/` to keep the front door lean) and draft the three recipes.
