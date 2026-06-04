@@ -12,12 +12,12 @@ Key finding from that analysis: context visibility is substrate-independent. It 
 
 ## The sequence
 
-| Step | Work item                                           | Plan file                     | Est.    | Status             |
-| ---- | --------------------------------------------------- | ----------------------------- | ------- | ------------------ |
-| 1    | Prep `PLAN-context-usage.md` for execution          | (folded into that file)       | ~15 min | ✓ done             |
-| 2    | Execute context usage                               | (shipped)                     | ~4h     | ✓ done + validated |
-| 3    | Coordination recipes documentation                  | new (small)                   | ~1–2h   | **next action**    |
-| 4    | Re-decide: orchestration vs README Walkthrough seam | `PLAN-orchestration.md` / new | TBD     | after step 3       |
+| Step | Work item                                           | Plan file                         | Est.    | Status             |
+| ---- | --------------------------------------------------- | --------------------------------- | ------- | ------------------ |
+| 1    | Prep `PLAN-context-usage.md` for execution          | (folded into that file)           | ~15 min | ✓ done             |
+| 2    | Execute context usage                               | (shipped)                         | ~4h     | ✓ done + validated |
+| 3    | Coordination recipes documentation                  | README `### Coordination recipes` | ~1–2h   | ✓ done             |
+| 4    | Re-decide: orchestration vs README Walkthrough seam | `PLAN-orchestration.md` / new     | TBD     | **next action**    |
 
 ## Steps 1 & 2 — context usage (done)
 
@@ -27,21 +27,18 @@ opus implemented; gpt reviewed twice — correctness, then a simplicity pass tha
 
 **What it unblocks:** the orchestration line — `PLAN-orchestration.md` (compact/setModel/setThinking) needs an orchestrator to _see_ worker context before acting on it. That input now exists.
 
-## Step 3 — Coordination recipes documentation
+## Step 3 — Coordination recipes documentation (done)
 
-A small follow-on. Not new machinery — names patterns pi-link can already do with existing primitives (`link_prompt`, `link_send`, fan-out). Inspired by Claude Code's quality-pattern framing (`/deep-research`, adversarial review), but expressed as documentation, not a feature.
+Landed as a 6-line `### Coordination recipes` subsection at the end of README's `## LLM Tools`. Two recipes, not three:
 
-Three concrete recipes:
+1. **Adversarial review** — produce/edit on one terminal, `link_prompt` another to critique (blocking round-trip = independent review in the same turn).
+2. **Independent cross-check** — same question to two terminals without sharing answers, then reconcile (separate contexts avoid anchoring).
 
-1. **Adversarial review** — builder terminal produces work → reviewer terminal critiques → builder responds. Tightens output past a single pass.
-2. **Multi-angle drafting** — coordinator `link_prompt`s the same task to 3 terminals from different angles, then synthesizes.
-3. **Source cross-check** — two researcher terminals verify a claim independently; a third resolves conflicts.
+**Decisions made (with gpt):** placement is **README, not `examples/`** (`examples/` isn't in the npm `files` allowlist, so it'd be invisible to npm users) and **not SKILL** (agents already have the mechanics; avoids the cookbook). Fan-out is included as a value line (the headline capability); SKILL's "Parallel batch" keeps the *mechanics* (busy rule, batching, wait-for-all) — README states the shape, SKILL states how to run it safely. SKILL left untouched.
 
-**Placement decision (open):** README new section vs `examples/RECIPES.md`. Leaning `examples/` to keep README front-door lean (consistent with the reshape's Goal 1). **Not in SKILL.md** — that would turn the skill into a prompt-engineering cookbook, against its established scope.
+**Doc-split principle settled here:** README = why/when/value for humans; SKILL = how / how-not-to-break-it for agents. No 1:1 mirroring; the same capability can appear in both at different depths.
 
-**Optional SKILL.md addition:** at most one line naming the shapes as pointers ("Useful coordination shapes: adversarial review, parallel drafts, source cross-check") with no explanation. Decide during execution; default is to leave SKILL untouched.
-
-## Step 4 — Re-decide after step 3
+## Step 4 — Re-decide (next action)
 
 Two candidates surface once context usage ships:
 
@@ -69,4 +66,4 @@ From the Claude Code workflows analysis — these are artifacts of script-orches
 
 ## Immediate next action
 
-Step 3 — coordination recipes documentation. Decide placement (`examples/RECIPES.md` vs a README section; leaning `examples/` to keep the front door lean) and draft the three recipes.
+Step 4 — re-decide based on appetite: orchestration (`PLAN-orchestration.md`, now unblocked) vs the README Walkthrough seam rewrite. They may share material.

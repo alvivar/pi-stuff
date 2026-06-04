@@ -303,6 +303,14 @@ Connected terminals:
     cwd: C:\Users\andre\.pi
 ```
 
+### Coordination recipes
+
+The three tools compose into coordination shapes worth naming:
+
+- **Fan-out** - split independent subtasks across several terminals with `link_send(triggerTurn: true)`, keep working, then synthesize the callbacks. Parallelizes work that doesn't share a sequence.
+- **Adversarial review** - have one terminal produce or edit work, then `link_prompt` another to critique it. Because `link_prompt` blocks on a reply from a separate session, the critique lands in the same turn; feed it back or revise locally.
+- **Independent cross-check** - send the same verification question to two terminals without sharing their answers, then reconcile - or ask a third to resolve disagreements. Separate contexts mean neither anchors on the other.
+
 ---
 
 ## Slash Commands
