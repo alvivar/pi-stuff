@@ -39,6 +39,7 @@ interface RegisterMsg {
   type: "register";
   name: string;
   cwd?: string;
+  context?: ContextSnapshot;
 }
 interface WelcomeMsg {
   type: "welcome";
@@ -46,12 +47,14 @@ interface WelcomeMsg {
   terminals: string[];
   statuses?: Record<string, LinkStatus>;
   cwds?: Record<string, string>;
+  contexts?: Record<string, ContextSnapshot>;
 }
 interface TerminalJoinedMsg {
   type: "terminal_joined";
   name: string;
   terminals: string[];
   cwd?: string;
+  context?: ContextSnapshot;
 }
 interface TerminalLeftMsg {
   type: "terminal_left";
@@ -84,6 +87,9 @@ interface StatusUpdateMsg {
   type: "status_update";
   name: string;
   status: LinkStatus;
+  // Per-terminal LLM context. Absent = old terminal (ignore); null = clear
+  // stored value; object = store. Only status_update carries the null-clear.
+  context?: ContextSnapshot | null;
 }
 interface ErrorMsg {
   type: "error";
@@ -94,6 +100,8 @@ type LinkStatus =
   | { kind: "idle"; since: number }
   | { kind: "thinking"; since: number }
   | { kind: "tool"; toolName: string; since: number };
+
+type ContextSnapshot = { tokens: number | null; contextWindow: number };
 
 type LinkMessage =
   | RegisterMsg
@@ -142,7 +150,9 @@ export default function (pi: ExtensionAPI) {
   let stateSince = Date.now();
   let lastPushedKind: string | null = null;
   let lastPushedTool: string | null = null;
+  let lastPushedContext: ContextSnapshot | null = null;
   const terminalStatuses = new Map<string, LinkStatus>(); // other terminals
+  const terminalContexts = new Map<string, ContextSnapshot>(); // other terminals' context
   let currentCwd = "";
   const terminalCwds = new Map<string, string>(); // other terminals' cwds
 
@@ -150,6 +160,7 @@ export default function (pi: ExtensionAPI) {
   let wss: WebSocketServer | null = null;
   const hubClients = new Map<WebSocket, string>(); // ws → terminal name
   const hubTerminalStatuses = new Map<string, LinkStatus>(); // hub-authoritative
+  const hubTerminalContexts = new Map<string, ContextSnapshot>(); // hub-authoritative
   const hubTerminalCwds = new Map<string, string>(); // hub-authoritative (excludes self)
 
   // Client state
@@ -215,19 +226,45 @@ export default function (pi: ExtensionAPI) {
     return { kind: "idle", since: stateSince };
   }
 
+  function captureContext(): ContextSnapshot | undefined {
+    if (!ctx) return undefined;
+    if (typeof ctx.getContextUsage !== "function") return undefined; // older Pi
+    const usage = ctx.getContextUsage();
+    if (!usage) return undefined;
+    if (usage.contextWindow <= 0) return undefined; // no real context to report
+    return { tokens: usage.tokens, contextWindow: usage.contextWindow };
+  }
+
+  function sameContext(
+    a: ContextSnapshot | undefined,
+    b: ContextSnapshot | null,
+  ): boolean {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a.tokens === b.tokens && a.contextWindow === b.contextWindow;
+  }
+
   function pushStatus(force = false) {
     if (role === "disconnected") return;
     const status = deriveStatus();
+    const context = captureContext();
     const newKind = status.kind;
     const newTool = status.kind === "tool" ? status.toolName : null;
-    if (!force && newKind === lastPushedKind && newTool === lastPushedTool)
+    if (
+      !force &&
+      newKind === lastPushedKind &&
+      newTool === lastPushedTool &&
+      sameContext(context, lastPushedContext)
+    )
       return;
     lastPushedKind = newKind;
     lastPushedTool = newTool;
+    lastPushedContext = context ?? null;
     const msg: StatusUpdateMsg = {
       type: "status_update",
       name: terminalName,
       status,
+      context: context ?? null, // explicit null tells peers to clear
     };
     if (role === "hub") {
       hubBroadcast(msg, terminalName);
@@ -249,6 +286,20 @@ export default function (pi: ExtensionAPI) {
     return `${s.kind} (${dur})`;
   }
 
+  function formatTokens(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${Math.round(n / 1000)}K`;
+    return `${n}`;
+  }
+
+  function formatContext(c: ContextSnapshot | null | undefined): string {
+    if (!c || c.contextWindow <= 0) return ""; // guard against bad wire data
+    const window = formatTokens(c.contextWindow);
+    if (c.tokens === null) return `?/${window}`;
+    const percent = Math.round((c.tokens / c.contextWindow) * 100);
+    return `${formatTokens(c.tokens)}/${window} (${percent}%)`;
+  }
+
   function getStatusFor(name: string): LinkStatus | null {
     if (name === terminalName) return deriveStatus();
     const map = role === "hub" ? hubTerminalStatuses : terminalStatuses;
@@ -259,6 +310,12 @@ export default function (pi: ExtensionAPI) {
     if (name === terminalName) return currentCwd || null;
     if (role === "hub") return hubTerminalCwds.get(name) ?? null;
     return terminalCwds.get(name) ?? null;
+  }
+
+  function getContextFor(name: string): ContextSnapshot | null {
+    if (name === terminalName) return captureContext() ?? null;
+    if (role === "hub") return hubTerminalContexts.get(name) ?? null;
+    return terminalContexts.get(name) ?? null;
   }
 
   function shortenPath(cwd: string): string {
@@ -494,6 +551,7 @@ export default function (pi: ExtensionAPI) {
         connectedTerminals = msg.terminals;
         terminalStatuses.clear();
         terminalCwds.clear();
+        terminalContexts.clear();
         if (msg.statuses) {
           for (const [name, status] of Object.entries(msg.statuses)) {
             terminalStatuses.set(name, status);
@@ -502,6 +560,11 @@ export default function (pi: ExtensionAPI) {
         if (msg.cwds) {
           for (const [name, cwd] of Object.entries(msg.cwds)) {
             terminalCwds.set(name, cwd);
+          }
+        }
+        if (msg.contexts) {
+          for (const [name, c] of Object.entries(msg.contexts)) {
+            terminalContexts.set(name, c);
           }
         }
         updateStatus();
@@ -516,6 +579,8 @@ export default function (pi: ExtensionAPI) {
       case "terminal_joined":
         connectedTerminals = msg.terminals;
         if (role !== "hub" && msg.cwd) terminalCwds.set(msg.name, msg.cwd);
+        if (role !== "hub" && msg.context)
+          terminalContexts.set(msg.name, msg.context);
         updateStatus();
         notify(`"${msg.name}" joined the link`, "info");
         break;
@@ -523,7 +588,10 @@ export default function (pi: ExtensionAPI) {
       case "terminal_left":
         connectedTerminals = msg.terminals;
         terminalStatuses.delete(msg.name);
-        if (role !== "hub") terminalCwds.delete(msg.name);
+        if (role !== "hub") {
+          terminalCwds.delete(msg.name);
+          terminalContexts.delete(msg.name);
+        }
         // Fail any pending prompts to the departed terminal immediately
         for (const [id, pending] of pendingPromptResponses) {
           if (pending.targetName === msg.name) {
@@ -545,6 +613,9 @@ export default function (pi: ExtensionAPI) {
       // ── Status update from another terminal ──
       case "status_update":
         terminalStatuses.set(msg.name, msg.status);
+        // Truthy object stores; explicit null clears; absent leaves as-is.
+        if (msg.context) terminalContexts.set(msg.name, msg.context);
+        else if (msg.context === null) terminalContexts.delete(msg.name);
         resetInactivityFor(msg.name);
         break;
 
@@ -631,6 +702,7 @@ export default function (pi: ExtensionAPI) {
         clientName = uniqueName(msg.name);
         hubClients.set(clientWs, clientName);
         if (msg.cwd) hubTerminalCwds.set(clientName, msg.cwd);
+        if (msg.context) hubTerminalContexts.set(clientName, msg.context);
         const list = terminalList();
         connectedTerminals = list;
         updateStatus();
@@ -646,6 +718,12 @@ export default function (pi: ExtensionAPI) {
         for (const [name, cwd] of hubTerminalCwds) {
           if (name !== clientName) cwds[name] = cwd;
         }
+        const contexts: Record<string, ContextSnapshot> = {};
+        const hubContext = captureContext();
+        if (hubContext) contexts[terminalName] = hubContext; // hub's own context
+        for (const [name, c] of hubTerminalContexts) {
+          if (name !== clientName) contexts[name] = c;
+        }
         clientWs.send(
           JSON.stringify({
             type: "welcome",
@@ -653,15 +731,17 @@ export default function (pi: ExtensionAPI) {
             terminals: list,
             statuses,
             cwds,
+            contexts,
           } satisfies WelcomeMsg),
         );
 
-        // Notify everyone else (include joiner's cwd)
+        // Notify everyone else (include joiner's cwd + context)
         const joined: TerminalJoinedMsg = {
           type: "terminal_joined",
           name: clientName,
           terminals: list,
           cwd: msg.cwd,
+          context: msg.context,
         };
         hubBroadcast(joined, clientName);
         return;
@@ -673,11 +753,16 @@ export default function (pi: ExtensionAPI) {
       // Status update — store and fan out to other clients only (not back to hub)
       if (msg.type === "status_update") {
         hubTerminalStatuses.set(clientName, msg.status);
+        // Truthy object stores; explicit null clears; absent leaves as-is.
+        if (msg.context) hubTerminalContexts.set(clientName, msg.context);
+        else if (msg.context === null) hubTerminalContexts.delete(clientName);
         resetInactivityFor(clientName);
         const normalized: StatusUpdateMsg = {
           type: "status_update",
           name: clientName,
           status: msg.status,
+          // Forward null through so downstream peers clear too.
+          ...(msg.context !== undefined ? { context: msg.context } : {}),
         };
         const json = JSON.stringify(normalized);
         for (const [otherWs, name] of hubClients) {
@@ -703,6 +788,7 @@ export default function (pi: ExtensionAPI) {
       if (clientName) {
         hubClients.delete(clientWs);
         hubTerminalStatuses.delete(clientName);
+        hubTerminalContexts.delete(clientName);
         hubTerminalCwds.delete(clientName);
         const list = terminalList();
         connectedTerminals = list;
@@ -793,6 +879,7 @@ export default function (pi: ExtensionAPI) {
             type: "register",
             name: preferredName ?? terminalName,
             cwd: currentCwd || undefined,
+            context: captureContext(),
           } satisfies RegisterMsg),
         );
         resolve(true);
@@ -898,10 +985,13 @@ export default function (pi: ExtensionAPI) {
     connectedTerminals = [];
     terminalStatuses.clear();
     hubTerminalStatuses.clear();
+    terminalContexts.clear();
+    hubTerminalContexts.clear();
     terminalCwds.clear();
     hubTerminalCwds.clear();
     lastPushedKind = null;
     lastPushedTool = null;
+    lastPushedContext = null;
     updateStatus();
 
     // Inbox survives disconnect — messages are local state waiting for local delivery.
@@ -1012,6 +1102,11 @@ export default function (pi: ExtensionAPI) {
     activeToolName = null;
     stateSince = Date.now();
     pushStatus();
+  });
+
+  pi.on("session_compact", async () => {
+    // Tokens just dropped sharply — force a push so peers see the new context.
+    pushStatus(true);
   });
 
   pi.on("tool_execution_start", async (event) => {
@@ -1302,6 +1397,7 @@ export default function (pi: ExtensionAPI) {
 
       const statuses: Record<string, string> = {};
       const cwds: Record<string, string> = {};
+      const contexts: Record<string, ContextSnapshot> = {};
       const list = connectedTerminals
         .map((name) => {
           const status = getStatusFor(name);
@@ -1309,8 +1405,12 @@ export default function (pi: ExtensionAPI) {
           if (statusStr) statuses[name] = statusStr;
           const cwd = getCwdFor(name);
           if (cwd) cwds[name] = cwd;
+          const context = getContextFor(name);
+          if (context) contexts[name] = context;
+          const ctxStr = formatContext(context);
           const marker = name === terminalName ? " (you)" : "";
           let line = `  \u2022 ${name}${marker}${statusStr ? "  " + statusStr : ""}`;
+          if (ctxStr) line += `  \u00b7 ${ctxStr}`;
           if (cwd) line += `\n    cwd: ${cwd}`;
           return line;
         })
@@ -1320,6 +1420,7 @@ export default function (pi: ExtensionAPI) {
         terminals: connectedTerminals,
         statuses,
         cwds,
+        contexts,
         self: terminalName,
         role,
       });
@@ -1331,6 +1432,7 @@ export default function (pi: ExtensionAPI) {
             terminals?: string[];
             statuses?: Record<string, string>;
             cwds?: Record<string, string>;
+            contexts?: Record<string, ContextSnapshot>;
             self?: string;
             role?: string;
           }
@@ -1347,11 +1449,13 @@ export default function (pi: ExtensionAPI) {
         const isSelf = name === details.self;
         const status = details.statuses?.[name] ?? "";
         const cwd = details.cwds?.[name];
+        const ctxStr = formatContext(details.contexts?.[name]);
         const nameStr = isSelf ? `\u2022 ${name} (you)` : `\u2022 ${name}`;
         text +=
           "\n  " +
           (isSelf ? theme.fg("accent", nameStr) : theme.fg("text", nameStr)) +
-          (status ? "  " + theme.fg("dim", status) : "");
+          (status ? "  " + theme.fg("dim", status) : "") +
+          (ctxStr ? theme.fg("dim", "  \u00b7 " + ctxStr) : "");
         if (cwd) text += "\n    " + theme.fg("dim", `cwd: ${shortenPath(cwd)}`);
       }
       return new Text(text, 0, 0);
@@ -1371,8 +1475,10 @@ export default function (pi: ExtensionAPI) {
         const status = getStatusFor(name);
         const statusStr = status ? formatStatus(status) : "";
         const cwd = getCwdFor(name);
+        const ctxStr = formatContext(getContextFor(name));
         const marker = name === terminalName ? " (you)" : "";
         let line = `${name}${marker}${statusStr ? ": " + statusStr : ""}`;
+        if (ctxStr) line += ` \u00b7 ${ctxStr}`;
         if (cwd) line += `\n  cwd: ${shortenPath(cwd)}`;
         return line;
       });
@@ -1444,6 +1550,7 @@ export default function (pi: ExtensionAPI) {
             name: newName,
             terminals: list,
             cwd: currentCwd,
+            context: captureContext(),
           },
           terminalName,
         );

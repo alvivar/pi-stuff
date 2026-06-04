@@ -31,7 +31,7 @@ Pick one mode per terminal per task. Mixing sync and async on the same terminal 
 
 ### `link_list`
 
-Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Use before delegating when availability or path context is uncertain. Your own entry is marked `(you)` — use this to discover your link name when replying to broadcast tasks.
+Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Some terminals also report context usage as `45K/200K (23%)` — an advisory signal when choosing a worker (prefer a less-loaded one). Use before delegating when availability or path context is uncertain. Your own entry is marked `(you)` — use this to discover your link name when replying to broadcast tasks.
 
 Only currently connected terminals are visible. If a target is missing, it is offline; messages to offline terminals are not queued.
 
