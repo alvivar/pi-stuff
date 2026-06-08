@@ -228,12 +228,12 @@ The extension registers four tools that the LLM can invoke during agent runs. pi
 
 ### Which tool should I use?
 
-| Tool           | Behavior                                             | Returns                                               |
-| -------------- | ---------------------------------------------------- | ----------------------------------------------------- |
-| `link_send`    | Send a message; optionally trigger the remote LLM    | Send/delivery status only                             |
-| `link_prompt`  | Run a prompt on a remote terminal and wait for reply | The remote terminal's assistant response              |
-| `link_list`    | List currently connected terminals                   | Terminal list with roles, status, cwd, and context    |
-| `link_compact` | Ask another terminal to compact its context window   | Blocks until target compacts; returns success or busy |
+| Tool           | Behavior                                             | Returns                                             |
+| -------------- | ---------------------------------------------------- | --------------------------------------------------- |
+| `link_send`    | Send a message; optionally trigger the remote LLM    | Send/delivery status only                           |
+| `link_prompt`  | Run a prompt on a remote terminal and wait for reply | The remote terminal's assistant response            |
+| `link_list`    | List currently connected terminals                   | Terminal list with roles, status, cwd, and context  |
+| `link_compact` | Ask another terminal to compact its context window   | Waits for completion; returns compacted or an error |
 
 **If you need the other terminal's answer back, use `link_prompt`.** Use `link_send` to notify or steer without waiting.
 
@@ -436,6 +436,8 @@ Each terminal can only execute **one remote prompt at a time**. If a `link_promp
 - Spread prompts across multiple worker terminals.
 - Have the sender retry after a delay.
 
+`link_compact` follows the same rule — if the target is mid-turn or already compacting, the call resolves with `Compact on "<target>" not done: busy` instead of interrupting active work. Retry when `link_list` shows the worker idle.
+
 ### Terminals don't see each other
 
 - Verify both terminals are on the same machine (the link only works on `127.0.0.1`).
@@ -530,7 +532,7 @@ The wire protocol consists of **11 message types**, all serialized as JSON over 
 | `prompt_request`   | Any → Any       | Request a remote terminal to execute a prompt                                       |
 | `prompt_response`  | Any → Any       | Response carrying the remote prompt result                                          |
 | `compact_request`  | Any → Any       | Request a remote terminal to compact its context; awaits a response                 |
-| `compact_response` | Any → Any       | Completion / busy / not_found ack for a `compact_request`                           |
+| `compact_response` | Any → Any       | Completion/failure response for a compact_request                                   |
 | `status_update`    | Any → Hub → All | Terminal broadcasts agent status change; carries updated context                    |
 | `error`            | Hub → Client    | Error notification                                                                  |
 
