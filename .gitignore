@@ -6,3 +6,4 @@ agent/settings.json
 agent/trust.json
 debug.log
 node_modules/
+tmp/
