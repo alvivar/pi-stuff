@@ -102,6 +102,7 @@
         "name": "gpt@pi-bugs",
         "icon": "bug",
         "color": "terminal.ansiGreen",
+        "focus": true,
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi-bugs"

@@ -3,5 +3,6 @@ agent/bin/
 agent/npm/
 agent/sessions/
 agent/settings.json
+agent/trust.json
 debug.log
 node_modules/
