@@ -68,7 +68,7 @@ Use `triggerTurn: false` for fire-and-forget status notifications only — when 
 
 ### `link_compact`
 
-Blocks until the target finishes compacting, then returns. Ask another terminal to compact its context window, freeing space. `link_list` exposes context usage; `link_compact` is the lever when you decide a terminal should free context — and because the call only returns once compaction is done, you can immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link only sends the request. When compacting a worker mid-task, pass `instructions` to preserve what it needs to continue (key findings, file paths, open questions, next-step state); otherwise the default summary may drop task state it was relying on.
+Blocks until the target finishes compacting, then returns. Ask another terminal to compact its context window into a summary, freeing space. `link_list` exposes context usage; `link_compact` is the lever when you decide a terminal should free context — and because the call only returns once compaction is done, you can immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link only sends the request. Its optional `instructions` add an extra focus to that summary.
 
 ---
 
