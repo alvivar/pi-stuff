@@ -33,7 +33,7 @@ Pick one mode per terminal per task. Mixing sync and async on the same terminal 
 
 ### `link_list`
 
-Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Some terminals also report context usage as `45K/272K (17%)` — an advisory signal when choosing a worker (prefer a less-loaded one). Use before delegating when availability or path context is uncertain. Your own entry is marked `(you)` — use this to discover your link name when replying to broadcast tasks.
+Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Some terminals also report context usage as `45K/272K (17%)` — how full that window is: high usage means less room remaining, though a loaded terminal may also be the one already holding the relevant task state. Your own entry is marked `(you)` — use this to discover your link name when replying to broadcast tasks.
 
 Only currently connected terminals are visible. If a target is missing, it is offline; messages to offline terminals are not queued.
 
@@ -56,7 +56,7 @@ Delivery shape depends on the message's `triggerTurn`:
 - **`triggerTurn: true`** messages go through the receiver's idle-gated inbox and surface at a turn boundary wrapped as `[Link: N message(s) received]` followed by one `From "name":` block per message. Multiple pending messages are batched into one turn.
 - **`triggerTurn: false`** messages bypass the inbox and surface directly as raw content — no wrapper, no `From` block. The receiver sees only the message text, so the sender must include their own identity, task tag, or artifact paths in the body.
 
-**Callback contract for `triggerTurn: true`:** ask the receiver to reply via `link_send(..., triggerTurn: true)` so the result arrives at a proper turn boundary with the wrapper intact. The reply should include:
+**Callback convention for `triggerTurn: true`:** the sender gets no automatic response, so ask the receiver to report back via `link_send(..., triggerTurn: true)` (which lands at a proper turn boundary with the wrapper intact). A useful convention:
 
 - `DONE` / `BLOCKED`
 - Output paths / artifacts created
@@ -68,7 +68,7 @@ Use `triggerTurn: false` for fire-and-forget status notifications only — when 
 
 ### `link_compact`
 
-Blocks until the target finishes compacting, then returns. Ask another terminal to compact its context window, freeing space. Use when `link_list` shows a worker's context running high: compact it, then — because the call only returns once compaction is done — immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link only sends the request. When compacting a worker mid-task, pass `instructions` to preserve what it needs to continue (key findings, file paths, open questions, next-step state); otherwise the default summary may drop task state it was relying on.
+Blocks until the target finishes compacting, then returns. Ask another terminal to compact its context window, freeing space. `link_list` exposes context usage; `link_compact` is the lever when you decide a terminal should free context — and because the call only returns once compaction is done, you can immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link only sends the request. When compacting a worker mid-task, pass `instructions` to preserve what it needs to continue (key findings, file paths, open questions, next-step state); otherwise the default summary may drop task state it was relying on.
 
 ---
 
@@ -79,13 +79,13 @@ Blocks until the target finishes compacting, then returns. Ask another terminal 
 - **Messages are ephemeral.** Offline terminals lose messages.
 - **Localhost only.** Same machine.
 - **Cwd is a hint, not proof.** Same cwd ≠ same workspace/branch/access. Use explicit paths; absolute when cwds differ or shared-root assumptions are unclear.
-- **Naming:** Prefer descriptive names such as `role@domain` (e.g., `builder@pi-link`) for coordination. Only talk to your own domain unless told otherwise.
+- **Naming:** Link names are user-defined identities (often `role@domain`, e.g. `builder@pi-link`); the hub keeps them unique, suffixing collisions (`builder@pi-link-2`). Use `link_list` to confirm a target's exact name, and its cwd to tell similar-named terminals apart.
 
 ---
 
 ## Parallel batch
 
-Distribute independent tasks to multiple terminals via `link_send(triggerTurn: true)`, and keep doing your own work while you wait. Worker callbacks may return together in one batched turn when you become idle. Use explicit paths (absolute if cwds differ), wait for all callbacks, then synthesize. Don't prompt any dispatched terminal until its callback arrives.
+`link_send(triggerTurn: true)` can dispatch independent tasks to several terminals at once. Their callbacks may arrive separately or batched into one turn when you next become idle — track which workers are still outstanding. Each task must be self-contained (explicit paths, absolute if cwds differ). Don't `link_prompt` a dispatched terminal until its callback arrives (Golden Rule).
 
 ---
 
@@ -94,17 +94,11 @@ Distribute independent tasks to multiple terminals via `link_send(triggerTurn: t
 **❌ Mixing async and sync on the same terminal**
 Dispatched with `link_send(triggerTurn: true)` then sent a `link_prompt` → rejected as busy. See Golden Rule.
 
-**❌ Vague prompts**
-"Fix the bug" is useless. Include file, line, root cause, expected fix.
-
 **❌ No completion callback on async work**
-Always require DONE/BLOCKED + artifact paths + summary.
+`triggerTurn: true` returns no result to the sender — without an agreed callback you never learn the outcome.
 
 **❌ Circular delegation**
 A → B → C → A = deadlock. Maintain clear hierarchy.
-
-**❌ Skipping `link_list` before retrying a busy target**
-Check status before re-sending.
 
 ---
 
