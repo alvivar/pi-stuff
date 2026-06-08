@@ -7,6 +7,8 @@ description: Guidance for coordinating work across Pi terminals using pi-link. U
 
 How to coordinate work across Pi terminals via pi-link.
 
+Each terminal is an independent agent: they share no memory or conversation history — link only passes messages and prompts between them. Anything a remote terminal needs — file paths, task state, expected output, where to send its callback — must be in the message itself.
+
 ---
 
 ## Tool Selection Rule
@@ -62,6 +64,8 @@ Delivery shape depends on the message's `triggerTurn`:
 
 Use `triggerTurn: false` for fire-and-forget status notifications only — when you don't need to act on the reply.
 
+**Receiver rule:** If your turn opens with `[Link: N message(s) received]`, treat each `From "name":` block as assigned work. When done, send the sender a `DONE` / `BLOCKED` callback via `link_send(..., triggerTurn: true)` — unless the task says otherwise.
+
 ### `link_compact`
 
 Blocks until the target finishes compacting, then returns. Ask another terminal to compact its context window, freeing space. Use when `link_list` shows a worker's context running high: compact it, then — because the call only returns once compaction is done — immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link only sends the request. When compacting a worker mid-task, pass `instructions` to preserve what it needs to continue (key findings, file paths, open questions, next-step state); otherwise the default summary may drop task state it was relying on.
@@ -90,9 +94,6 @@ Distribute independent tasks to multiple terminals via `link_send(triggerTurn: t
 **❌ Mixing async and sync on the same terminal**
 Dispatched with `link_send(triggerTurn: true)` then sent a `link_prompt` → rejected as busy. See Golden Rule.
 
-**❌ Using `link_send` when you need the response now**
-No direct response comes back to the sender. Use `link_prompt` when you need the answer in the same turn.
-
 **❌ Vague prompts**
 "Fix the bug" is useless. Include file, line, root cause, expected fix.
 
@@ -109,10 +110,11 @@ Check status before re-sending.
 
 ## Quick Reference
 
-| I need to...                     | Tool                            | Mode            |
-| -------------------------------- | ------------------------------- | --------------- |
-| See who's available              | `link_list`                     | —               |
-| Get an answer from another agent | `link_prompt`                   | Synchronous     |
-| Delegate autonomous work         | `link_send(triggerTurn: true)`  | Asynchronous    |
-| Notify without activating        | `link_send(triggerTurn: false)` | Fire-and-forget |
-| Broadcast to all                 | `link_send(to: "*")`            | Broadcast       |
+| I need to...                     | Tool                            | Mode             |
+| -------------------------------- | ------------------------------- | ---------------- |
+| See who's available              | `link_list`                     | —                |
+| Get an answer from another agent | `link_prompt`                   | Synchronous      |
+| Delegate autonomous work         | `link_send(triggerTurn: true)`  | Asynchronous     |
+| Notify without activating        | `link_send(triggerTurn: false)` | Fire-and-forget  |
+| Broadcast to all                 | `link_send(to: "*")`            | Broadcast        |
+| Free a loaded worker's context   | `link_compact`                  | Await-completion |
