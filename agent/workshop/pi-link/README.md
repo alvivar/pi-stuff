@@ -228,12 +228,12 @@ The extension registers four tools that the LLM can invoke during agent runs. pi
 
 ### Which tool should I use?
 
-| Tool           | Behavior                                             | Returns                                            |
-| -------------- | ---------------------------------------------------- | -------------------------------------------------- |
-| `link_send`    | Send a message; optionally trigger the remote LLM    | Send/delivery status only                          |
-| `link_prompt`  | Run a prompt on a remote terminal and wait for reply | The remote terminal's assistant response           |
-| `link_list`    | List currently connected terminals                   | Terminal list with roles, status, cwd, and context |
-| `link_compact` | Ask another terminal to compact its context window   | Delivery status only (verify via `link_list`)      |
+| Tool           | Behavior                                             | Returns                                               |
+| -------------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| `link_send`    | Send a message; optionally trigger the remote LLM    | Send/delivery status only                             |
+| `link_prompt`  | Run a prompt on a remote terminal and wait for reply | The remote terminal's assistant response              |
+| `link_list`    | List currently connected terminals                   | Terminal list with roles, status, cwd, and context    |
+| `link_compact` | Ask another terminal to compact its context window   | Blocks until target compacts; returns success or busy |
 
 **If you need the other terminal's answer back, use `link_prompt`.** Use `link_send` to notify or steer without waiting.
 
@@ -308,26 +308,27 @@ Connected terminals:
 
 ### `link_compact`
 
-Ask another terminal to compact its context window, freeing space for more work.
+Ask another terminal to compact its context window and **wait** until it finishes — so the very next call can dispatch new work to the freshly trimmed worker without a busy bounce.
 
 | Parameter      | Type     | Description                                            |
 | -------------- | -------- | ------------------------------------------------------ |
 | `to`           | `string` | Target terminal name                                   |
 | `instructions` | `string` | Optional custom compaction instructions for the target |
 
-**Fire-and-forget** — no response comes back. Verify the compaction landed by watching the target's context segment in `link_list`: it briefly shows `?/272K` (compaction in flight), then drops to a real lower number on the target's next turn.
-
-- Targets **one terminal at a time** (no broadcast mode).
+- The remote terminal runs `ctx.compact()` — the same code path as `/compact`. The call returns once the runtime reports completion.
+- **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
+- **Busy decline** — if the target is mid-turn or already compacting, it declines immediately with `reason: "busy"`. `link_compact` will **not** interrupt active work; retry when `link_list` shows the worker idle.
 - **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
+- **Flat 180-second timeout** — compaction typically takes 5–60s; if the target stops responding mid-compaction the call resolves with a timeout error.
+- Supports abort signals.
+- Targets **one terminal at a time** (no broadcast mode). To compact several workers concurrently, issue parallel tool calls.
 - **No consent or capability gate** — any connected terminal can request compaction on any other; link participants are cooperating peers.
-
-The orchestrator use case: when fanning out long-running work, watch each worker's context segment in `link_list`. When a worker is running high and still has more turns ahead, send `link_compact` so it can finish without blowing its window. You decide the threshold; pi-link only sends the action.
 
 ### Coordination recipes
 
 The four tools compose into coordination shapes worth naming:
 
-- **Fan-out** - split independent subtasks across several terminals with `link_send(triggerTurn: true)`, keep working, then synthesize the callbacks. Parallelizes work that doesn't share a sequence. If a worker's context (visible in `link_list`) runs high mid-task, `link_compact` extends its runway so it can finish.
+- **Fan-out** - split independent subtasks across several terminals with `link_send(triggerTurn: true)`, keep working, then synthesize the callbacks. Parallelizes work that doesn't share a sequence. If a worker's context (visible in `link_list`) runs high, `link_compact` trims it and returns when the worker is idle — feed it the next subtask immediately.
 - **Adversarial review** - have one terminal produce or edit work, then `link_prompt` another to critique it. Because `link_prompt` blocks on a reply from a separate session, the critique lands in the same turn; feed it back or revise locally.
 - **Independent cross-check** - send the same verification question to two terminals without sharing their answers, then reconcile - or ask a third to resolve disagreements. Separate contexts mean neither anchors on the other.
 
@@ -517,20 +518,21 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 ### Protocol
 
-The wire protocol consists of **10 message types**, all serialized as JSON over WebSocket frames. Cwd and context fields are optional.
+The wire protocol consists of **11 message types**, all serialized as JSON over WebSocket frames. Cwd and context fields are optional.
 
-| Type              | Direction       | Purpose                                                                             |
-| ----------------- | --------------- | ----------------------------------------------------------------------------------- |
-| `register`        | Client → Hub    | First message after connecting; requests a name, optionally reports cwd and context |
-| `welcome`         | Hub → Client    | Confirms assigned name, terminal list + status/cwd/context snapshots                |
-| `terminal_joined` | Hub → All       | Broadcast when a terminal joins; may include cwd and context                        |
-| `terminal_left`   | Hub → All       | Broadcast when a terminal disconnects                                               |
-| `chat`            | Any → Any/All   | Fire-and-forget message; optionally triggers LLM turn                               |
-| `prompt_request`  | Any → Any       | Request a remote terminal to execute a prompt                                       |
-| `prompt_response` | Any → Any       | Response carrying the remote prompt result                                          |
-| `compact_request` | Any → Any       | Request a remote terminal to compact its context; no response                       |
-| `status_update`   | Any → Hub → All | Terminal broadcasts agent status change; carries updated context                    |
-| `error`           | Hub → Client    | Error notification                                                                  |
+| Type               | Direction       | Purpose                                                                             |
+| ------------------ | --------------- | ----------------------------------------------------------------------------------- |
+| `register`         | Client → Hub    | First message after connecting; requests a name, optionally reports cwd and context |
+| `welcome`          | Hub → Client    | Confirms assigned name, terminal list + status/cwd/context snapshots                |
+| `terminal_joined`  | Hub → All       | Broadcast when a terminal joins; may include cwd and context                        |
+| `terminal_left`    | Hub → All       | Broadcast when a terminal disconnects                                               |
+| `chat`             | Any → Any/All   | Fire-and-forget message; optionally triggers LLM turn                               |
+| `prompt_request`   | Any → Any       | Request a remote terminal to execute a prompt                                       |
+| `prompt_response`  | Any → Any       | Response carrying the remote prompt result                                          |
+| `compact_request`  | Any → Any       | Request a remote terminal to compact its context; awaits a response                 |
+| `compact_response` | Any → Any       | Completion / busy / not_found ack for a `compact_request`                           |
+| `status_update`    | Any → Hub → All | Terminal broadcasts agent status change; carries updated context                    |
+| `error`            | Hub → Client    | Error notification                                                                  |
 
 ### Message Flow Examples
 

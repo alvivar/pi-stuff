@@ -26,6 +26,7 @@ import { WebSocket, WebSocketServer } from "ws";
 const DEFAULT_PORT = 9900;
 const PROMPT_INACTIVITY_MS = 90_000;
 const PROMPT_HARD_CEILING_MS = 1_800_000;
+const COMPACT_TIMEOUT_MS = 180_000;
 const RECONNECT_DELAY_MS = 2000;
 const KEEPALIVE_INTERVAL_MS = 30_000;
 const FLUSH_DELAY_MS = 200;
@@ -97,9 +98,18 @@ interface ErrorMsg {
 }
 interface CompactRequestMsg {
   type: "compact_request";
+  id: string;
   from: string;
   to: string;
   instructions?: string;
+}
+interface CompactResponseMsg {
+  type: "compact_response";
+  id: string;
+  from: string;
+  to: string;
+  ok: boolean;
+  reason?: string; // "busy" | "not_found" | error text; absent on success
 }
 
 type LinkStatus =
@@ -119,7 +129,8 @@ type LinkMessage =
   | PromptResponseMsg
   | StatusUpdateMsg
   | ErrorMsg
-  | CompactRequestMsg;
+  | CompactRequestMsg
+  | CompactResponseMsg;
 
 // ─── Extension ───────────────────────────────────────────────────────────────
 
@@ -153,6 +164,7 @@ export default function (pi: ExtensionAPI) {
 
   // Status tracking (local truth)
   let agentRunning = false;
+  let compactRunning = false; // true while compacting for a remote request
   let activeToolName: string | null = null;
   let stateSince = Date.now();
   let lastPushedKind: string | null = null;
@@ -183,6 +195,19 @@ export default function (pi: ExtensionAPI) {
       targetName: string;
       inactivityTimeout: ReturnType<typeof setTimeout>;
       ceilingTimeout: ReturnType<typeof setTimeout>;
+    }
+  >();
+
+  // Pending compact responses (sender waiting for remote compaction to finish)
+  const pendingCompactResponses = new Map<
+    string,
+    {
+      resolve: (result: {
+        content: { type: "text"; text: string }[];
+        details: Record<string, unknown>;
+      }) => void;
+      targetName: string;
+      timeout: ReturnType<typeof setTimeout>;
     }
   >();
 
@@ -407,6 +432,14 @@ export default function (pi: ExtensionAPI) {
     return pending;
   }
 
+  function cleanupPendingCompact(requestId: string) {
+    const pending = pendingCompactResponses.get(requestId);
+    if (!pending) return null;
+    clearTimeout(pending.timeout);
+    pendingCompactResponses.delete(requestId);
+    return pending;
+  }
+
   function makeInactivityTimeout(requestId: string, targetName: string) {
     return setTimeout(() => {
       const pending = cleanupPending(requestId);
@@ -484,7 +517,12 @@ export default function (pi: ExtensionAPI) {
    * still reject via protocol-level error responses).
    */
   function routeMessage(
-    msg: ChatMsg | PromptRequestMsg | PromptResponseMsg | CompactRequestMsg,
+    msg:
+      | ChatMsg
+      | PromptRequestMsg
+      | PromptResponseMsg
+      | CompactRequestMsg
+      | CompactResponseMsg,
   ): boolean {
     if (role === "hub") {
       if (msg.to === "*") {
@@ -512,13 +550,26 @@ export default function (pi: ExtensionAPI) {
               response: "",
               error: errText,
             }
-          : { type: "error", message: errText };
+          : msg.type === "compact_request"
+            ? {
+                type: "compact_response",
+                id: msg.id,
+                from: terminalName,
+                to: msg.from,
+                ok: false,
+                reason: "not_found",
+              }
+            : { type: "error", message: errText };
 
       if (msg.from === terminalName) {
-        // For prompt_request, deliver the error response locally so
-        // pendingPromptResponses resolves. For chat, skip — the tool
-        // result (via return false) is sufficient; no extra UI toast.
-        if (errorMsg.type === "prompt_response") handleIncoming(errorMsg);
+        // For prompt_request/compact_request, deliver the error response
+        // locally so the matching pending map resolves. For chat, skip — the
+        // tool result (via return false) is sufficient; no extra UI toast.
+        if (
+          errorMsg.type === "prompt_response" ||
+          errorMsg.type === "compact_response"
+        )
+          handleIncoming(errorMsg);
       } else {
         hubClientByName(msg.from)?.send(JSON.stringify(errorMsg));
       }
@@ -583,10 +634,23 @@ export default function (pi: ExtensionAPI) {
           terminalCwds.delete(msg.name);
           terminalContexts.delete(msg.name);
         }
-        // Fail any pending prompts to the departed terminal immediately
+        // Fail any pending prompts/compacts to the departed terminal
         for (const [id, pending] of pendingPromptResponses) {
           if (pending.targetName === msg.name) {
             const p = cleanupPending(id);
+            if (p) {
+              p.resolve(
+                textResult(`Terminal "${msg.name}" disconnected`, {
+                  to: msg.name,
+                  error: "disconnected",
+                }),
+              );
+            }
+          }
+        }
+        for (const [id, pending] of pendingCompactResponses) {
+          if (pending.targetName === msg.name) {
+            const p = cleanupPendingCompact(id);
             if (p) {
               p.resolve(
                 textResult(`Terminal "${msg.name}" disconnected`, {
@@ -628,14 +692,59 @@ export default function (pi: ExtensionAPI) {
         break;
 
       // ── Another terminal asks us to compact our context ──
-      case "compact_request":
-        notify(`"${msg.from}" requested compact`, "info");
-        ctx?.compact?.({ customInstructions: msg.instructions });
+      case "compact_request": {
+        if (agentRunning || pendingRemotePrompt || compactRunning) {
+          routeMessage({
+            type: "compact_response",
+            id: msg.id,
+            from: terminalName,
+            to: msg.from,
+            ok: false,
+            reason: "busy",
+          });
+          break;
+        }
+        const { id, from } = msg;
+        let finished = false;
+        const finish = (ok: boolean, reason?: string) => {
+          if (finished) return;
+          finished = true;
+          compactRunning = false;
+          routeMessage({
+            type: "compact_response",
+            id,
+            from: terminalName,
+            to: from,
+            ok,
+            reason,
+          });
+        };
+        if (!ctx?.compact) {
+          finish(false, "unsupported");
+          break;
+        }
+        compactRunning = true;
+        notify(`"${from}" requested compact`, "info");
+        // compact() aborts the current turn first, so the busy guard above
+        // keeps us from interrupting active work. The runtime guarantees
+        // exactly one of onComplete/onError fires, so compactRunning can't
+        // get stuck and the sender won't hang.
+        try {
+          ctx.compact({
+            customInstructions: msg.instructions,
+            onComplete: () => finish(true),
+            onError: (e) =>
+              finish(false, e instanceof Error ? e.message : String(e)),
+          });
+        } catch (e) {
+          finish(false, e instanceof Error ? e.message : String(e));
+        }
         break;
+      }
 
       // ── Another terminal asks us to run a prompt ──
       case "prompt_request":
-        if (agentRunning || pendingRemotePrompt) {
+        if (agentRunning || pendingRemotePrompt || compactRunning) {
           routeMessage({
             type: "prompt_response",
             id: msg.id,
@@ -672,6 +781,30 @@ export default function (pi: ExtensionAPI) {
             );
           } else {
             pending.resolve(textResult(msg.response, { from: msg.from }));
+          }
+        }
+        break;
+      }
+
+      // ── Response to a compact we requested ──
+      case "compact_response": {
+        const pending = cleanupPendingCompact(msg.id);
+        if (pending) {
+          // Use the requested target, not msg.from: a hub-synthesized
+          // not_found response comes from the hub, not the worker.
+          const target = pending.targetName;
+          if (msg.ok) {
+            pending.resolve(
+              textResult(`Compacted "${target}"`, { to: target }),
+            );
+          } else {
+            const reason = msg.reason ?? "failed";
+            pending.resolve(
+              textResult(`Compact on "${target}" not done: ${reason}`, {
+                to: target,
+                error: reason,
+              }),
+            );
           }
         }
         break;
@@ -772,7 +905,8 @@ export default function (pi: ExtensionAPI) {
         msg.type === "chat" ||
         msg.type === "prompt_request" ||
         msg.type === "prompt_response" ||
-        msg.type === "compact_request"
+        msg.type === "compact_request" ||
+        msg.type === "compact_response"
       ) {
         routeMessage({ ...msg, from: clientName });
       }
@@ -951,10 +1085,19 @@ export default function (pi: ExtensionAPI) {
       keepaliveTimer = null;
     }
     pendingRemotePrompt = null;
+    compactRunning = false;
 
-    // Clean up pending prompts
+    // Clean up pending prompts and compacts
     for (const id of [...pendingPromptResponses.keys()]) {
       const pending = cleanupPending(id);
+      if (pending) {
+        pending.resolve(
+          textResult("Link disconnected", { error: "disconnected" }),
+        );
+      }
+    }
+    for (const id of [...pendingCompactResponses.keys()]) {
+      const pending = cleanupPendingCompact(id);
       if (pending) {
         pending.resolve(
           textResult("Link disconnected", { error: "disconnected" }),
@@ -1256,8 +1399,9 @@ export default function (pi: ExtensionAPI) {
     name: "link_compact",
     label: "Link Compact",
     description: [
-      "Ask another Pi terminal to compact its context window, freeing up space.",
-      "Fire-and-forget; watch link_list to see the target's context usage drop.",
+      "Ask another Pi terminal to compact its context window and wait until it finishes.",
+      "Returns once the target has compacted, so you can immediately send it new work.",
+      "Busy targets (mid-turn or already compacting) decline; retry when idle.",
     ].join(" "),
     promptSnippet: "Ask another Pi terminal to compact its context window",
     parameters: Type.Object({
@@ -1269,7 +1413,7 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
 
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, signal) {
       if (role === "disconnected") return notConnectedResult();
 
       if (params.to === terminalName) {
@@ -1286,27 +1430,63 @@ export default function (pi: ExtensionAPI) {
         );
       }
 
-      const delivered = routeMessage({
-        type: "compact_request",
-        from: terminalName,
-        to: params.to,
-        instructions: params.instructions,
-      });
-      if (!delivered) {
-        return textResult(`Failed to request compact on "${params.to}"`, {
-          to: params.to,
-          error: "not_delivered",
-        });
-      }
+      const requestId = crypto.randomUUID();
 
-      const verb =
-        role === "hub"
-          ? "Requested compact on"
-          : "Requested compact (via hub) on";
-      return textResult(
-        `${verb} "${params.to}". Watch link_list for its context to drop.`,
-        { to: params.to },
-      );
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          const pending = cleanupPendingCompact(requestId);
+          if (pending) {
+            pending.resolve(
+              textResult(
+                `Compact request to "${params.to}" timed out (${COMPACT_TIMEOUT_MS / 1000}s)`,
+                { to: params.to, error: "timeout" },
+              ),
+            );
+          }
+        }, COMPACT_TIMEOUT_MS);
+
+        pendingCompactResponses.set(requestId, {
+          resolve,
+          targetName: params.to,
+          timeout,
+        });
+
+        signal?.addEventListener(
+          "abort",
+          () => {
+            const pending = cleanupPendingCompact(requestId);
+            if (pending) {
+              pending.resolve(
+                textResult("Compact request aborted", {
+                  to: params.to,
+                  error: "aborted",
+                }),
+              );
+            }
+          },
+          { once: true },
+        );
+
+        const delivered = routeMessage({
+          type: "compact_request",
+          id: requestId,
+          from: terminalName,
+          to: params.to,
+          instructions: params.instructions,
+        });
+
+        if (!delivered && pendingCompactResponses.has(requestId)) {
+          const pending = cleanupPendingCompact(requestId);
+          if (pending) {
+            pending.resolve(
+              textResult(`Failed to request compact on "${params.to}"`, {
+                to: params.to,
+                error: "not_delivered",
+              }),
+            );
+          }
+        }
+      });
     },
 
     renderCall(args, theme) {

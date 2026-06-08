@@ -1,178 +1,172 @@
-# PLAN — `link_compact` (leanest slice extracted from orchestration)
+# PLAN — `link_compact` (await-completion)
 
 ## Goal
 
 One new tool, `link_compact(to, instructions?)`, that asks another terminal to compact its
-context window. Fire-and-forget, modeled exactly on `link_send`. No consent, no capability
-advertisement, no response message, no cooldown, no idle check.
+context window **and blocks until that compaction finishes**, then returns. Modeled on
+`link_prompt` (request/response with a pending map + timeout), not `link_send`.
 
 ## Use case & division of labor
 
 An orchestrator watches worker context usage in `link_list` (shipped) and compacts a worker
-when it gets too loaded, so the worker can finish a long todo without blowing its window.
+when it gets too loaded. Because the call only returns once compaction is **done**, the
+orchestrator can in the very next step hand the freshly-trimmed worker more work
+(`link_send` / `link_prompt`) — no `sleep`, no polling, no busy-bounce.
 
-- **pi-link provides the _action_** (`link_compact`) — nothing else.
-- **The orchestrator LLM owns the _policy_** (the "keep it under 150K" threshold, when/whether
-  to compact). No threshold config or auto-compact daemon in pi-link.
+- **pi-link provides the _action + completion signal_** (`link_compact`).
+- **The orchestrator LLM owns the _policy_** (the "keep it under N tokens" threshold, when to
+  compact, what to dispatch next). No threshold config or auto-compact daemon in pi-link.
 
-## Why this is the whole feature
+## Why await-completion (the design we reversed into)
 
-Verification is **free**. We already force-push context on `session_compact`, so the orchestrator
-simply watches the target's `link_list` context drop. No `compact_response` needed — the existing
-context broadcast _is_ the ack.
+Fire-and-forget was the original plan. It fails the real workflow: the orchestrator wants to
+compact **then immediately deliver work**. With fire-and-forget it would have to `sleep`/poll
+`link_list` guessing when compaction ended, and a `link_prompt` sent during the ~5–60s
+compaction bounces (target is busy). So `link_compact` must report completion. Pi's
+`ctx.compact({ onComplete, onError })` gives us exactly that signal.
 
-## Non-goals (explicitly cut from PLAN-orchestration.md)
+## Non-goals (still cut)
 
 - Consent / `/link-control` gate, default-deny — **none**. Compact like any other link tool.
 - Capability advertisement (`remoteControl` flag), `terminalCapabilities` maps — **none**.
-- `compact_response` message, ACK/result reporting over the wire — **none** (verify via context).
-- Cooldown, idle/busy check, audit session entry — **none**.
-- `set_model` / `set_thinking`, model/thinking status fields, `model_select` triggers — **none**.
-- Generic `control_request` union — replaced by a single concrete `compact_request`.
-- Broadcast (`to: "*"`) compact — **disallowed**; single named target only (safer, simpler).
+- Cooldown, audit session entry — **none**.
+- `set_model` / `set_thinking`, generic `control_request` union — **none**.
+- Broadcast (`to: "*"`) compact — **disallowed**; single named target only.
+- Receiver-side queue/defer of a busy compact — **none**; busy declines, orchestrator retries.
 
 ## Design
 
-### 1. Wire message (one new type)
+### 1. Wire messages (request carries an `id`; one response type)
 
 ```ts
 interface CompactRequestMsg {
   type: "compact_request";
+  id: string; // correlates the response
   from: string;
   to: string;
   instructions?: string;
 }
-```
-
-Add to the `LinkMessage` union (near `ChatMsg`, ~line 64). No response type.
-
-### 2. Hub routing — authoritative `from`
-
-Add `compact_request` to the normalize-and-forward list (~line 759), alongside
-`chat` / `prompt_request` / `prompt_response`:
-
-```ts
-if (
-  msg.type === "chat" ||
-  msg.type === "prompt_request" ||
-  msg.type === "prompt_response" ||
-  msg.type === "compact_request"
-) {
-  routeMessage({ ...msg, from: clientName });
+interface CompactResponseMsg {
+  type: "compact_response";
+  id: string;
+  from: string; // the terminal that compacted (or the hub, for not_found)
+  to: string;
+  ok: boolean;
+  reason?: string; // "busy" | "not_found" | "unsupported" | error text; absent on success
 }
 ```
 
-`routeMessage` already delivers to `to`. No other hub changes.
+Both added to the `LinkMessage` union.
 
-### 3. Receiver handler — mirror `case "prompt_request"` notify, then compact
+### 2. Hub routing — authoritative `from`, plus a `not_found` response
 
-In the client message switch, next to `case "chat"`:
+`compact_request` **and** `compact_response` are added to the normalize-and-forward list, so
+the hub rewrites `from` and relays both directions. The hub's not-found branch, which already
+synthesizes a `prompt_response` error for `prompt_request`, now also synthesizes a
+`compact_response { ok:false, reason:"not_found" }` (delivered locally if the sender is the hub,
+else sent to the sender). This stops a racing/stale target from hanging the caller to timeout.
+
+### 3. Receiver handler — busy-decline, else compact and report completion
 
 ```ts
-case "compact_request":
-  notify(`"${msg.from}" requested compact`, "info");
-  ctx?.compact({ customInstructions: msg.instructions });
+case "compact_request": {
+  if (agentRunning || pendingRemotePrompt || compactRunning) {
+    routeMessage({ type: "compact_response", id: msg.id, from: terminalName,
+                   to: msg.from, ok: false, reason: "busy" });
+    break;
+  }
+  const { id, from } = msg;
+  let finished = false;
+  const finish = (ok, reason?) => {
+    if (finished) return;
+    finished = true;
+    compactRunning = false;
+    routeMessage({ type: "compact_response", id, from: terminalName, to: from, ok, reason });
+  };
+  if (!ctx?.compact) { finish(false, "unsupported"); break; }
+  compactRunning = true;
+  notify(`"${from}" requested compact`, "info");
+  try {
+    ctx.compact({
+      customInstructions: msg.instructions,
+      onComplete: () => finish(true),
+      onError: (e) => finish(false, e instanceof Error ? e.message : String(e)),
+    });
+  } catch (e) { finish(false, e instanceof Error ? e.message : String(e)); }
   break;
+}
 ```
 
-- `notify` helper exists (line 205); same info-toast pattern as `Running remote prompt from "..."`.
-  This is the "same fashion as other tools" surfacing — the target's user sees who triggered it.
-- `ctx?.compact()` — `ctx: ExtensionContext` (line 141); `CompactOptions.customInstructions` verified
-  in types.d.ts (line 199). Fire-and-forget per API (returns void). The `?` guards print/RPC mode.
+- **Busy guard** = `agentRunning || pendingRemotePrompt || compactRunning`. `compact()` calls
+  `await this.abort()` first (verified in agent-session.js), so without this guard a compact would
+  **abort the target's in-flight turn**. The new `compactRunning` flag also blocks a second concurrent
+  compact, and is added to the `prompt_request` busy check so a prompt can't land mid-compaction.
+- **`finish()` is idempotent** (`finished` flag) so sync-throw / `onError` / `onComplete` / disconnect
+  can't double-resolve, and always clears `compactRunning`.
+- **No receiver-side timeout needed**: the runtime wrapper guarantees exactly one of
+  `onComplete`/`onError` fires (it `await`s `session.compact` inside try/catch — see
+  interactive-mode.js), so `compactRunning` can't get stuck.
 
-### 4. Tool — mirror `link_send` execute/renderCall/renderResult (~line 1163)
+### 4. Sender — pending map + flat timeout (mirrors `link_prompt`)
+
+A dedicated `pendingCompactResponses` map (separate from `pendingPromptResponses`: different result
+shape, flat timeout vs. inactivity/ceiling semantics) with a `cleanupPendingCompact` helper. The
+tool returns a `Promise` that resolves when the matching `compact_response` arrives, on a flat
+**180s** timeout, on abort (`signal`), or on `not_delivered`. The `compact_response` receiver case
+resolves the pending entry: `ok` → `Compacted "<from>"`; else `Compact on "<from>" not done: <reason>`.
+
+Pending compacts are also failed on `terminal_left` (target departed) and on link disconnect,
+exactly like pending prompts.
+
+### 5. Tool result vocabulary
+
+`compacted` (success) / `busy` / `not_found` / `unsupported` / `timeout` / `aborted` /
+`not_delivered` / error text. Orchestrator reads `details.error` (absent on success).
+
+## Constants
 
 ```ts
-pi.registerTool({
-  name: "link_compact",
-  label: "Link Compact",
-  description:
-    "Ask another Pi terminal to compact its context window, freeing up space. " +
-    "Fire-and-forget; watch link_list to see the target's context usage drop.",
-  promptSnippet: "Ask another Pi terminal to compact its context window",
-  parameters: Type.Object({
-    to: Type.String({ description: "Target terminal name" }),
-    instructions: Type.Optional(
-      Type.String({ description: "Optional custom compaction instructions for the target" }),
-    ),
-  }),
-  async execute(_toolCallId, params) {
-    if (role === "disconnected") return notConnectedResult();
-    if (params.to === terminalName)
-      return textResult("Cannot compact self - use /compact.", { to: params.to, error: "self" });
-    if (!connectedTerminals.includes(params.to))
-      return textResult(
-        `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
-        { to: params.to, error: "not_found" },
-      );
-    const delivered = routeMessage({
-      type: "compact_request",
-      from: terminalName,
-      to: params.to,
-      instructions: params.instructions,
-    });
-    if (!delivered)
-      return textResult(`Failed to request compact on "${params.to}"`, {
-        to: params.to,
-        error: "not_delivered",
-      });
-    const verb = role === "hub" ? "Requested compact on" : "Requested compact (via hub) on";
-    return textResult(`${verb} "${params.to}". Watch link_list for its context to drop.`, {
-      to: params.to,
-    });
-  },
-  // renderCall / renderResult: copy link_send's, dropping the message preview and
-  // the (trigger) marker; show the target name + instructions preview if present.
-});
+const COMPACT_TIMEOUT_MS = 180_000; // headroom for large-context / slow-provider compaction
 ```
-
-Self-guard is the one tiny non-`link_send` addition (compacting self is a no-op surprise; `/compact`
-is the local path). Everything else copies `link_send` verbatim, including `notConnectedResult`,
-`textResult`, and the hub-vs-client wording.
-
-### 5. Header + doc touch-ups
-
-- index.ts line 9 comment: `Tools: link_send, link_prompt, link_list` → add `, link_compact`.
-- **SKILL.md** (opus lane): one line in the tool reference — when `link_list` shows a worker's
-  context high, `link_compact` it to free the window. This is how-to/mechanics → fits SKILL.
-- **README** (docs lane, after implementation): `link_compact` in the "which tool" table + a
-  `### link_compact` section + the new `compact_request` row in Internals Protocol. Delegate to docs.
-
-## Edge cases (all acceptable for the lean slice)
-
-- **Older pi-link target** (no handler): unknown message hits the switch default and is ignored —
-  silent no-op. Orchestrator sees context not drop, infers it. No version gate needed.
-- **Target busy / mid-turn**: we do NOT guard. `ctx.compact` is Pi's fire-and-forget; Pi decides
-  timing. If this proves disruptive in practice, an idle guard is a later, separate change.
-- **print/RPC mode receiver** (`ctx` undefined): `ctx?.compact` no-ops safely.
 
 ## Pi API references (verified)
 
 ```ts
 // dist/core/extensions/types.d.ts
-interface CompactOptions { customInstructions?: string; onComplete?; onError?; } // line 199
-interface ExtensionContext { compact(options?: CompactOptions): void; }          // line 232
-// session_compact event (line 411) already wired to force-push context (shipped).
+interface CompactOptions {
+  customInstructions?;
+  onComplete?: (r) => void;
+  onError?: (e: Error) => void;
+}
+interface ExtensionContext {
+  compact(options?: CompactOptions): void;
+}
+// agent-session.js compact():  this._disconnectFromAgent(); await this.abort(); ...  (aborts turn)
+// interactive-mode.js ctx.compact wrapper: await session.compact(); onComplete | catch->onError
 ```
 
-## Implementation order
+## Implementation order (done)
 
-1. `CompactRequestMsg` type + union entry.
-2. Hub normalize-and-forward entry.
-3. Receiver `case "compact_request"`.
-4. `link_compact` tool (copy `link_send`, add self-guard, swap wire type + wording).
-5. Header comment + SKILL.md line.
-6. esbuild bundle check (no local TS toolchain): `npx --yes esbuild index.ts --bundle
-   --platform=node --format=esm --external:@earendil-works/* --external:ws --external:typebox
-   --external:node:* --outfile=/tmp/pi-link-check.mjs`.
-7. Live test (below), then delegate README to docs.
+1. `COMPACT_TIMEOUT_MS` constant.
+2. `CompactRequestMsg` (+`id`) and `CompactResponseMsg` types + union entries.
+3. `compactRunning` flag; `pendingCompactResponses` map; `cleanupPendingCompact`.
+4. `routeMessage` param widened; hub not-found `compact_response`; normalize-and-forward entries.
+5. Receiver `case "compact_request"` (busy-decline + finish) and `case "compact_response"`.
+6. `prompt_request` busy check includes `compactRunning`; `terminal_left` + disconnect cleanup.
+7. `link_compact` tool: await-completion execute + updated description.
+8. SKILL.md line updated to the blocking/await contract.
+9. esbuild bundle check (clean, 45.3kb).
+10. Live test (below), then delegate README rewrite to docs.
 
 ## Test plan
 
-- **Happy path**: from one terminal, `link_compact` a test terminal that has meaningful context;
-  confirm its `link_list` context drops (and `?/window` then a fresh count appears post-compaction).
-- **Notify**: target shows the `"<from>" requested compact` info toast.
-- **not_found**: `link_compact` a typo'd name → tool returns not_found with the connected list.
-- **self**: `link_compact` own name → returns the self hint, no wire traffic.
-- **instructions**: pass custom instructions; confirm they reach `ctx.compact` (target compaction
-  honors them — best-effort visual check).
+- **Happy path → immediate dispatch**: give a test terminal real context; `link_compact` it and
+  confirm the tool **blocks then returns `Compacted "<x>"`**; immediately `link_prompt` the same
+  terminal and confirm **no busy-bounce** (it's idle post-compaction). Watch `link_list` drop too.
+- **busy**: while a terminal is mid-turn, `link_compact` it → returns `busy` promptly (its work
+  is NOT aborted).
+- **not_found**: typo'd name → tool-level not_found (connected list); racing stale target → hub
+  `compact_response{not_found}`.
+- **self**: own name → self hint, no wire traffic.
+- **timeout**: (hard to force live) — covered by the flat 180s + pending cleanup paths.
+- **instructions**: pass custom instructions; best-effort visual check they reach `ctx.compact`.

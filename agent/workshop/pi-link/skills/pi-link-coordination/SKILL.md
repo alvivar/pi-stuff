@@ -64,7 +64,7 @@ Use `triggerTurn: false` for fire-and-forget status notifications only — when 
 
 ### `link_compact`
 
-Fire-and-forget. Ask another terminal to compact its context window, freeing space. Use when `link_list` shows a worker's context running high — compact it before handing over more work so it can keep going without blowing its window. No response is returned; confirm by watching the target's context usage drop in `link_list`. You decide the threshold; pi-link only sends the request.
+Blocks until the target finishes compacting, then returns. Ask another terminal to compact its context window, freeing space. Use when `link_list` shows a worker's context running high: compact it, then — because the call only returns once compaction is done — immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link only sends the request.
 
 ---
 
