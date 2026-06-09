@@ -1317,7 +1317,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function notConnectedResult() {
-    return textResult("Not connected to link");
+    return textResult("Not connected to link", { error: "not_connected" });
   }
 
   function truncatePreview(text: string, max = 60) {
