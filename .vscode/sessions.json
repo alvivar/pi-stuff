@@ -6,6 +6,15 @@
   "sessions": {
     "pi-link": [
       {
+        "name": "fable@pi-link",
+        "icon": "link",
+        "color": "terminal.ansiBrightRed",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link fable@pi-link"
+        ]
+      },
+      {
         "name": "opus@pi-link",
         "icon": "link",
         "color": "terminal.ansiBrightMagenta",
