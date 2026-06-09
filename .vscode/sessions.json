@@ -25,6 +25,15 @@
         ]
       },
       {
+        "name": "archon@pi-link",
+        "icon": "organization",
+        "color": "terminal.ansiBrightYellow",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-link"
+        ]
+      },
+      {
         "name": "updater@pi-link",
         "icon": "sync",
         "color": "terminal.ansiBrightBlue",
@@ -43,39 +52,39 @@
         ]
       },
       {
-        "name": "pi-link-test1",
+        "name": "test1@pi-link",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link pi-link-test1"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test1@pi-link"
         ]
       },
       {
-        "name": "pi-link-test2",
+        "name": "test2@pi-link",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link pi-link-test2"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test2@pi-link"
         ]
       },
       {
-        "name": "pi-link-test3",
+        "name": "test3@pi-link",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link pi-link-test3"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test3@pi-link"
         ]
       },
       {
-        "name": "pi-link-test4",
+        "name": "test4@pi-link",
         "icon": "beaker",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link pi-link-test4"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test4@pi-link"
         ]
       },
       {
