@@ -1439,6 +1439,13 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params, signal) {
+      if (signal?.aborted) {
+        return textResult("Compact request aborted", {
+          to: params.to,
+          error: "aborted",
+        });
+      }
+
       if (role === "disconnected") return notConnectedResult();
 
       if (params.to === terminalName) {
@@ -1537,6 +1544,13 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params, signal) {
+      if (signal?.aborted) {
+        return textResult("Prompt request aborted", {
+          to: params.to,
+          error: "aborted",
+        });
+      }
+
       if (role === "disconnected") return notConnectedResult();
 
       if (params.to === terminalName) {
