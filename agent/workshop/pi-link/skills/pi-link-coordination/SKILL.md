@@ -1,6 +1,6 @@
 ---
 name: pi-link-coordination
-description: Guidance for coordinating work across Pi terminals using pi-link. Use when delegating tasks, choosing between link_prompt and link_send, planning async vs sync work, batching parallel jobs, or avoiding busy/conflict patterns.
+description: Guidance for coordinating work across Pi terminals using pi-link. Use when delegating tasks, choosing between link_prompt and link_send, planning async vs sync work, batching parallel jobs, managing a remote terminal's context with link_compact, or avoiding busy/conflict patterns.
 ---
 
 # Pi-Link Coordination
@@ -16,6 +16,7 @@ Each terminal is an independent agent: they share no memory or conversation hist
 - Need the answer back now? → `link_prompt`
 - Need autonomous work done? → `link_send(triggerTurn: true)`
 - Need to notify only? → `link_send(triggerTurn: false)`
+- Need to free a terminal's context? → `link_compact`
 
 ---
 
@@ -25,7 +26,7 @@ Each terminal is an independent agent: they share no memory or conversation hist
 
 The `DONE` / `BLOCKED` callback arrives as a normal later user message; treat that callback as the signal that it is safe to send a follow-up `link_prompt`.
 
-Pick one mode per terminal per task. Mixing sync and async on the same terminal is the most common coordination failure.
+Pick one mode per terminal per task. Mixing sync and async on the same terminal is a common coordination failure.
 
 ---
 
@@ -41,7 +42,7 @@ Only currently connected terminals are visible. If a target is missing, it is of
 
 Synchronous RPC. Send a prompt, wait for the response.
 
-- Fails immediately if target is missing, self, disconnects, or busy (local work or another remote prompt)
+- Fails fast if the target is yourself, not connected, or busy (local work, another remote prompt, or compaction); a mid-wait disconnect resolves as an error
 - 90s inactivity timeout, 30min hard ceiling
 - Remote agent doesn't share your context — include enough detail to complete the task
 
@@ -68,14 +69,13 @@ Use `triggerTurn: false` for fire-and-forget status notifications only — when 
 
 ### `link_compact`
 
-Blocks until the target finishes compacting, then returns. Ask another terminal to compact its context window into a summary, freeing space. `link_list` exposes context usage; `link_compact` is the lever when you decide a terminal should free context — and because the call only returns once compaction is done, you can immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link only sends the request. Its optional `instructions` add an extra focus to that summary.
+Blocks until the target finishes compacting, then returns. Ask another terminal to compact its context window into a summary, freeing space. `link_list` exposes context usage; `link_compact` is the lever when you decide a terminal should free context — and because the call only returns once compaction is done, you can immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link just runs the compaction you ask for. Its optional `instructions` add an extra focus to that summary.
 
 ---
 
 ## Operating Constraints
 
 - **One remote prompt at a time per target.** Concurrent requests rejected as busy.
-- **No shared context.** Every remote prompt must be self-contained.
 - **Messages are ephemeral.** Offline terminals lose messages.
 - **Localhost only.** Same machine.
 - **Cwd is a hint, not proof.** Same cwd ≠ same workspace/branch/access. Use explicit paths; absolute when cwds differ or shared-root assumptions are unclear.
@@ -98,7 +98,7 @@ Dispatched with `link_send(triggerTurn: true)` then sent a `link_prompt` → rej
 `triggerTurn: true` returns no result to the sender — without an agreed callback you never learn the outcome.
 
 **❌ Circular delegation**
-A → B → C → A = deadlock. Maintain clear hierarchy.
+A → B → C → A won't complete — the cycle-closing `link_prompt` hits a busy target (rejected), and an async `link_send` cycle just loops. Keep delegation acyclic.
 
 ---
 
