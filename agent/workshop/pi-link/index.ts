@@ -109,7 +109,7 @@ interface CompactResponseMsg {
   from: string;
   to: string;
   ok: boolean;
-  reason?: string; // "busy" | "not_found" | error text; absent on success
+  reason?: string; // "busy" | "not_found" | "unsupported" | error text; absent on success
 }
 
 type LinkStatus =
@@ -269,13 +269,13 @@ export default function (pi: ExtensionAPI) {
   function pushStatus(force = false) {
     if (role === "disconnected") return;
     const status = deriveStatus();
-    const context = captureContext();
     const newKind = status.kind;
     const newTool = status.kind === "tool" ? status.toolName : null;
     if (!force && newKind === lastPushedKind && newTool === lastPushedTool)
       return;
     lastPushedKind = newKind;
     lastPushedTool = newTool;
+    const context = captureContext(); // only when we actually push
     const msg: StatusUpdateMsg = {
       type: "status_update",
       name: terminalName,
@@ -1314,6 +1314,30 @@ export default function (pi: ExtensionAPI) {
     return text.length > max ? text.slice(0, max) + "..." : text;
   }
 
+  // Shared "target not found" result for the send/prompt/compact tools.
+  // Returns null when the target is present, so callers can `if (miss) return miss;`.
+  function targetNotFound(to: string) {
+    return connectedTerminals.includes(to)
+      ? null
+      : textResult(
+          `Terminal "${to}" not found. Connected: ${connectedTerminals.join(", ")}`,
+          { to, error: "not_found" },
+        );
+  }
+
+  // Shared ✓/✗ result renderer for link_send and link_compact.
+  function renderIconResult(
+    result: { content: { type: string; text?: string }[]; details?: unknown },
+    theme: { fg(role: string, text: string): string },
+  ) {
+    const txt = result.content[0];
+    const details = result.details as Record<string, unknown> | undefined;
+    const icon = details?.error
+      ? theme.fg("error", "✗ ")
+      : theme.fg("success", "✓ ");
+    return new Text(icon + (txt?.type === "text" ? txt.text : ""), 0, 0);
+  }
+
   // ── Tools ────────────────────────────────────────────────────────────────
 
   pi.registerTool({
@@ -1342,11 +1366,9 @@ export default function (pi: ExtensionAPI) {
       if (role === "disconnected") return notConnectedResult();
 
       // Pre-validate target exists locally (best-effort, catches typos and definitely-absent names)
-      if (params.to !== "*" && !connectedTerminals.includes(params.to)) {
-        return textResult(
-          `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
-          { to: params.to, error: "not_found" },
-        );
+      if (params.to !== "*") {
+        const miss = targetNotFound(params.to);
+        if (miss) return miss;
       }
 
       const delivered = routeMessage({
@@ -1385,14 +1407,7 @@ export default function (pi: ExtensionAPI) {
       return new Text(text, 0, 0);
     },
 
-    renderResult(result, _options, theme) {
-      const txt = result.content[0];
-      const details = result.details as Record<string, unknown> | undefined;
-      const icon = details?.error
-        ? theme.fg("error", "✗ ")
-        : theme.fg("success", "✓ ");
-      return new Text(icon + (txt?.type === "text" ? txt.text : ""), 0, 0);
-    },
+    renderResult: (result, _options, theme) => renderIconResult(result, theme),
   });
 
   pi.registerTool({
@@ -1423,12 +1438,8 @@ export default function (pi: ExtensionAPI) {
         });
       }
 
-      if (!connectedTerminals.includes(params.to)) {
-        return textResult(
-          `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
-          { to: params.to, error: "not_found" },
-        );
-      }
+      const miss = targetNotFound(params.to);
+      if (miss) return miss;
 
       const requestId = crypto.randomUUID();
 
@@ -1497,14 +1508,7 @@ export default function (pi: ExtensionAPI) {
       return new Text(text, 0, 0);
     },
 
-    renderResult(result, _options, theme) {
-      const txt = result.content[0];
-      const details = result.details as Record<string, unknown> | undefined;
-      const icon = details?.error
-        ? theme.fg("error", "✗ ")
-        : theme.fg("success", "✓ ");
-      return new Text(icon + (txt?.type === "text" ? txt.text : ""), 0, 0);
-    },
+    renderResult: (result, _options, theme) => renderIconResult(result, theme),
   });
 
   pi.registerTool({
@@ -1532,12 +1536,8 @@ export default function (pi: ExtensionAPI) {
         });
       }
 
-      if (!connectedTerminals.includes(params.to)) {
-        return textResult(
-          `Terminal "${params.to}" not found. Connected: ${connectedTerminals.join(", ")}`,
-          { to: params.to, error: "not_found" },
-        );
-      }
+      const miss = targetNotFound(params.to);
+      if (miss) return miss;
 
       const requestId = crypto.randomUUID();
 
