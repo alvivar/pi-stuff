@@ -921,21 +921,21 @@ export default function (pi: ExtensionAPI) {
 
     clientWs.on("close", () => {
       if (disposed) return;
-      if (clientName) {
-        hubClients.delete(clientWs);
-        hubTerminalStatuses.delete(clientName);
-        hubTerminalContexts.delete(clientName);
-        hubTerminalCwds.delete(clientName);
-        const list = terminalList();
-        connectedTerminals = list;
-        updateStatus();
-        const left: TerminalLeftMsg = {
-          type: "terminal_left",
-          name: clientName,
-          terminals: list,
-        };
-        hubBroadcast(left, clientName);
-      }
+      const name = hubClients.get(clientWs);
+      if (!name) return; // already removed (e.g. via disconnect) — ignore stale event
+      hubClients.delete(clientWs);
+      hubTerminalStatuses.delete(name);
+      hubTerminalContexts.delete(name);
+      hubTerminalCwds.delete(name);
+      const list = terminalList();
+      connectedTerminals = list;
+      updateStatus();
+      const left: TerminalLeftMsg = {
+        type: "terminal_left",
+        name,
+        terminals: list,
+      };
+      hubBroadcast(left, name);
     });
 
     clientWs.on("error", () => {
