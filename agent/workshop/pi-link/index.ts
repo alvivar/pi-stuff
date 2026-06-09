@@ -296,6 +296,23 @@ export default function (pi: ExtensionAPI) {
     return n ? n : undefined;
   }
 
+  // Latest custom session entry of a given type (last-write-wins), or undefined.
+  function latestCustomData(
+    customType: string,
+  ): Record<string, unknown> | undefined {
+    if (!ctx) return undefined;
+    const entries = ctx.sessionManager.getEntries();
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i] as {
+        type: string;
+        customType?: string;
+        data?: Record<string, unknown>;
+      };
+      if (e.type === "custom" && e.customType === customType) return e.data;
+    }
+    return undefined;
+  }
+
   function formatDuration(since: number): string {
     const sec = Math.floor((Date.now() - since) / 1000);
     if (sec < 60) return `${sec}s`;
@@ -417,14 +434,10 @@ export default function (pi: ExtensionAPI) {
   // ── Connection intent ──────────────────────────────────────────────────
 
   function shouldConnect(_ctx: ExtensionContext): boolean {
-    const saved = _ctx.sessionManager
-      .getEntries()
-      .filter(
-        (e: { type: string; customType?: string }) =>
-          e.type === "custom" && e.customType === "link-active",
-      )
-      .pop() as { data?: { active?: boolean } } | undefined;
-    if (saved?.data?.active !== undefined) return saved.data.active;
+    const data = latestCustomData("link-active") as
+      | { active?: boolean }
+      | undefined;
+    if (data?.active !== undefined) return data.active;
     return pi.getFlag("link") === true;
   }
 
@@ -1198,18 +1211,11 @@ export default function (pi: ExtensionAPI) {
       // Skip append if the saved name already matches; persistence is needed
       // only for first-time set or actual change. Reduces session-file growth
       // on repeated startups (common in automation).
-      let latestSaved: string | undefined;
-      const entries = _ctx.sessionManager.getEntries();
-      for (let i = entries.length - 1; i >= 0; i--) {
-        const e = entries[i] as {
-          type: string;
-          customType?: string;
-          data?: { name?: unknown };
-        };
-        if (e.type !== "custom" || e.customType !== "link-name") continue;
-        if (typeof e.data?.name === "string") latestSaved = e.data.name;
-        break;
-      }
+      const latest = latestCustomData("link-name") as
+        | { name?: unknown }
+        | undefined;
+      const latestSaved =
+        typeof latest?.name === "string" ? latest.name : undefined;
       if (normalizeName(latestSaved) !== flagName) {
         pi.appendEntry("link-name", { name: flagName });
       }
@@ -1218,14 +1224,10 @@ export default function (pi: ExtensionAPI) {
       // Public --link-name is link-only.
       if (fromEnv && !pi.getSessionName()) pi.setSessionName(flagName);
     } else {
-      const saved = _ctx.sessionManager
-        .getEntries()
-        .filter(
-          (e: { type: string; customType?: string }) =>
-            e.type === "custom" && e.customType === "link-name",
-        )
-        .pop() as { data?: { name?: string } } | undefined;
-      const savedName = normalizeName(saved?.data?.name);
+      const saved = latestCustomData("link-name") as
+        | { name?: string }
+        | undefined;
+      const savedName = normalizeName(saved?.name);
       if (savedName) {
         preferredName = savedName;
         terminalName = preferredName;
