@@ -224,14 +224,6 @@ reason?: string; // "busy" | "not_found" | "unsupported" | error text; absent on
 
 ---
 
-## #8 — Lockfile version drift (info only)
-
-`package-lock.json` says `0.1.2`; `package.json` is `0.1.15`. Not shipped by
-`npm pack`, but misleading. Versions are hand-managed — flag only; regenerate or
-leave at the maintainer's discretion.
-
----
-
 ## Explicitly out of scope — do NOT abstract the RPC pending machinery
 
 Both reviewers independently agree: `link_prompt` and `link_compact` share a
@@ -256,7 +248,6 @@ duplication and would hide debugging-relevant behavior. The targeted helpers (#3
 2. **Pass B (consistency win):** #3 `normalizeName`. Run `test/cli-flags-test.mjs`.
 3. **Defect fix:** #1 hub `close` guard. Manual disconnect/reconnect check.
 4. **Pass C (sensitive):** #4 `latestCustomData`. Run tests + name-precedence check.
-5. #8 at maintainer discretion (version-managed by hand).
 
 **Verify after each pass:** esbuild bundle check
 (`npx --yes esbuild index.ts --bundle --platform=node --format=esm
