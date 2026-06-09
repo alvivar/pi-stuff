@@ -848,6 +848,7 @@ export default function (pi: ExtensionAPI) {
 
       // First message must be register
       if (msg.type === "register") {
+        if (clientName) return; // already registered — ignore duplicate
         clientName = uniqueName(msg.name);
         hubClients.set(clientWs, clientName);
         if (msg.cwd) hubTerminalCwds.set(clientName, msg.cwd);
