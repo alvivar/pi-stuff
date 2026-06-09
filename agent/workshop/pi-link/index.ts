@@ -433,7 +433,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── Connection intent ──────────────────────────────────────────────────
 
-  function shouldConnect(_ctx: ExtensionContext): boolean {
+  function shouldConnect(): boolean {
     const data = latestCustomData("link-active") as
       | { active?: boolean }
       | undefined;
@@ -1237,7 +1237,7 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (flagName || shouldConnect(_ctx)) scheduleStartupConnect();
+    if (flagName || shouldConnect()) scheduleStartupConnect();
   });
 
   pi.on("session_shutdown", async () => {
