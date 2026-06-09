@@ -1378,6 +1378,12 @@ export default function (pi: ExtensionAPI) {
 
       // Pre-validate target exists locally (best-effort, catches typos and definitely-absent names)
       if (params.to !== "*") {
+        if (params.to === terminalName) {
+          return textResult("Cannot send to yourself", {
+            to: params.to,
+            error: "self_target",
+          });
+        }
         const miss = targetNotFound(params.to);
         if (miss) return miss;
       }
