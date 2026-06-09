@@ -6,7 +6,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
-## Unreleased
+## 0.1.16 — 2026-06-09
 
 ### Added
 
@@ -18,7 +18,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ### Fixed
 
-- **Hub no longer broadcasts spurious `terminal_left` for already-removed clients.** The hub's WebSocket close handler now reads live hub state before broadcasting — if the client was already removed via explicit `/link-disconnect`, the stale post-disconnect close event is ignored. Previously this could produce phantom "X left" notifications and drift `connectedTerminals` between hub and clients.
+- **Hub no longer broadcasts spurious `terminal_left` for already-removed clients.** The hub's WebSocket close handler now looks up the client in live hub state instead of a closure variable captured at register time. If the socket has no live entry — a duplicate or post-removal close event (e.g. a close firing after the error handler's own `close()`) — it's ignored. Previously this could produce phantom "X left" notifications and drift `connectedTerminals` between hub and clients.
 
 ### Internal
 
