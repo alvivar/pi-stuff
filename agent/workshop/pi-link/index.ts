@@ -289,6 +289,13 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  // Canonicalize a link/session name: trim + collapse internal whitespace.
+  // Returns undefined for nullish/blank so callers can fall through precedence.
+  function normalizeName(name: string | undefined | null): string | undefined {
+    const n = name?.trim().replace(/\s+/g, " ");
+    return n ? n : undefined;
+  }
+
   function formatDuration(since: number): string {
     const sec = Math.floor((Date.now() - since) / 1000);
     if (sec < 60) return `${sec}s`;
@@ -1170,7 +1177,7 @@ export default function (pi: ExtensionAPI) {
     const cliRaw = pi.getFlag("link-name");
     let cliFlagName: string | undefined;
     if (typeof cliRaw === "string") {
-      cliFlagName = cliRaw.trim().replace(/\s+/g, " ");
+      cliFlagName = normalizeName(cliRaw);
       if (!cliFlagName) {
         console.error("Error: --link-name requires a non-empty value.");
         process.exit(1);
@@ -1179,7 +1186,7 @@ export default function (pi: ExtensionAPI) {
 
     const envRaw = process.env.PI_LINK_NAME;
     delete process.env.PI_LINK_NAME;
-    const envFlagName = envRaw?.trim().replace(/\s+/g, " ") || undefined;
+    const envFlagName = normalizeName(envRaw);
 
     const flagName = cliFlagName ?? envFlagName;
     const fromEnv = !cliFlagName && !!envFlagName;
@@ -1203,7 +1210,7 @@ export default function (pi: ExtensionAPI) {
         if (typeof e.data?.name === "string") latestSaved = e.data.name;
         break;
       }
-      if (latestSaved?.trim().replace(/\s+/g, " ") !== flagName) {
+      if (normalizeName(latestSaved) !== flagName) {
         pi.appendEntry("link-name", { name: flagName });
       }
 
@@ -1218,11 +1225,12 @@ export default function (pi: ExtensionAPI) {
             e.type === "custom" && e.customType === "link-name",
         )
         .pop() as { data?: { name?: string } } | undefined;
-      if (saved?.data?.name) {
-        preferredName = saved.data.name;
+      const savedName = normalizeName(saved?.data?.name);
+      if (savedName) {
+        preferredName = savedName;
         terminalName = preferredName;
       } else {
-        const sessionName = pi.getSessionName()?.trim().replace(/\s+/g, " ");
+        const sessionName = normalizeName(pi.getSessionName());
         if (sessionName) terminalName = sessionName;
       }
     }
@@ -1741,10 +1749,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("link-name", {
     description: "Change link name. No arg = use session name",
     handler: async (args, _ctx) => {
-      let newName = args.trim();
+      let newName = normalizeName(args) ?? "";
       if (!newName) {
         // No argument: use session name if available
-        const sessionName = pi.getSessionName()?.trim().replace(/\s+/g, " ");
+        const sessionName = normalizeName(pi.getSessionName());
         if (sessionName) {
           newName = sessionName;
         } else {
