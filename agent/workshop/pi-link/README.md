@@ -164,6 +164,8 @@ Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, the e
 
 `pi-link <name>` resumes/creates a session AND sets your link identity in one step. `pi --link-name <name>` sets only the link identity, leaving Pi's normal session selection (latest in cwd, or fresh) untouched.
 
+**Name normalization:** Link names are normalized — leading/trailing whitespace removed and internal whitespace runs collapsed to a single space. `/link-name "build   lead"` saves and shows as `build lead`.
+
 **Name precedence:** `pi --link-name` > `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`. _(The `pi-link` wrapper itself does not accept `--link-name`; pick one or the other.)_
 
 `/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
@@ -430,13 +432,13 @@ If another process occupies port 9900, the terminal can't become the hub. It wil
 
 ### "Terminal is busy" rejections
 
-Each terminal can only execute **one remote prompt at a time**. If a `link_prompt` arrives while the agent is already running (either from a local user or another remote prompt), it's immediately rejected with `"Terminal is busy"`. There is no queuing. Solutions:
+Each terminal handles **one remote operation at a time** — a local agent run, an incoming `link_prompt`, or a `link_compact` all block the others. If a `link_prompt` arrives while the terminal is busy, it's immediately rejected with `"Terminal is busy"`. There is no queuing. Solutions:
 
 - Wait for the target terminal to finish its current task.
 - Spread prompts across multiple worker terminals.
 - Have the sender retry after a delay.
 
-`link_compact` follows the same rule — if the target is mid-turn or already compacting, the call resolves with `Compact on "<target>" not done: busy` instead of interrupting active work. Retry when `link_list` shows the worker idle.
+A `link_compact` to a busy target behaves the same way — the call resolves with `Compact on "<target>" not done: busy` instead of interrupting active work. Retry when `link_list` shows the worker idle.
 
 ### Terminals don't see each other
 
@@ -619,7 +621,7 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 
 `routeMessage()` returns a `boolean` indicating delivery status:
 
-- **Hub** - delivery is authoritative. If the target terminal isn't connected, the hub sends a protocol-level error back to the sender. For `prompt_request` messages to unknown targets, the hub sends a `prompt_response` with an error field so the sender's pending promise resolves immediately rather than timing out.
+- **Hub** - delivery is authoritative. If the target terminal isn't connected, the hub sends a protocol-level error back to the sender. For `prompt_request` messages to unknown targets, the hub sends a `prompt_response` with an error field so the sender's pending promise resolves immediately rather than timing out. Likewise, a `compact_request` to an unknown target gets a synthesized `compact_response` (`ok: false`, `reason: "not_found"`), so a remote-compact call fails fast instead of waiting out its 180-second timeout.
 - **Client** - delivery is optimistic (`true` means "sent to hub"). The hub handles routing and errors via the protocol.
 
 ### Connection Lifecycle
