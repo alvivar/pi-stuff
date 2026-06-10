@@ -9,7 +9,9 @@ Gates green at plan time: `node test/cli-flags-test.mjs` → 40/40.
 
 **Nature:** #1 is test-only (no shipped-code changes); #2 is a one-line display
 fix behind one decision; #3 adds a `--version` flag (owner request,
-2026-06-09). No behavior changes to existing parsing, resolution, or launch.
+2026-06-09); #4 removes the 0.1.12 deprecation shims (owner request,
+2026-06-09) — the only item that changes existing behavior, and only on
+already-deprecated paths.
 
 ## Decisions
 
@@ -31,6 +33,26 @@ fix behind one decision; #3 adds a `--version` flag (owner request,
     `pi-link foo -- --version`.
   - Bonus: prepend `pi-link v<version>` to `printHelp()` output so the bare
     invocation (your help shortcut) also surfaces it.
+- **D3 (open) — fate of removed `list`/`resolve` subcommands.** The hazard:
+  after plain removal, `pi-link list` parses as a session **name** and
+  silently creates a session called "list" — a muscle-memory trap. Pick one:
+  - **(a) Hard-error tombstone** (recommended): bare `list` / `resolve` at the
+    name position → `Error: 'pi-link list' was removed. Use 'pi-link --list'.`
+    exit 1. ~4 lines replacing ~25 lines of working-alias machinery; the trap
+    is closed; sessions named exactly `list`/`resolve` stay launchable via
+    `--resolve`-printed paths (corner case, acceptable). Revisit removal of
+    the tombstone never — it's free.
+  - **(b) Full removal:** `list`/`resolve` become ordinary session names.
+    Purest, but enables the silent-session trap for 4 releases of muscle
+    memory.
+- **D4 (open) — `rejectRenamedFlag` (`--all`/`-a`).** Recommended: **remove
+  entirely.** It's been a hard error (not a working alias) since 0.1.12; the
+  pointer text has served its purpose. Removal also fixes a real wart: the
+  check is always-on, so `pi-link foo -a` currently errors instead of passing
+  `-a` through to pi — the shim shadows pi's flag namespace. After removal:
+  `--all` before a name → generic "Unknown argument" (correct); after a name
+  → forwarded to pi (correct). Alternative: keep it; costs the passthrough
+  hole.
 - **Decided by convention (no sign-off needed):**
   - Fixtures are **generated inline by the test** (temp dirs, like the existing
     stub-`pi` shim). No checked-in fixture files.
@@ -177,10 +199,55 @@ recognition didn't loosen unknown-flag handling).
 
 ---
 
+## #4 — Remove 0.1.12 deprecation shims (behavior change; owner request)
+
+**Where:** bin/pi-link.mjs — header comment (L12–13), `rejectRenamedFlag`
+(~L243), `printDeprecationWarning` (~L296), parser phase docs (L318–322),
+`state.deprecated` (~L332), Phase 1 call site (~L348), Phase 4 subcommand
+detection (~L395), Phase 5 resolve-ordering leniency (~L420), dispatch warning
+(~L483). Plus README's legacy-forms note (~L223) and tests B8–B11.
+
+**Problem:** the 0.1.12 deprecations promised removal after one release;
+we're four releases on. The compatibility machinery is now the majority of
+the parser's special-casing: a dedicated state field, a detection phase, an
+ordering-leniency rule that exists _only_ for the deprecated form, and an
+always-on flag shim that blocks `-a`/`--all` from ever reaching pi.
+
+**Fix (per D3a + D4-remove, recommended):**
+
+- Delete `printDeprecationWarning`, `state.deprecated`, the Phase 4 detection
+  block, the Phase 5 leniency clause, and the dispatch-time warning.
+- Replace with a tombstone at the name-binding position:
+
+  ```js
+  if (token === "list" || token === "resolve") {
+    fail(`'pi-link ${token}' was removed. Use 'pi-link --${token}'.`);
+  }
+  ```
+
+- Delete `rejectRenamedFlag` and its Phase 1 call; `--all`/`-a` now follow
+  the ordinary rules (unknown before a name, forwarded to pi after).
+- README: drop the legacy-forms paragraph.
+- Tests: rewrite B8–B11 — `list` → exit 1 "was removed"; `resolve nope` →
+  exit 1 "was removed"; rewrite `E34: --all (renamed)` → exit 1 "Unknown
+  argument"; add `foo -a` → passthrough-to-pi (expectSpawn) to pin the
+  un-shadowing.
+
+**Risk:** moderate-low — deliberate breaks on warned paths only; the parser
+gets _simpler_ (net-negative diff). The one behavior to pin carefully is the
+new passthrough of `-a`/`--all` after a name (expectSpawn case).
+**Verify:** full suite green with rewritten B-section; manual
+`pi-link list` shows the tombstone.
+
+---
+
 ## Noted, no action
 
 - **Bare `pi-link` prints help, exits 0** — owner decision (2026-06-09),
   guarded by test `E32`.
+- **CHANGELOG "Deprecated" entries (0.1.12)** — historical record, never
+  edited retroactively; #4's removal gets its own entry at release time (by
+  hand, per convention).
 - **Full-file JSONL scans in `--list`/`--resolve`** — required for correctness
   (last-wins link-name + message counts need the whole file). Fine at personal
   scale; revisit only at hundreds of multi-MB session files.
@@ -202,6 +269,10 @@ recognition didn't loosen unknown-flag handling).
 3. **Pass C — D2 decision, then #3.** `printVersion` + parser registration +
    help line + section I tests, in one pass (feature and its tests are one
    unit). Gate: full suite green.
+4. **Pass D — D3/D4 decisions, then #4.** Shim removal + tombstone + B-section
+   rewrite + README note, in one pass. Last on purpose: it rewrites existing
+   tests, so it must not interleave with passes that rely on the current
+   B-section as a stable gate. Gate: full suite green; manual tombstone check.
 
 **Gate (mechanical, after each pass):**
 
