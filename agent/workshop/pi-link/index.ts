@@ -775,7 +775,9 @@ export default function (pi: ExtensionAPI) {
           });
         } else {
           pendingRemotePrompt = { id: msg.id, from: msg.from };
-          // Keepalive: periodic status push so sender knows we're alive
+          // Keepalive: periodic status push so sender knows we're alive.
+          // Keepalive presumes sendUserMessage() starts a run (platform contract);
+          // if it ever doesn't, the sender's 30 min hard ceiling is the backstop.
           if (keepaliveTimer) clearInterval(keepaliveTimer);
           keepaliveTimer = setInterval(
             () => pushStatus(true),
