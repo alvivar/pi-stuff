@@ -5,6 +5,7 @@ the worker shares none of your context.
 
 ```
 GO — <prior task> committed (<hash>). Proceed with <this task>.
+GO — first task of the run.                               # task 1 variant: no prior commit to cite
 GO CONFIRMED — user approved with "<exact user quote>".   # include when first releasing held work
 
 TASK — <task id / pass name>: <finding ids and one-line intent> on <file>.

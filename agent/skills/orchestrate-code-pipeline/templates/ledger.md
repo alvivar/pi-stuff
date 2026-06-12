@@ -7,6 +7,7 @@ long run auditable.
 - Path: <absolute plan path>
 - Gate: build = `<cmd>` ; test = `<cmd>` (baseline N/N)
 - User go: "<exact approval quote>" (<when>)
+- Autonomy: <run-through (one global go) | gate-per-task>
 
 ## Role bindings (from link_list)
 | Role | Terminal | cwd |
@@ -29,4 +30,7 @@ long run auditable.
 ## Dissents / deviations
 - <task>: <reviewer concern> → <implementer tie-break decision> (§3.7)
 - <skipped item>: <reason>
-```
+
+## Run end
+- Final summary posted to user: <when>
+- Ledger disposed (delete-after-done): <when | pending>
