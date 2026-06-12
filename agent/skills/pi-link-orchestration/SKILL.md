@@ -44,11 +44,11 @@ Brief templates and the expected plan schema live next to this file:
 
 ## 1. Roles (parameters — bind via link_list, never hardcode)
 
-| Role         | Does                              | Notes                                                                                        |
-| ------------ | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| orchestrator | you — route, gate, manage context | never writes/reviews code; commits only under the §1 committer fold-in exception             |
-| implementer  | edits code, self-runs the gate    |                                                                                              |
-| reviewer     | reviews diffs against the plan    | MUST differ from implementer (independence)                                                  |
+| Role         | Does                              | Notes                                                                                                                    |
+| ------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| orchestrator | you — route, gate, manage context | never writes/reviews code; commits only under the §1 committer fold-in exception                                         |
+| implementer  | edits code, self-runs the gate    |                                                                                                                          |
+| reviewer     | reviews diffs against the plan    | MUST differ from implementer (independence)                                                                              |
 | committer    | makes git commits                 | may fold into orchestrator only if no dedicated committer and the user permits you to commit (the single §3.8 exception) |
 
 Binding procedure:
@@ -111,7 +111,7 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
 3. **Gate is non-negotiable and worker-self-run.** Never trust "looks done." The
    worker runs the build + tests and reports results; red or missing = BLOCKED.
 4. **Predictive context management.** Compact any worker when `current +
-   estimated_task_cost` would exceed 70% of its window — NOT only when `current`
+estimated_task_cost` would exceed 70% of its window — NOT only when `current`
    already does (the implementer grows fastest). The hazard is Pi's
    auto-compaction firing MID-TASK, which can shed the dispatch brief's details
    at the worst moment; orchestrated compaction while the worker is idle
@@ -154,15 +154,15 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
 
 ## 5. Failure taxonomy (diagnose, don't assume)
 
-| Symptom                                    | Likely cause                                                          | Recovery                                                                                                 |
-| ------------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| No callback, worker **idle**, context grew | Worker ran a turn but withheld callback (often: waiting for approval) | A single status `link_prompt` — the ONLY sanctioned Golden Rule exception, allowed only after `link_list` confirms the worker idle with no callback received; then re-dispatch with the go-signal included |
-| No callback, worker **busy**               | Still working                                                         | Keep waiting; do not link_prompt (busy = rejected)                                                       |
-| No callback, worker **absent** from list   | Offline; messages were dropped (not queued)                           | Wait for reconnect or rebind the role; re-dispatch                                                       |
-| Gate red                                   | Implementation defect                                                 | Treat as BLOCKED; relay failure details to implementer                                                   |
-| Committer BLOCKED (staged junk / wrong branch / hook mutation) | Dirty shared worktree | Relay the exact `git status` to the user — worktree hygiene is the user's to fix, not a worker's |
-| Reviewer ↔ implementer deadlock            | Genuine disagreement                                                  | Bounded iterations, then implementer tie-break (§3.7)                                                    |
-| Worker context near limit                  | Predictable growth                                                    | Pre-emptive `link_compact` before the next/large task (§3.4)                                             |
+| Symptom                                                        | Likely cause                                                          | Recovery                                                                                                                                                                                                   |
+| -------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No callback, worker **idle**, context grew                     | Worker ran a turn but withheld callback (often: waiting for approval) | A single status `link_prompt` — the ONLY sanctioned Golden Rule exception, allowed only after `link_list` confirms the worker idle with no callback received; then re-dispatch with the go-signal included |
+| No callback, worker **busy**                                   | Still working                                                         | Keep waiting; do not link_prompt (busy = rejected)                                                                                                                                                         |
+| No callback, worker **absent** from list                       | Offline; messages were dropped (not queued)                           | Wait for reconnect or rebind the role; re-dispatch                                                                                                                                                         |
+| Gate red                                                       | Implementation defect                                                 | Treat as BLOCKED; relay failure details to implementer                                                                                                                                                     |
+| Committer BLOCKED (staged junk / wrong branch / hook mutation) | Dirty shared worktree                                                 | Relay the exact `git status` to the user — worktree hygiene is the user's to fix, not a worker's                                                                                                           |
+| Reviewer ↔ implementer deadlock                                | Genuine disagreement                                                  | Bounded iterations, then implementer tie-break (§3.7)                                                                                                                                                      |
+| Worker context near limit                                      | Predictable growth                                                    | Pre-emptive `link_compact` before the next/large task (§3.4)                                                                                                                                               |
 
 Rule of thumb: when something seems "stuck," read live state with `link_list`
 (status + context delta) **before** guessing. Idle + grown context means a logic

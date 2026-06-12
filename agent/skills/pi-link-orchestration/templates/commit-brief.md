@@ -65,11 +65,12 @@ exact stderr.
 - **On commit failure** (identity, hooks): BLOCKED with the exact stderr.
 
 ## Why each part
+
 - **Status pre-check first**: the committer must see the worktree's real state
   (branch, staged junk, dirt) before touching anything.
 - **Explicit path list**: the single guard against sweeping other agents' work
   into someone else's commit.
-- **`--cached --name-status`**: catches junk staged *before* this dispatch —
+- **`--cached --name-status`**: catches junk staged _before_ this dispatch —
   the one hazard `git add <paths>` can't protect against.
 - **Prior facts**: the message composes from them, and the reported hash feeds
   the ledger and the next dispatch's `GO — <prior task> committed (<hash>)` line.

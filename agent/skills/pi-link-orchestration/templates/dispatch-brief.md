@@ -37,6 +37,7 @@ Report DONE/BLOCKED to <orchestrator> via link_send(triggerTurn:true) with:
 ```
 
 ## Why each part
+
 - **Go-signal**: prevents the silent "waiting for approval" stall.
 - **Plan path, not pasted context**: cheap, authoritative, survives your compaction.
 - **CRITICAL invariants**: the only place a "behavior-identical" refactor can go wrong.

@@ -29,6 +29,7 @@ specific fix so the implementer can act directly.
 ```
 
 ## Notes
+
 - Always give the **exact diff command** — the reviewer reads the real change, not your summary.
 - Ask for **per-finding confirmation + a named highest-risk check**; this is what catches the subtle one (object identity, precedence, ordering).
 - Require **actionable** CHANGES-NEEDED (location + fix) so you can relay it verbatim.
