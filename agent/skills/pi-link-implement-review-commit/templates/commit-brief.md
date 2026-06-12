@@ -33,36 +33,34 @@ Commit message:
   <body bullets — or: compose from `<type>(<scope>)` + the prior facts above>
 
 Exclusions: no version bumps, lockfiles, or package manifests unless listed
-above; do not stage or commit unrelated dirty/untracked files — leave clearly
-unrelated unstaged leftovers in place and report them per the operating rules.
+above; do not stage or commit unrelated dirty/untracked files.
+
+Operating rules:
+  - Explicit pathspecs only: git add <path> <path>. Never git add . / -A /
+    commit -a — the worktree is shared.
+  - Scope and hygiene only: verify the staged diff matches the path list;
+    correctness was settled at review — do not re-review.
+  - Proceed when out-of-scope changes are clearly unrelated AND unstaged —
+    leave them in place, report them as leftovers in your DONE.
+  - BLOCK on any of: staged out-of-scope changes · a listed path needing
+    partial staging (unless this brief authorizes exact hunks) · wrong
+    branch / detached HEAD / merge-rebase in progress · a listed path
+    missing or renamed · hooks mutating files (say whether the commit
+    landed) · broad line-ending churn beyond the listed paths.
 
 Report DONE to <orchestrator> via link_send(triggerTurn:true) with:
   - commit hash
   - paths actually committed (must equal the list above)
   - post-commit `git status --short` (leftover dirty state)
   - anything suspicious you noticed
-Or BLOCKED + reason (operating rules below); on commit failure include the
-exact stderr.
+Or BLOCKED + the rule that fired; on commit failure include the exact stderr.
 ```
 
-## Operating rules (committer-side)
+## Note on the operating rules
 
-- **Explicit pathspecs only**: `git add <path> <path>`. Never `git add .`,
-  `git add -A`, or `git commit -a` — the worktree is shared.
-- **Scope and hygiene, not correctness**: verify the staged diff matches the
-  brief's path list; correctness was settled at REVIEW (§3.9).
-- **Proceed** when out-of-scope changes are clearly unrelated AND unstaged —
-  report them as leftovers in your DONE.
-- **BLOCK on any of:**
-  1. any out-of-scope change already staged
-  2. a listed path needing partial staging (unless the brief authorizes exact hunks)
-  3. wrong branch
-  4. detached HEAD
-  5. merge/rebase in progress
-  6. a listed path missing or renamed
-  7. hooks mutating files (report whether the commit landed)
-  8. broad line-ending churn beyond the listed paths (CRLF-warning repos)
-- **On commit failure** (identity, hooks): BLOCKED with the exact stderr.
+The rules live INSIDE the fenced brief, not here: the committer never sees
+this file, only the dispatch (SKILL.md §3.2 — self-contained dispatch).
+Never send the brief with the rules trimmed out.
 
 ## Why each part
 

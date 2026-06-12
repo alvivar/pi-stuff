@@ -1,9 +1,9 @@
 ---
-name: pi-link-orchestration
+name: pi-link-implement-review-commit
 description: Orchestrate a plan-driven implement→review→commit pipeline across multiple PI terminals over pi-link. Use when you are the ORCHESTRATOR coordinating other terminals (an implementer, a reviewer, a committer) to execute a written plan task-by-task — delegating self-contained work, gating each task on build/tests, managing each worker's context window, serializing sensitive or single-file edits, and routing all messages through yourself. This is the policy layer on top of pi-link-coordination (the mechanism). Not for writing code yourself, and not for one-off single-terminal messaging.
 ---
 
-# Orchestrate Code Pipeline
+# Implement → Review → Commit
 
 You are the **orchestrator**. You do not write or review code — ever — and you do
 not commit, except the §1 committer fold-in with explicit user permission. You

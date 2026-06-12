@@ -9,6 +9,8 @@ on <file>. Please review the uncommitted diff.
 
 Repo: <repo path>   (git root <root>)
 Diff:  git -C <git root> diff -- <relative file path>
+New files (if any) are untracked — git diff shows nothing for them; read
+them directly:  <absolute path(s) or "none">
 Plan (spec): <absolute plan path>   (finding(s) <ids>)
 
 Scope = <finding ids> ONLY. Confirm each matches the plan and is
@@ -33,3 +35,6 @@ specific fix so the implementer can act directly.
 - Always give the **exact diff command** — the reviewer reads the real change, not your summary.
 - Ask for **per-finding confirmation + a named highest-risk check**; this is what catches the subtle one (object identity, precedence, ordering).
 - Require **actionable** CHANGES-NEEDED (location + fix) so you can relay it verbatim.
+- **New files don't diff** — untracked files are invisible to `git diff`;
+  always route the reviewer at the file itself, or the review silently
+  covers only the modified files.
