@@ -15,6 +15,7 @@ companion skill first:
 `C:/Users/andre/.pi/agent/npm/node_modules/pi-link/skills/pi-link-coordination/SKILL.md`
 
 Brief templates and the expected plan schema live next to this file:
+
 - [templates/dispatch-brief.md](templates/dispatch-brief.md)
 - [templates/review-brief.md](templates/review-brief.md)
 - [templates/plan-schema.md](templates/plan-schema.md)
@@ -39,14 +40,15 @@ Brief templates and the expected plan schema live next to this file:
 
 ## 1. Roles (parameters — bind via link_list, never hardcode)
 
-| Role | Does | Notes |
-|------|------|-------|
-| orchestrator | you — route, gate, manage context | never writes/reviews/commits code |
-| implementer | edits code, self-runs the gate | |
-| reviewer | reviews diffs against the plan | MUST differ from implementer (independence) |
-| committer | makes git commits | may fold into orchestrator only if no dedicated committer and the user permits you to commit |
+| Role         | Does                              | Notes                                                                                        |
+| ------------ | --------------------------------- | -------------------------------------------------------------------------------------------- |
+| orchestrator | you — route, gate, manage context | never writes/reviews/commits code                                                            |
+| implementer  | edits code, self-runs the gate    |                                                                                              |
+| reviewer     | reviews diffs against the plan    | MUST differ from implementer (independence)                                                  |
+| committer    | makes git commits                 | may fold into orchestrator only if no dedicated committer and the user permits you to commit |
 
 Binding procedure:
+
 - `link_list` → resolve each role to a concrete `name@domain`.
 - **Disambiguate by cwd** — look-alike names in other workspaces are common; always
   target the full name in the correct cwd.
@@ -122,14 +124,14 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
 
 ## 5. Failure taxonomy (diagnose, don't assume)
 
-| Symptom | Likely cause | Recovery |
-|---------|--------------|----------|
+| Symptom                                    | Likely cause                                                          | Recovery                                                                                                 |
+| ------------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | No callback, worker **idle**, context grew | Worker ran a turn but withheld callback (often: waiting for approval) | `link_list` to confirm idle, then a single status `link_prompt`; re-dispatch with the go-signal included |
-| No callback, worker **busy** | Still working | Keep waiting; do not link_prompt (busy = rejected) |
-| No callback, worker **absent** from list | Offline; messages were dropped (not queued) | Wait for reconnect or rebind the role; re-dispatch |
-| Gate red | Implementation defect | Treat as BLOCKED; relay failure details to implementer |
-| Reviewer ↔ implementer deadlock | Genuine disagreement | Bounded iterations, then implementer tie-break (§3.7) |
-| Worker context near limit | Predictable growth | Pre-emptive `link_compact` before the next/large task (§3.4) |
+| No callback, worker **busy**               | Still working                                                         | Keep waiting; do not link_prompt (busy = rejected)                                                       |
+| No callback, worker **absent** from list   | Offline; messages were dropped (not queued)                           | Wait for reconnect or rebind the role; re-dispatch                                                       |
+| Gate red                                   | Implementation defect                                                 | Treat as BLOCKED; relay failure details to implementer                                                   |
+| Reviewer ↔ implementer deadlock            | Genuine disagreement                                                  | Bounded iterations, then implementer tie-break (§3.7)                                                    |
+| Worker context near limit                  | Predictable growth                                                    | Pre-emptive `link_compact` before the next/large task (§3.4)                                             |
 
 Rule of thumb: when something seems "stuck," read live state with `link_list`
 (status + context delta) **before** guessing. Idle + grown context means a logic
