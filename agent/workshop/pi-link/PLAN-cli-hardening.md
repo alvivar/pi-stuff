@@ -1,5 +1,12 @@
 # PLAN — CLI hardening (bin/pi-link.mjs + test/cli-flags-test.mjs)
 
+> **Status:** Executable
+> **Last aligned:** 2026-07-01
+> **Build from this?** Yes — after clearing the open decisions below.
+> **Open decisions:** D1 displayPath separator (rec: (a) forward slashes) · D2 `--version` shape (rec: bare semver to stdout, `-V` alias, mirror `--help` exclusivity) · D3 removed `list`/`resolve` fate (rec: (a) hard-error tombstone) · D4 `rejectRenamedFlag` `--all`/`-a` (rec: remove entirely).
+> **Gate:** `node test/cli-flags-test.mjs` (40/40 at plan time) + esbuild bundle check.
+> **Summary:** four items — #1 fixture tests for `--list`/`--resolve` (test-only, the real coverage gap), #2 displayPath separator (cosmetic), #3 `--version` flag (owner-requested), #4 remove 0.1.12 deprecation shims (owner-requested; only item that changes existing behavior, on already-deprecated paths). Version strings in the body predate the current release — don't copy them literally.
+
 The index.ts review follow-ups shipped (6 findings, live-verified). The CLI
 never got its own hardening pass beyond the flag-parser work. Two items remain
 from the review's "noted" list: the **--list/--resolve coverage gap** (the only

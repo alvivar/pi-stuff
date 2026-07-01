@@ -1,5 +1,10 @@
 # REPORT — link_compact vs. local compaction race ("reading 'signal'" crash)
 
+> **Status:** Report (actionable → needs plan)
+> **Last aligned:** 2026-07-01
+> **Build from this?** Not yet. Defect 1 is upstream pi-core (not ours). Defect 2 is a **live** pi-link bug: `link_compact`'s busy-guard is blind to local/user/auto compactions. Before writing a plan, verify the event surface — does `session_before_compact` / `session_compact` fire on manual, remote, auto, *and* error paths so a `localCompactRunning` flag can't stick? Then write `PLAN-compact-race-guard.md`. Roadmap-ranked **P0**.
+> **Summary:** forensic report of a live compaction race; contains the mitigation sketch (track local-compaction state, fold into the guard — narrows but doesn't fully close without the core fix).
+
 Observed live on 2026-06-11 during the orchestrate-code-pipeline run; reproducible
 in principle. Two distinct defects, in two layers. pi-link's transport behaved
 correctly throughout (exactly-one-callback contract held; the error was relayed

@@ -1,5 +1,12 @@
 # PLAN — Link status endpoint + `pi-link --status`
 
+> **Status:** Executable
+> **Last aligned:** 2026-07-01
+> **Build from this?** Yes — design is owner-approved (option D, 2026-06-09); no open decisions. Keep the JSON contract minimal (terminals, cwd, status, context) — do **not** pre-bake model/thinking fields for the parked runtime-control idea.
+> **Gate:** `node test/cli-flags-test.mjs` + esbuild bundle check; manual `curl localhost:9900/status` + `pi-link --status`.
+> **Note:** the hub-bootstrap refactor in `index.ts` is the risky part; sequence *after* CLI-hardening so the parser is clean before adding a new exclusive `--status` mode.
+> **Summary:** plain HTTP `GET /status` on the hub's link port, consumed by a new `pi-link --status [--json]` mode. Spans `index.ts` (hub) + `bin/pi-link.mjs` (CLI).
+
 Expose live link state (connected terminals, busy/idle, context usage) to the
 shell for automation. Owner-approved design (2026-06-09): **option D** — a
 plain HTTP `GET /status` served by the hub on the existing link port, consumed

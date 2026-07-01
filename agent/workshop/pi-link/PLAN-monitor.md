@@ -1,5 +1,10 @@
 # Monitor Mode
 
+> **Status:** Parked
+> **Last aligned:** 2026-07-01
+> **Build from this?** Not now — no demand and it increases model usage/noise on the monitor. Design is self-contained and reuses the existing inbox, so it's ready to pick up if a supervision/oversight use case appears.
+> **Summary:** opt-in `--link-monitor` mode; the hub fans out `traffic_copy` messages of direct traffic to monitors via the existing idle-gated inbox.
+
 ## Goal
 
 Let a terminal opt in to receiving copies of all direct chat/prompt traffic between other terminals. The monitor is a normal participant — can send, receive, be targeted, execute prompts. Its behavior is defined by its system prompt/rules, not by protocol restrictions.

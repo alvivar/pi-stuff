@@ -1,5 +1,11 @@
 # PLAN — Remote orchestration: compact, model, thinking (0.1.16+)
 
+> **Status:** Stale-rescope / historical
+> **Last aligned:** 2026-07-01
+> **Build from this?** **No.** `link_compact` already shipped, but *not* as designed below: it shipped as an **await-completion** tool (blocks until the target reports done, ~180s ceiling), with **no** `/link-control` consent gate, **no** `capabilities` advertisement, and **no** cooldown. The `control_request` framing, consent model, and "fire-and-forget / queued" semantics in this file were never built.
+> **Remaining scope:** only `link_set_model` / `link_set_thinking` — both **speculative and parked** (a solution looking for a problem; users already control model/thinking on the terminal that owns the task). If ever revived, write a fresh `PLAN-runtime-control.md`; a consent gate *is* justified for those two (they mutate a peer's cost/quality/latency), even though compact shipped without one.
+> **Summary:** historical design record for the orchestration line. Kept for context, not as an implementation spec.
+
 ## Goal
 
 Add three new pi-link tools that let an orchestrator terminal trigger runtime-state changes on a target terminal:
