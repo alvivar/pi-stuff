@@ -1,5 +1,7 @@
 agent/auth.json
 agent/bin/
+agent/mcp-cache.json
+agent/mcp-onboarding.json
 agent/npm/
 agent/sessions/
 agent/settings.json
