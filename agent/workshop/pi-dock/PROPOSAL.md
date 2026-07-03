@@ -9,7 +9,7 @@
 
 ## Identity (one sentence)
 
-**`pi-fleet` keeps named Pi agents running after your shell exits — start one, let it go, come back later to see it, give it more work, or stop it.**
+**`pi-dock` keeps named Pi agents running after your shell exits — start one, let it go, come back later to see it, give it more work, or stop it.**
 
 Authority comes from _owning the agent's session_, not from reaching into anyone's terminal. That is the whole difference from pi-link (lateral messaging between human terminals). This is vertical: create, own, persist. (Doc language avoids "control plane" / "fleet manager" in v1 — the tool is smaller than those words.)
 
@@ -26,7 +26,7 @@ Authority comes from _owning the agent's session_, not from reaching into anyone
 The review's decisive finding: a resident daemon does not _solve_ the hard problem (detach + crash-safe registry), it _duplicates_ it. So there is no central process.
 
 ```
-pi-fleet <cmd>              stateless CLI. Reads the registry directory,
+pi-dock <cmd>               stateless CLI. Reads the registry directory,
    │                        connects directly to a runner's pipe.
    │  (per-agent control pipe)
    ▼
