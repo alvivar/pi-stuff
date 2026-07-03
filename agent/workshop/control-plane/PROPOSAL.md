@@ -11,7 +11,7 @@
 
 **`pi-fleet` keeps named Pi agents running after your shell exits — start one, let it go, come back later to see it, give it more work, or stop it.**
 
-Authority comes from *owning the agent's session*, not from reaching into anyone's terminal. That is the whole difference from pi-link (lateral messaging between human terminals). This is vertical: create, own, persist. (Doc language avoids "control plane" / "fleet manager" in v1 — the tool is smaller than those words.)
+Authority comes from _owning the agent's session_, not from reaching into anyone's terminal. That is the whole difference from pi-link (lateral messaging between human terminals). This is vertical: create, own, persist. (Doc language avoids "control plane" / "fleet manager" in v1 — the tool is smaller than those words.)
 
 ## Why this can't just be a script
 
@@ -23,7 +23,7 @@ Authority comes from *owning the agent's session*, not from reaching into anyone
 
 ## Architecture — no daemon
 
-The review's decisive finding: a resident daemon does not *solve* the hard problem (detach + crash-safe registry), it *duplicates* it. So there is no central process.
+The review's decisive finding: a resident daemon does not _solve_ the hard problem (detach + crash-safe registry), it _duplicates_ it. So there is no central process.
 
 ```
 pi-fleet <cmd>              stateless CLI. Reads the registry directory,
@@ -36,20 +36,20 @@ runner  (one per agent)     a tiny process that hosts ONE AgentSession via the
                             and writes its own <name>.json manifest.
 ```
 
-- **One OS process per agent.** This gives crash isolation *and* per-agent kill/limits for free — while each runner uses the **in-process SDK** internally, so `prompt` / `compact` / `navigateTree` stay first-class with **no RPC gap and no upstream dependency**. (This dissolves the earlier in-process-vs-subprocess question: you get both.)
+- **One OS process per agent.** This gives crash isolation _and_ per-agent kill/limits for free — while each runner uses the **in-process SDK** internally, so `prompt` / `compact` / `navigateTree` stay first-class with **no RPC gap and no upstream dependency**. (This dissolves the earlier in-process-vs-subprocess question: you get both.)
 - **Registry = a directory of `<name>.json` manifests** (`{name, sessionFile, cwd, modelId, thinkingLevel, tools, budget, pipe, startedAt}`), one file per agent, written atomically (temp + rename). No shared store, so no concurrent-write race and nothing to rehydrate.
 - **Status is derived, never stored** — from pipe liveness + the session's own state. A stored status lies after a crash; deriving is both less code and always correct.
 - **No new runtime dependency** beyond the SDK (Node `net` for the pipe, newline-delimited JSON).
 
 ## Commands (the whole surface — 5)
 
-| Command | Does |
-|---|---|
-| `spawn "<prompt>" --name <n> [--cwd --model --budget]` | Create a **new** agent (errors if the name exists — no silent duplicate on a typo), start the prompt, detach. Returns the name. |
-| `send <name> "<prompt>"` | Continue an **existing** agent: resume it if stopped, then give it the prompt. Errors if the name is unknown (never silently creates). |
-| `ls` | Every agent's derived state — `running` / `idle` / `done` / `failed` / `stopped` — plus turns used, elapsed, session file. |
-| `logs <name> [--follow]` | Tail the agent's transcript/event log — the only window into a detached run. |
-| `stop <name>` | Gracefully abort the current run (`session.abort()`) and mark it stopped. Session file is retained. |
+| Command                                                | Does                                                                                                                                   |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `spawn "<prompt>" --name <n> [--cwd --model --budget]` | Create a **new** agent (errors if the name exists — no silent duplicate on a typo), start the prompt, detach. Returns the name.        |
+| `send <name> "<prompt>"`                               | Continue an **existing** agent: resume it if stopped, then give it the prompt. Errors if the name is unknown (never silently creates). |
+| `ls`                                                   | Every agent's derived state — `running` / `idle` / `done` / `failed` / `stopped` — plus turns used, elapsed, session file.             |
+| `logs <name> [--follow]`                               | Tail the agent's transcript/event log — the only window into a detached run.                                                           |
+| `stop <name>`                                          | Gracefully abort the current run (`session.abort()`) and mark it stopped. Session file is retained.                                    |
 
 Create (`spawn`) and continue (`send`) are deliberately **distinct**, so a mistyped name can never silently spawn a stray agent — the same typo-safety principle behind pi-link's CLI. `send` folds together what were separate `prompt` and `resume` verbs; there is no explicit "save" (sessions auto-persist to JSONL; the manifest is written at `spawn`). A **saved agent is just its JSONL + manifest**.
 
@@ -57,8 +57,8 @@ Create (`spawn`) and continue (`send`) are deliberately **distinct**, so a misty
 
 The substrate caps nothing, so each runner must:
 
-- **Budget:** a **turn ceiling** (count `turn_start`; `session.abort()` past the limit) and a **wall-clock ceiling**. Conservative default, overridable per `spawn`. (Auto-compaction keeps the context window healthy but is *not* a cost cap.)
-- **Pre-flight auth** at `spawn`: verify the model's credentials resolve *before* detaching — an unattended agent cannot do interactive re-auth.
+- **Budget:** a **turn ceiling** (count `turn_start`; `session.abort()` past the limit) and a **wall-clock ceiling**. Conservative default, overridable per `spawn`. (Auto-compaction keeps the context window healthy but is _not_ a cost cap.)
+- **Pre-flight auth** at `spawn`: verify the model's credentials resolve _before_ detaching — an unattended agent cannot do interactive re-auth.
 - **Headless-safe:** run with `hasUI:false`; a run that hits a UI-blocking extension fails cleanly rather than hanging.
 
 That is the entire safety scope: one turn cap, one clock, one auth check.
