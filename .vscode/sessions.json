@@ -118,7 +118,7 @@
     "pi-dock": [
       {
         "name": "fable@pi-dock",
-        "icon": "server-process",
+        "icon": "flame",
         "color": "terminal.ansiBrightRed",
         "autoExecuteCommands": true,
         "commands": [
@@ -127,7 +127,7 @@
       },
       {
         "name": "opus@pi-dock",
-        "icon": "server-process",
+        "icon": "sparkle",
         "color": "terminal.ansiBrightMagenta",
         "focus": true,
         "autoExecuteCommands": true,
@@ -137,7 +137,7 @@
       },
       {
         "name": "gpt@pi-dock",
-        "icon": "server-process",
+        "icon": "copilot",
         "color": "terminal.ansiGreen",
         "autoExecuteCommands": true,
         "commands": [
