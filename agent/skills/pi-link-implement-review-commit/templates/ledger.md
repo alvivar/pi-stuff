@@ -1,7 +1,9 @@
 # Run ledger (template — copy per run)
 
-Keep this updated at each ADVANCE step. It survives your own compaction and keeps a
-long run auditable.
+Update at each state transition (dispatch sent, callback received, verdict, hash) —
+not only at ADVANCE. It survives your own compaction and keeps a long run auditable;
+an in-flight row (e.g. Implement = `DISPATCHED <when>`) is what lets you resume
+mid-task. Never leave a cell blank once its dispatch has been sent.
 
 ## Plan
 

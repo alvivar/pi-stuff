@@ -35,10 +35,16 @@ Brief templates and the expected plan schema live next to this file:
 3. **Draft the task→role→order todo**, including the per-task gate and which tasks
    are serialized/sensitive. Open a ledger next to the plan (`LEDGER-<plan>.md`,
    copied from `templates/ledger.md`).
-4. **Agree the autonomy level, then HOLD for the user's explicit "go."** Present
+4. **Verify the baseline.** Dispatch the implementer to run the gate once
+   (build + tests) and read the worktree state (`git status --short --branch`)
+   before task 1. A red baseline makes every later gate lie about whose defect
+   it is, and pre-staged junk blocks the committer at the worst moment — both
+   are the user's to fix, before the run starts.
+5. **Agree the autonomy level, then HOLD for the user's explicit "go."** Present
    the todo and ask: run-through (one global go for the whole plan) or
-   gate-per-task (user approves each task/commit)? Record the answer in the
-   ledger's `Autonomy:` field. Do not dispatch anything until the user approves.
+   gate-per-task (the user approves each task at its HOLD, right before COMMIT)?
+   Record the answer in the ledger's `Autonomy:` field. Do not dispatch anything
+   until the user approves.
 
 ---
 
@@ -76,7 +82,9 @@ for each task in plan (sequence order):
   REVIEW      link_send(reviewer, triggerTurn:true) + review brief (§4)
   WAIT        hold for APPROVE / CHANGES-NEEDED
   CONVERGE    CHANGES-NEEDED → relay to implementer, loop; cap 2 iterations;
-              tie-break = implementer (§3.7)
+              tie-break = implementer, except sensitive tasks → user (§3.7)
+  HOLD        gate-per-task autonomy only: present diff summary + review verdict
+              to the user; wait for their go before committing
   COMMIT      link_send(committer, triggerTurn:true) + commit brief
               (templates/commit-brief.md); wait for DONE + hash
   ADVANCE     record commit/hash/gate in ledger; next task
@@ -127,6 +135,9 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
 7. **Convergence has a backstop.** Cap review iterations at 2; if implementer and
    reviewer can't agree, the implementer's final decision wins — record the
    dissent in the ledger and move on. The pipeline must never deadlock on opinion.
+   Exception: on tasks marked sensitive/serialized (§3.5) a deadlock escalates to
+   the user instead — the tie-break is a bet, and sensitive code is where you
+   don't bet.
 8. **You stay hands-off.** Do not edit or review code yourself — ever. Do not
    commit, except the §1 committer fold-in with the user's explicit permission.
    Your neutrality is what makes the review independent and the constraints hold.
@@ -175,8 +186,10 @@ hold, not a crash.
 Keep a running ledger (`LEDGER-<plan>.md` next to the plan, copied from
 `templates/ledger.md`) so a long run stays auditable and
 survives your OWN compaction: role bindings, and per task — scope, implementer
-DONE summary, gate result, review verdict, commit hash, any dissent. Update it at
-each ADVANCE step.
+DONE summary, gate result, review verdict, commit hash, any dissent. Write each
+state transition when it happens (dispatched → callback → verdict → hash), not
+only at ADVANCE: the in-flight row ("task 3 at REVIEW, sent <when>") is exactly
+what lets you resume correctly if you compact mid-task.
 
 ---
 
