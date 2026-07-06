@@ -259,6 +259,10 @@ try {
   });
 
   server.on('error', (error) => {
+    if (error.piDockRetrying) {
+      return;
+    }
+
     void fail(error);
   });
 } catch (error) {

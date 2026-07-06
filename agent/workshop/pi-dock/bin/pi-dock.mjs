@@ -5,15 +5,9 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import {
-  AuthStorage,
-  createAgentSession,
-  ModelRegistry,
-  SessionManager,
-} from '@earendil-works/pi-coding-agent';
 import { listManifests, readManifest } from '../src/manifest.mjs';
 import { dockDir, pipePath } from '../src/paths.mjs';
-import { request } from '../src/pipe.mjs';
+import { PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runner = path.join(root, 'src', 'runner.mjs');
@@ -54,10 +48,18 @@ async function requireManifest(name) {
     return await readManifest(name);
   } catch (error) {
     if (error.code === 'ENOENT') {
-      fail(`unknown agent: ${name}`);
+      fail(`no such agent: ${name}`);
     }
     throw error;
   }
+}
+
+function isTimeout(error) {
+  return error?.code === 'ETIMEDOUT';
+}
+
+function failNotResponding(name) {
+  fail(`agent ${name} is not responding`);
 }
 
 async function tryStatus(manifest, timeoutMs = 200) {
@@ -129,6 +131,13 @@ function reportHandshakeFailure(name) {
   }
 }
 
+let sdkPromise;
+
+async function loadSdk() {
+  sdkPromise ??= import('@earendil-works/pi-coding-agent');
+  return sdkPromise;
+}
+
 async function verifyModelAuth(modelRegistry, model) {
   const available = await modelRegistry.getAvailable();
   const configured = available.some((candidate) => candidate.provider === model.provider && candidate.id === model.id);
@@ -143,6 +152,12 @@ async function verifyModelAuth(modelRegistry, model) {
 }
 
 async function preflightSpawn(cwd, modelSpec) {
+  const {
+    AuthStorage,
+    createAgentSession,
+    ModelRegistry,
+    SessionManager,
+  } = await loadSdk();
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
 
@@ -266,7 +281,7 @@ async function spawnCommand(argv) {
   }
 
   if (text) {
-    const reply = await request(result.manifest.pipe, { cmd: 'prompt', text }, 1000);
+    const reply = await request(result.manifest.pipe, { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
     if (!reply.ok) {
       fail(JSON.stringify(reply));
     }
@@ -276,7 +291,7 @@ async function spawnCommand(argv) {
 }
 
 async function sendPrompt(manifest, text) {
-  return request(manifest.pipe, { cmd: 'prompt', text }, 1000);
+  return request(manifest.pipe, { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
 }
 
 async function resurrect(name) {
@@ -302,7 +317,10 @@ async function sendCommand(argv) {
 
   try {
     reply = await sendPrompt(manifest, text);
-  } catch {
+  } catch (error) {
+    if (isTimeout(error)) {
+      failNotResponding(name);
+    }
     reply = { ok: false, error: 'terminal' };
   }
 
@@ -333,7 +351,7 @@ async function lsCommand() {
 function printLog(name, fromByte = 0) {
   const file = logPath(name);
   if (!existsSync(file)) {
-    fail(`unknown log: ${name}`);
+    fail(`no log for agent: ${name}`);
   }
 
   const body = readFileSync(file, 'utf8');
@@ -359,6 +377,8 @@ async function logsCommand(argv) {
     fail('usage: pi-dock logs <name> [--follow]');
   }
 
+  await requireManifest(name);
+
   let offset = printLog(name);
   while (values.follow) {
     await sleep(500);
@@ -376,13 +396,16 @@ async function stopCommand(argv) {
 
   const manifest = await requireManifest(name);
   try {
-    const reply = await request(manifest.pipe, { cmd: 'stop' }, 1000);
+    const reply = await request(manifest.pipe, { cmd: 'stop' }, PIPE_REQUEST_TIMEOUT_MS);
     if (reply.ok) {
       console.log('stopped');
       return;
     }
     fail(JSON.stringify(reply));
-  } catch {
+  } catch (error) {
+    if (isTimeout(error)) {
+      failNotResponding(name);
+    }
     console.log(`already ${stateFromLog(name)}`);
   }
 }

@@ -1,4 +1,84 @@
+import { unlink } from 'node:fs/promises';
 import net from 'node:net';
+
+export const PIPE_REQUEST_TIMEOUT_MS = 3000;
+const STALE_SOCKET_PROBE_TIMEOUT_MS = 500;
+
+function emitServerError(server, message, code) {
+  const error = new Error(message);
+  error.code = code;
+  error.piDockFatal = true;
+  server.emit('error', error);
+}
+
+function probeUnixSocket(socketPath) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection(socketPath);
+    let settled = false;
+
+    function finish(result) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(result);
+    }
+
+    const timer = setTimeout(() => finish('alive'), STALE_SOCKET_PROBE_TIMEOUT_MS);
+
+    socket.on('connect', () => finish('alive'));
+    socket.on('error', (error) => {
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOENT') {
+        finish('stale');
+        return;
+      }
+
+      finish('error');
+    });
+  });
+}
+
+async function recoverUnixListen(server, socketPath) {
+  const result = await probeUnixSocket(socketPath);
+  if (result === 'stale') {
+    await unlink(socketPath).catch((error) => {
+      if (error.code !== 'ENOENT') {
+        throw error;
+      }
+    });
+    server.listen(socketPath);
+    return;
+  }
+
+  emitServerError(server, result === 'alive' ? 'already-running' : `cannot probe socket: ${socketPath}`, 'EADDRINUSE');
+}
+
+function listenUnix(server, socketPath) {
+  let recovering = false;
+
+  server.on('error', (error) => {
+    if (error.piDockFatal || error.code !== 'EADDRINUSE') {
+      return;
+    }
+
+    if (recovering) {
+      emitServerError(server, 'already-running', 'EADDRINUSE');
+      return;
+    }
+
+    recovering = true;
+    error.piDockRetrying = true;
+    void recoverUnixListen(server, socketPath).catch((recoverError) => {
+      recoverError.piDockFatal = true;
+      server.emit('error', recoverError);
+    });
+  });
+
+  server.listen(socketPath);
+}
 
 export function serve(pipePath, handler) {
   const server = net.createServer((socket) => {
@@ -40,11 +120,16 @@ export function serve(pipePath, handler) {
     socket.on('error', () => {});
   });
 
-  server.listen(pipePath);
+  if (process.platform === 'win32') {
+    server.listen(pipePath);
+  } else {
+    listenUnix(server, pipePath);
+  }
+
   return server;
 }
 
-export function request(pipePath, msg, timeoutMs = 1000) {
+export function request(pipePath, msg, timeoutMs = PIPE_REQUEST_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(pipePath);
     let buffer = '';
