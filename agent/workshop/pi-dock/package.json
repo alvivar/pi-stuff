@@ -1,0 +1,1 @@
+{"name":"pi-dock","version":"0.1.0-dev","private":true,"type":"module","bin":{"pi-dock":"bin/pi-dock.mjs"},"dependencies":{"@earendil-works/pi-coding-agent":"^0.80.3"}}
