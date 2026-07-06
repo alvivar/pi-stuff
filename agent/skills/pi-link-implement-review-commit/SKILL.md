@@ -71,13 +71,10 @@ Binding procedure:
 
 ```
 for each task in plan (sequence order):
-  PRE-FLIGHT  before task-boundary dispatches (IMPLEMENT of a new task, REVIEW,
-              COMMIT): link_list → if context + est. task cost > 70% of that
-              worker's window: link_compact it (idle targets only). A "?"
-              context means the worker JUST COMPACTED — treat it as a fresh
-              window; track its usage from there by summing task estimates in
-              the ledger until it reports again. NEVER compact mid-task
-              (CONVERGE relay, gate-red retry) — see §3.4.
+  PRE-FLIGHT  task-boundary dispatches only (new IMPLEMENT, REVIEW, COMMIT):
+              link_list → if context + est. task cost > 70% of the worker's
+              window, link_compact it (idle only; "?" = just compacted = fresh
+              window, track estimates in the ledger). Never mid-task — §3.4.
   IMPLEMENT   link_send(implementer, triggerTurn:true) + full dispatch brief (§4)
   WAIT        hold for DONE/BLOCKED  (Golden Rule — do NOT link_prompt before callback)
   GATE        worker self-ran build+tests; a red/missing gate == BLOCKED → relay
@@ -166,12 +163,10 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
   real work; `link_prompt` (90s inactivity) would block you and risk timeout.
 - **Quick pre-start question** (not active work) → `link_prompt` is fine.
 - After triggering a worker, **WAIT** for its callback before any follow-up to it
-  (Golden Rule). The callback arrives as a normal later user message wrapped in
-  `[Link: N message(s) received]`.
+  (Golden Rule).
 - Fill the briefs from `templates/dispatch-brief.md`, `templates/review-brief.md`,
-  and `templates/commit-brief.md`.
-  Ask reviewers for a per-finding checklist and ask implementers to "confirm the
-  reasoning in your report" — this surfaces correctness thinking, not a bare "done."
+  and `templates/commit-brief.md` — every field, structure intact; their embedded
+  asks (per-finding checklist, "confirm the reasoning") do the correctness-surfacing.
 
 ---
 
