@@ -7,5 +7,6 @@ agent/sessions/
 agent/settings.json
 agent/trust.json
 debug.log
+dock/
 node_modules/
 tmp/
