@@ -1,11 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { dockDir } from '../src/paths.mjs';
 
 const cli = path.join(process.cwd(), 'bin', 'pi-dock.mjs');
-const first = `smoke-${process.pid}-a`;
-const second = `smoke-${process.pid}-b`;
+const a = `smoke-${process.pid}-a`;
+const b = `smoke-${process.pid}-b`;
+const c = `smoke-${process.pid}-c`;
+const names = [a, b, c];
 const results = [];
 
 function run(args) {
@@ -25,11 +27,6 @@ function fail(name, detail) {
   console.log(`FAIL ${name}: ${detail}`);
 }
 
-function clean(name) {
-  rmSync(path.join(dockDir(), `${name}.json`), { force: true });
-  rmSync(path.join(dockDir(), `${name}.log`), { force: true });
-}
-
 function expect(name, condition, detail) {
   if (condition) {
     pass(name);
@@ -38,8 +35,49 @@ function expect(name, condition, detail) {
   }
 }
 
+function dockFile(name, suffix) {
+  return path.join(dockDir(), `${name}${suffix}`);
+}
+
+function clean(name) {
+  rmSync(dockFile(name, '.json'), { force: true });
+  rmSync(dockFile(name, '.log'), { force: true });
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function lsState(output, name) {
+  for (const line of output.split('\n')) {
+    const columns = line.trim().split(/\s+/);
+    if (columns[0] === name) {
+      return columns[1];
+    }
+  }
+
+  return null;
+}
+
+async function waitLsState(name, state) {
+  for (let i = 0; i < 240; i += 1) {
+    const result = run(['ls']);
+    if (result.status === 0 && lsState(result.stdout, name) === state) {
+      return result;
+    }
+    await sleep(500);
+  }
+
+  return run(['ls']);
+}
+
+function logText(name) {
+  const result = run(['logs', name]);
+  return result.status === 0 ? result.stdout : '';
+}
+
+function count(text, needle) {
+  return text.split(needle).length - 1;
 }
 
 function findRunnerPid(name) {
@@ -53,49 +91,69 @@ function killPid(pid) {
   spawnSync('taskkill.exe', ['/F', '/PID', String(pid)], { encoding: 'utf8' });
 }
 
-clean(first);
-clean(second);
+function killRunner(name) {
+  const pid = findRunnerPid(name);
+  if (pid) {
+    killPid(pid);
+  }
+}
+
+for (const name of names) {
+  clean(name);
+}
 
 try {
-  let result = run(['spawn', '--name', first, 'x']);
-  expect('spawn first', result.status === 0 && result.stdout.includes(first), result.stderr || result.stdout);
+  let result = run(['spawn', '--name', a, '--budget', '5,5', 'Reply with exactly: alpha']);
+  expect('spawn A with alpha', result.status === 0 && result.stdout.trim() === `${a} idle`, result.stderr || result.stdout);
 
-  result = run(['ls']);
-  expect('ls shows first running/idle', result.status === 0 && new RegExp(`${first}\\s+(running|idle)`).test(result.stdout), result.stdout || result.stderr);
+  result = await waitLsState(a, 'done');
+  expect('ls shows A done', result.status === 0 && lsState(result.stdout, a) === 'done', result.stdout || result.stderr);
 
-  await sleep(2500);
-  result = run(['logs', first]);
-  expect('logs shows spawned and heartbeat', result.status === 0 && result.stdout.includes(' spawned') && result.stdout.includes(' heartbeat'), result.stdout || result.stderr);
+  let logs = logText(a);
+  expect('logs A has spawned turn text alpha done', logs.includes(' spawned') && logs.includes(' turn ') && logs.includes('alpha') && logs.includes(' done'), logs);
 
-  result = run(['stop', first]);
-  expect('stop first', result.status === 0 && result.stdout.includes('stopped'), result.stdout || result.stderr);
+  const manifestAfterStep1 = readFileSync(dockFile(a, '.json'));
 
-  await sleep(500);
-  result = run(['ls']);
-  expect('ls shows first stopped', result.status === 0 && new RegExp(`${first}\\s+stopped`).test(result.stdout), result.stdout || result.stderr);
+  result = run(['send', a, 'Reply with exactly: beta']);
+  expect('send A resurrects and acks beta', result.status === 0 && result.stdout.trim() === '{"ok":true}', result.stderr || result.stdout);
 
-  result = run(['spawn', '--name', second, 'x']);
-  expect('spawn second', result.status === 0 && result.stdout.includes(second), result.stderr || result.stdout);
+  result = await waitLsState(a, 'done');
+  expect('ls shows A done after beta', result.status === 0 && lsState(result.stdout, a) === 'done', result.stdout || result.stderr);
 
-  await sleep(2500);
-  const pid = findRunnerPid(second);
-  expect('find second runner pid', Number.isInteger(pid), String(pid));
+  logs = logText(a);
+  expect('logs A has second spawned turn text beta done', count(logs, ' spawned') >= 2 && count(logs, ' turn ') >= 2 && logs.includes('beta') && count(logs, ' done') >= 2, logs);
+  expect('manifest A unchanged after resurrect', Buffer.compare(manifestAfterStep1, readFileSync(dockFile(a, '.json'))) === 0, 'manifest bytes changed');
 
+  result = run(['spawn', '--name', b]);
+  expect('spawn B idle no prompt', result.status === 0 && result.stdout.trim() === `${b} idle`, result.stderr || result.stdout);
+
+  result = await waitLsState(b, 'idle');
+  expect('ls shows B idle', result.status === 0 && lsState(result.stdout, b) === 'idle', result.stdout || result.stderr);
+
+  const pid = findRunnerPid(b);
+  expect('find B runner pid', Number.isInteger(pid), String(pid));
   if (pid) {
     killPid(pid);
   }
 
   await sleep(500);
-  result = run(['ls']);
-  expect('ls shows killed second failed', result.status === 0 && new RegExp(`${second}\\s+failed`).test(result.stdout), result.stdout || result.stderr);
+  result = await waitLsState(b, 'failed');
+  expect('ls shows killed B failed', result.status === 0 && lsState(result.stdout, b) === 'failed', result.stdout || result.stderr);
+
+  result = run(['stop', b]);
+  expect('stop killed B reports derived state', result.status === 0 && result.stdout.includes('already failed'), result.stderr || result.stdout);
+
+  result = run(['spawn', '--name', c, '--model', 'bogus/bogus']);
+  expect('bad model exits nonzero with failed line', result.status !== 0 && result.stderr.includes('last log:') && result.stderr.includes('"event":"failed"'), result.stderr || result.stdout);
+  expect('bad model leaves no manifest', !existsSync(dockFile(c, '.json')), dockFile(c, '.json'));
 } finally {
-  const pid = findRunnerPid(second);
-  if (pid) {
-    killPid(pid);
+  for (const name of names) {
+    killRunner(name);
+    clean(name);
   }
-  clean(first);
-  clean(second);
 }
+
+expect('cleanup leaves no dock files', names.every((name) => !existsSync(dockFile(name, '.json')) && !existsSync(dockFile(name, '.log'))), 'leftover dock files');
 
 if (results.every(Boolean)) {
   console.log('PASS smoke');
