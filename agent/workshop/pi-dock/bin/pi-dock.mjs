@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listManifests, readManifest } from '../src/manifest.mjs';
-import { dockDir, pipePath } from '../src/paths.mjs';
+import { dockDir } from '../src/paths.mjs';
 import { PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -92,7 +92,6 @@ function launchRunner(name, options = {}) {
     windowsHide: true,
   });
   child.unref();
-  return child;
 }
 
 async function handshake(name, timeoutMs = 20000) {
