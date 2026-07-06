@@ -5,6 +5,12 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import {
+  AuthStorage,
+  createAgentSession,
+  ModelRegistry,
+  SessionManager,
+} from '@earendil-works/pi-coding-agent';
 import { listManifests, readManifest } from '../src/manifest.mjs';
 import { dockDir, pipePath } from '../src/paths.mjs';
 import { request } from '../src/pipe.mjs';
@@ -123,6 +129,53 @@ function reportHandshakeFailure(name) {
   }
 }
 
+async function verifyModelAuth(modelRegistry, model) {
+  const available = await modelRegistry.getAvailable();
+  const configured = available.some((candidate) => candidate.provider === model.provider && candidate.id === model.id);
+  if (!configured) {
+    throw new Error(`no usable credentials for ${model.provider}/${model.id}`);
+  }
+
+  const auth = await modelRegistry.getApiKeyAndHeaders(model);
+  if (!auth.ok) {
+    throw new Error(auth.error);
+  }
+}
+
+async function preflightSpawn(cwd, modelSpec) {
+  const authStorage = AuthStorage.create();
+  const modelRegistry = ModelRegistry.create(authStorage);
+
+  if (modelSpec) {
+    const slash = modelSpec.indexOf('/');
+    const model = slash === -1 ? null : modelRegistry.find(modelSpec.slice(0, slash), modelSpec.slice(slash + 1));
+    if (!model) {
+      throw new Error(`model ${modelSpec} not found`);
+    }
+
+    await verifyModelAuth(modelRegistry, model);
+    return;
+  }
+
+  let session;
+  try {
+    ({ session } = await createAgentSession({
+      cwd,
+      sessionManager: SessionManager.inMemory(cwd),
+      authStorage,
+      modelRegistry,
+    }));
+
+    if (!session.model) {
+      throw new Error('no model with usable credentials available');
+    }
+
+    await verifyModelAuth(modelRegistry, session.model);
+  } finally {
+    session?.dispose();
+  }
+}
+
 function lastCompleteLogEvent(name) {
   const file = logPath(name);
 
@@ -197,7 +250,14 @@ async function spawnCommand(argv) {
     fail(`agent already exists: ${name}`);
   }
 
-  launchRunner(name, { cwd: process.cwd(), model: values.model, budget: values.budget });
+  const cwd = process.cwd();
+  try {
+    await preflightSpawn(cwd, values.model);
+  } catch (error) {
+    fail(`preflight failed: ${error.message}; no agent was created`);
+  }
+
+  launchRunner(name, { cwd, model: values.model, budget: values.budget });
 
   const result = await handshake(name);
   if (!result) {

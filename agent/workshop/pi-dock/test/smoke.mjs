@@ -144,8 +144,8 @@ try {
   expect('stop killed B reports derived state', result.status === 0 && result.stdout.includes('already failed'), result.stderr || result.stdout);
 
   result = run(['spawn', '--name', c, '--model', 'bogus/bogus']);
-  expect('bad model exits nonzero with failed line', result.status !== 0 && result.stderr.includes('last log:') && result.stderr.includes('"event":"failed"'), result.stderr || result.stdout);
-  expect('bad model leaves no manifest', !existsSync(dockFile(c, '.json')), dockFile(c, '.json'));
+  expect('bad model preflight exits nonzero', result.status !== 0 && result.stderr.includes('preflight failed: model bogus/bogus not found; no agent was created'), result.stderr || result.stdout);
+  expect('bad model leaves no manifest or log', !existsSync(dockFile(c, '.json')) && !existsSync(dockFile(c, '.log')), `${dockFile(c, '.json')} / ${dockFile(c, '.log')}`);
 } finally {
   for (const name of names) {
     killRunner(name);
