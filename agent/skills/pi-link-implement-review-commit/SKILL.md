@@ -71,9 +71,13 @@ Binding procedure:
 
 ```
 for each task in plan (sequence order):
-  PRE-FLIGHT  before EVERY dispatch (any role): link_list → if context + est. task
-              cost > 70% of that worker's window: link_compact it (idle targets
-              only; a "?" context is unknown — treat it as full, not as room)
+  PRE-FLIGHT  before task-boundary dispatches (IMPLEMENT of a new task, REVIEW,
+              COMMIT): link_list → if context + est. task cost > 70% of that
+              worker's window: link_compact it (idle targets only). A "?"
+              context means the worker JUST COMPACTED — treat it as a fresh
+              window; track its usage from there by summing task estimates in
+              the ledger until it reports again. NEVER compact mid-task
+              (CONVERGE relay, gate-red retry) — see §3.4.
   IMPLEMENT   link_send(implementer, triggerTurn:true) + full dispatch brief (§4)
   WAIT        hold for DONE/BLOCKED  (Golden Rule — do NOT link_prompt before callback)
   GATE        worker self-ran build+tests; a red/missing gate == BLOCKED → relay
@@ -90,8 +94,8 @@ for each task in plan (sequence order):
   ADVANCE     record commit/hash/gate in ledger; next task
 ```
 
-Task-cost heuristics for PRE-FLIGHT (rough): small fix 10–20K · medium task
-40–80K · review 20–40K.
+Task-cost heuristics for PRE-FLIGHT (rough — budget with the UPPER bound):
+small fix 10–20K · medium task 40–80K · review 20–40K.
 
 **WAIT means end your turn.** The callback _is_ your next turn — do not poll,
 sleep, or busy-loop `link_list` waiting for it.
@@ -124,8 +128,16 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
    auto-compaction firing MID-TASK, which can shed the dispatch brief's details
    at the worst moment; orchestrated compaction while the worker is idle
    (`link_compact` blocks, then returns) exists to pre-empt exactly that.
-   Compact right before a large or sensitive task so it runs in a clean window,
-   and preserve task-critical state in the compaction instructions.
+   Compact right before a large or sensitive task so it runs in a clean window.
+   Compaction is a TASK-BOUNDARY operation: never compact a worker between its
+   IMPLEMENT and that task's commit — a CONVERGE relay or gate-red retry needs
+   the very in-flight state compaction sheds; if the window truly can't fit the
+   fix, escalate to the user instead. Because dispatches are self-contained
+   (§3.2), the next brief re-supplies everything task-specific; the only
+   irrecoverable loss is what the worker learned that is NOT in the plan. So the
+   compaction instructions say exactly that: "preserve what you've learned about
+   the codebase that isn't written in the plan; the next task arrives as a full
+   brief."
 5. **Serialize shared-resource edits.** One file / sensitive logic → strictly
    sequential. Do the most sensitive task LAST, in a freshly compacted context, with
    its invariants spelled out in both the implement and review briefs.
@@ -174,6 +186,7 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
 | Committer BLOCKED (staged junk / wrong branch / hook mutation) | Dirty shared worktree                                                 | Relay the exact `git status` to the user — worktree hygiene is the user's to fix, not a worker's                                                                                                           |
 | Reviewer ↔ implementer deadlock                                | Genuine disagreement                                                  | Bounded iterations, then implementer tie-break (§3.7)                                                                                                                                                      |
 | Worker context near limit                                      | Predictable growth                                                    | Pre-emptive `link_compact` before the next/large task (§3.4)                                                                                                                                               |
+| `link_compact` errors at its 3-min ceiling                     | Compaction outlived the call — not necessarily failed                 | `link_list` before assuming failure: a "?" or shrunken context means it finished on its own; only retry if still idle and full                                                                             |
 
 Rule of thumb: when something seems "stuck," read live state with `link_list`
 (status + context delta) **before** guessing. Idle + grown context means a logic
@@ -189,7 +202,9 @@ survives your OWN compaction: role bindings, and per task — scope, implementer
 DONE summary, gate result, review verdict, commit hash, any dissent. Write each
 state transition when it happens (dispatched → callback → verdict → hash), not
 only at ADVANCE: the in-flight row ("task 3 at REVIEW, sent <when>") is exactly
-what lets you resume correctly if you compact mid-task.
+what lets you resume correctly if you compact mid-task. Compact YOURSELF only at
+an ADVANCE boundary, right after writing the ledger — the in-flight rows make
+mid-task recovery possible, not desirable.
 
 ---
 

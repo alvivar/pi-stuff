@@ -29,6 +29,9 @@ mid-task. Never leave a cell blank once its dispatch has been sent.
 
 ## Context snapshots (predictive compaction log)
 
+`?` in link_list = that worker just compacted: treat as fresh, reset its row to
+~0 and sum task estimates (upper bound) here until it reports numbers again.
+
 | When          | Worker | Context   | Action         |
 | ------------- | ------ | --------- | -------------- |
 | before task N | <impl> | <K/limit> | compacted / ok |
