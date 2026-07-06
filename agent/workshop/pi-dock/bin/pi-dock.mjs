@@ -65,6 +65,64 @@ async function tryStatus(manifest, timeoutMs = 200) {
   return null;
 }
 
+function launchRunner(name, options = {}) {
+  const argv = [runner, '--name', name];
+
+  if (options.cwd) {
+    argv.push('--cwd', options.cwd);
+  }
+  if (options.model) {
+    argv.push('--model', options.model);
+  }
+  if (options.budget) {
+    argv.push('--budget', options.budget);
+  }
+
+  const child = spawn(process.execPath, argv, {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+  return child;
+}
+
+async function handshake(name, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const manifest = await readManifest(name).catch(() => null);
+    if (manifest) {
+      const status = await tryStatus(manifest, 250);
+      if (status) {
+        return { manifest, status };
+      }
+    }
+    await sleep(250);
+  }
+
+  return null;
+}
+
+function lastLogLine(name) {
+  const file = logPath(name);
+  if (!existsSync(file)) {
+    return null;
+  }
+
+  const lines = readFileSync(file, 'utf8').trimEnd().split('\n');
+  return lines.at(-1) ?? null;
+}
+
+function reportHandshakeFailure(name) {
+  console.error(`handshake failed for ${name}`);
+  console.error(`manifest: ${manifestPath(name)} ${existsSync(manifestPath(name)) ? 'exists' : 'missing'}`);
+  console.error(`log: ${logPath(name)} ${existsSync(logPath(name)) ? 'exists' : 'missing'}`);
+  const line = lastLogLine(name);
+  if (line) {
+    console.error(`last log: ${line}`);
+  }
+}
+
 function lastCompleteLogEvent(name) {
   const file = logPath(name);
 
@@ -119,45 +177,57 @@ function formatLogLine(line) {
 }
 
 async function spawnCommand(argv) {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { name: { type: 'string' } },
+    options: {
+      name: { type: 'string' },
+      model: { type: 'string' },
+      budget: { type: 'string' },
+    },
   });
 
   const name = values.name;
+  const text = positionals.join(' ');
   if (!name) {
-    fail('usage: pi-dock spawn --name <name> [text]');
+    fail('usage: pi-dock spawn --name <name> [text] [--model <provider/id>] [--budget <turns>[,<minutes>]]');
   }
 
   if (await manifestExists(name)) {
     fail(`agent already exists: ${name}`);
   }
 
-  const child = spawn(process.execPath, [runner, '--name', name], {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  });
-  child.unref();
+  launchRunner(name, { cwd: process.cwd(), model: values.model, budget: values.budget });
 
-  const deadline = Date.now() + 2000;
-  while (Date.now() < deadline) {
-    const manifest = await readManifest(name).catch(() => null);
-    if (manifest) {
-      const status = await tryStatus(manifest, 200);
-      if (status) {
-        console.log(`${name} ${status.state}`);
-        return;
-      }
-    }
-    await sleep(100);
+  const result = await handshake(name);
+  if (!result) {
+    reportHandshakeFailure(name);
+    process.exit(1);
   }
 
-  console.error(`spawn handshake failed for ${name}`);
-  console.error(`manifest: ${manifestPath(name)} ${existsSync(manifestPath(name)) ? 'exists' : 'missing'}`);
-  console.error(`log: ${logPath(name)} ${existsSync(logPath(name)) ? 'exists' : 'missing'}`);
-  process.exit(1);
+  if (text) {
+    const reply = await request(result.manifest.pipe, { cmd: 'prompt', text }, 1000);
+    if (!reply.ok) {
+      fail(JSON.stringify(reply));
+    }
+  }
+
+  console.log(`${name} ${result.status.state}`);
+}
+
+async function sendPrompt(manifest, text) {
+  return request(manifest.pipe, { cmd: 'prompt', text }, 1000);
+}
+
+async function resurrect(name) {
+  launchRunner(name);
+  const result = await handshake(name);
+  if (!result) {
+    reportHandshakeFailure(name);
+    process.exit(1);
+  }
+
+  return result.manifest;
 }
 
 async function sendCommand(argv) {
@@ -168,12 +238,23 @@ async function sendCommand(argv) {
   }
 
   const manifest = await requireManifest(name);
+  let reply;
+
   try {
-    const reply = await request(manifest.pipe, { cmd: 'prompt', text }, 1000);
-    console.log(JSON.stringify(reply));
+    reply = await sendPrompt(manifest, text);
   } catch {
-    fail(`agent not running: ${name}`);
+    reply = { ok: false, error: 'terminal' };
   }
+
+  if (!reply.ok && reply.error === 'terminal') {
+    reply = await sendPrompt(await resurrect(name), text);
+  }
+
+  if (!reply.ok) {
+    fail(JSON.stringify(reply));
+  }
+
+  console.log(JSON.stringify(reply));
 }
 
 async function lsCommand() {
