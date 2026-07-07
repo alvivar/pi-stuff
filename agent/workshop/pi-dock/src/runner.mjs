@@ -8,7 +8,7 @@ import {
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { readManifest, writeManifest } from './manifest.mjs';
-import { dockDir, ensureDockDir, pipePath } from './paths.mjs';
+import { ensureDockDir, logPath, pipePath } from './paths.mjs';
 import { serve } from './pipe.mjs';
 
 const { values } = parseArgs({
@@ -26,7 +26,7 @@ if (!name) {
   process.exit(1);
 }
 
-const logPath = path.join(dockDir(), `${name}.log`);
+const log = logPath(name);
 const pipe = pipePath(name);
 let session;
 let server;
@@ -40,7 +40,7 @@ let budgetConfig;
 let queue = Promise.resolve();
 
 function appendLog(event) {
-  appendFileSync(logPath, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`, 'utf8');
+  appendFileSync(log, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`, 'utf8');
 }
 
 function parseBudget(value) {
@@ -75,7 +75,7 @@ function closeServerThenExit(code) {
   server.close(() => process.exit(code));
 }
 
-async function fail(error) {
+async function shutdown(event, code) {
   if (terminal) {
     return;
   }
@@ -89,26 +89,16 @@ async function fail(error) {
   if (dropped > 0) {
     appendLog({ event: 'dropped', n: dropped });
   }
-  appendLog({ event: 'failed', reason: error.message });
-  closeServerThenExit(1);
+  appendLog(event);
+  closeServerThenExit(code);
 }
 
-async function stopSoon() {
-  if (terminal) {
-    return;
-  }
+function fail(error) {
+  return shutdown({ event: 'failed', reason: error.message }, 1);
+}
 
-  terminal = true;
-  const dropped = pending;
-  clearBudgetTimer();
-  unsubscribe();
-  await session?.abort().catch(() => {});
-  session?.dispose();
-  if (dropped > 0) {
-    appendLog({ event: 'dropped', n: dropped });
-  }
-  appendLog({ event: 'stopped' });
-  closeServerThenExit(0);
+function stopSoon() {
+  return shutdown({ event: 'stopped' }, 0);
 }
 
 function clearBudgetTimer() {

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listManifests, readManifest } from '../src/manifest.mjs';
-import { dockDir } from '../src/paths.mjs';
+import { logPath, manifestPath } from '../src/paths.mjs';
 import { PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -21,14 +21,6 @@ function fail(message) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function manifestPath(name) {
-  return path.join(dockDir(), `${name}.json`);
-}
-
-function logPath(name) {
-  return path.join(dockDir(), `${name}.log`);
 }
 
 async function manifestExists(name) {
@@ -305,6 +297,7 @@ async function sendCommand(argv) {
 
   const manifest = await requireManifest(name);
   let reply;
+  let needsWake = false;
 
   try {
     reply = await sendPrompt(manifest, text);
@@ -312,10 +305,14 @@ async function sendCommand(argv) {
     if (isTimeout(error)) {
       failNotResponding(name);
     }
-    reply = { ok: false, error: 'terminal' };
+    needsWake = true;
   }
 
-  if (!reply.ok && reply.error === 'terminal') {
+  if (reply && !reply.ok && reply.error === 'terminal') {
+    needsWake = true;
+  }
+
+  if (needsWake) {
     reply = await sendPrompt((await wake(name)).manifest, text);
   }
 

@@ -1,14 +1,10 @@
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { dockDir, ensureDockDir } from './paths.mjs';
-
-function manifestPath(name) {
-  return path.join(dockDir(), `${name}.json`);
-}
+import { ensureDockDir, manifestPath } from './paths.mjs';
 
 export async function writeManifest(name, manifest) {
   const dir = await ensureDockDir();
-  const target = path.join(dir, `${name}.json`);
+  const target = manifestPath(name);
 
   try {
     await fs.access(target);

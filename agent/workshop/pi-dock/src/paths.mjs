@@ -12,6 +12,14 @@ export async function ensureDockDir() {
   return dir;
 }
 
+export function manifestPath(name) {
+  return path.join(dockDir(), `${name}.json`);
+}
+
+export function logPath(name) {
+  return path.join(dockDir(), `${name}.log`);
+}
+
 export function pipePath(name) {
   if (process.platform === 'win32') {
     return String.raw`\\.\pipe\pi-dock-${name}`;
