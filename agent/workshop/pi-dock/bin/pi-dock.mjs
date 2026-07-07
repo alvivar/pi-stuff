@@ -217,7 +217,7 @@ function lastCompleteLogEvent(name) {
 
 function stateFromLog(name) {
   const event = lastCompleteLogEvent(name);
-  if (event?.event === 'stopped' || event?.event === 'done' || event?.event === 'failed') {
+  if (event?.event === 'stopped' || event?.event === 'failed') {
     return event.event;
   }
 
@@ -255,9 +255,8 @@ async function spawnCommand(argv) {
   });
 
   const name = values.name;
-  const text = positionals.join(' ');
-  if (!name) {
-    fail('usage: pi-dock spawn --name <name> [text] [--model <provider/id>] [--budget <turns>[,<minutes>]]');
+  if (!name || positionals.length > 0) {
+    fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--budget <turns>[,<minutes>]]');
   }
 
   if (await manifestExists(name)) {
@@ -279,13 +278,6 @@ async function spawnCommand(argv) {
     process.exit(1);
   }
 
-  if (text) {
-    const reply = await request(result.manifest.pipe, { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
-    if (!reply.ok) {
-      fail(JSON.stringify(reply));
-    }
-  }
-
   console.log(`${name} ${result.status.state}`);
 }
 
@@ -293,7 +285,7 @@ async function sendPrompt(manifest, text) {
   return request(manifest.pipe, { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
 }
 
-async function resurrect(name) {
+async function wake(name) {
   launchRunner(name);
   const result = await handshake(name);
   if (!result) {
@@ -301,7 +293,7 @@ async function resurrect(name) {
     process.exit(1);
   }
 
-  return result.manifest;
+  return result;
 }
 
 async function sendCommand(argv) {
@@ -324,7 +316,7 @@ async function sendCommand(argv) {
   }
 
   if (!reply.ok && reply.error === 'terminal') {
-    reply = await sendPrompt(await resurrect(name), text);
+    reply = await sendPrompt((await wake(name)).manifest, text);
   }
 
   if (!reply.ok) {
@@ -332,6 +324,29 @@ async function sendCommand(argv) {
   }
 
   console.log(JSON.stringify(reply));
+}
+
+async function startCommand(argv) {
+  const [name] = argv;
+  if (!name) {
+    fail('usage: pi-dock start <name>');
+  }
+
+  const manifest = await requireManifest(name);
+  try {
+    const status = await request(manifest.pipe, { cmd: 'status' }, PIPE_REQUEST_TIMEOUT_MS);
+    if (status.ok) {
+      console.log(`${name} ${status.state}`);
+      return;
+    }
+  } catch (error) {
+    if (isTimeout(error)) {
+      failNotResponding(name);
+    }
+  }
+
+  const result = await wake(name);
+  console.log(`${name} ${result.status.state}`);
 }
 
 async function lsCommand() {
@@ -414,6 +429,8 @@ try {
     await spawnCommand(args);
   } else if (command === 'send') {
     await sendCommand(args);
+  } else if (command === 'start') {
+    await startCommand(args);
   } else if (command === 'ls') {
     await lsCommand();
   } else if (command === 'logs') {
@@ -421,7 +438,7 @@ try {
   } else if (command === 'stop') {
     await stopCommand(args);
   } else {
-    fail('usage: pi-dock <spawn|send|ls|logs|stop> ...');
+    fail('usage: pi-dock <spawn|send|start|stop|ls|logs> ...');
   }
 } catch (error) {
   fail(error.message);

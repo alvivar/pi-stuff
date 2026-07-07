@@ -32,10 +32,12 @@ let session;
 let server;
 let unsubscribe = () => {};
 let turns = 0;
+let running = false;
 let pending = 0;
 let terminal = false;
 let budgetTimer;
 let budgetConfig;
+let queue = Promise.resolve();
 
 function appendLog(event) {
   appendFileSync(logPath, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`, 'utf8');
@@ -73,29 +75,20 @@ function closeServerThenExit(code) {
   server.close(() => process.exit(code));
 }
 
-function finish(event, code) {
-  if (terminal) {
-    return;
-  }
-
-  terminal = true;
-  clearTimeout(budgetTimer);
-  unsubscribe();
-  session?.dispose();
-  appendLog(event);
-  closeServerThenExit(code);
-}
-
 async function fail(error) {
   if (terminal) {
     return;
   }
 
   terminal = true;
-  clearTimeout(budgetTimer);
+  const dropped = pending;
+  clearBudgetTimer();
   unsubscribe();
   await session?.abort().catch(() => {});
   session?.dispose();
+  if (dropped > 0) {
+    appendLog({ event: 'dropped', n: dropped });
+  }
   appendLog({ event: 'failed', reason: error.message });
   closeServerThenExit(1);
 }
@@ -106,15 +99,25 @@ async function stopSoon() {
   }
 
   terminal = true;
-  clearTimeout(budgetTimer);
+  const dropped = pending;
+  clearBudgetTimer();
   unsubscribe();
   await session?.abort().catch(() => {});
   session?.dispose();
+  if (dropped > 0) {
+    appendLog({ event: 'dropped', n: dropped });
+  }
   appendLog({ event: 'stopped' });
   closeServerThenExit(0);
 }
 
+function clearBudgetTimer() {
+  clearTimeout(budgetTimer);
+  budgetTimer = undefined;
+}
+
 function startBudgetTimer(budget) {
+  clearBudgetTimer();
   budgetTimer = setTimeout(() => {
     void fail(new Error('budget'));
   }, budget.minutes * 60 * 1000);
@@ -145,27 +148,39 @@ function subscribeToSession(budget) {
   });
 }
 
+async function runOnePrompt(text) {
+  if (terminal || !session) {
+    pending -= 1;
+    return;
+  }
+
+  pending -= 1;
+  running = true;
+  turns = 0;
+  startBudgetTimer(budgetConfig);
+
+  try {
+    await session.prompt(text, { streamingBehavior: 'followUp' });
+    if (!terminal) {
+      appendLog({ event: 'idle' });
+    }
+  } catch (error) {
+    await fail(error);
+  } finally {
+    clearBudgetTimer();
+    turns = 0;
+    running = false;
+  }
+}
+
 function runPrompt(text) {
   if (terminal || !session) {
     return false;
   }
 
   pending += 1;
-  if (!budgetTimer) {
-    startBudgetTimer(budgetConfig);
-  }
-  void session.prompt(text, { streamingBehavior: 'followUp' })
-    .then(() => {
-      pending -= 1;
-      if (pending === 0 && !terminal) {
-        finish({ event: 'done' }, 0);
-      }
-    })
-    .catch((error) => {
-      pending -= 1;
-      void fail(error);
-    });
-
+  queue = queue.then(() => runOnePrompt(text));
+  void queue.catch(() => {});
   return true;
 }
 
@@ -236,7 +251,7 @@ try {
         return { ok: false, error: 'terminal' };
       }
 
-      const state = session.isStreaming || pending > 0 ? 'running' : 'idle';
+      const state = running || session.isStreaming ? 'running' : 'idle';
       return { ok: true, state, turns };
     }
 

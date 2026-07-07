@@ -59,16 +59,23 @@ function lsState(output, name) {
   return null;
 }
 
-async function waitLsState(name, state) {
+async function waitFor(predicate) {
   for (let i = 0; i < 240; i += 1) {
-    const result = run(['ls']);
-    if (result.status === 0 && lsState(result.stdout, name) === state) {
-      return result;
+    const value = predicate();
+    if (value) {
+      return value;
     }
     await sleep(500);
   }
 
-  return run(['ls']);
+  return predicate();
+}
+
+async function waitLsState(name, state) {
+  return waitFor(() => {
+    const result = run(['ls']);
+    return result.status === 0 && lsState(result.stdout, name) === state ? result : null;
+  });
 }
 
 function logText(name) {
@@ -80,11 +87,24 @@ function count(text, needle) {
   return text.split(needle).length - 1;
 }
 
+function manifest(name) {
+  return JSON.parse(readFileSync(dockFile(name, '.json'), 'utf8'));
+}
+
 function findRunnerPid(name) {
   const escaped = name.replaceAll("'", "''");
   const script = `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*src\\runner.mjs*--name*${escaped}*' -or $_.CommandLine -like '*src/runner.mjs*--name*${escaped}*' } | Select-Object -First 1 -ExpandProperty ProcessId`;
   const output = execFileSync('powershell.exe', ['-NoProfile', '-Command', script], { encoding: 'utf8' }).trim();
   return output ? Number(output) : null;
+}
+
+function pidAlive(pid) {
+  if (!Number.isInteger(pid)) {
+    return false;
+  }
+
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', `if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { 'yes' }`], { encoding: 'utf8' });
+  return result.stdout.trim() === 'yes';
 }
 
 function killPid(pid) {
@@ -103,45 +123,90 @@ for (const name of names) {
 }
 
 try {
-  let result = run(['spawn', '--name', a, '--budget', '5,5', 'Reply with exactly: alpha']);
-  expect('spawn A with alpha', result.status === 0 && result.stdout.trim() === `${a} idle`, result.stderr || result.stdout);
+  let result = run(['spawn', '--name', a, '--budget', '5,5']);
+  expect('spawn A idle without prompt', result.status === 0 && result.stdout.trim() === `${a} idle`, result.stderr || result.stdout);
 
-  result = await waitLsState(a, 'done');
-  expect('ls shows A done', result.status === 0 && lsState(result.stdout, a) === 'done', result.stdout || result.stderr);
+  result = await waitLsState(a, 'idle');
+  expect('ls shows A idle after spawn', result?.status === 0 && lsState(result.stdout, a) === 'idle', result?.stdout || result?.stderr);
 
+  const pidA = findRunnerPid(a);
+  expect('A runner process alive after spawn', Number.isInteger(pidA) && pidAlive(pidA), String(pidA));
+
+  result = run(['send', a, 'Remember the token ALPHA-31. Reply exactly: alpha saved']);
+  expect('send A first prompt acks', result.status === 0 && result.stdout.trim() === '{"ok":true}', result.stderr || result.stdout);
+
+  await waitFor(() => {
+    const logs = logText(a);
+    const ls = run(['ls']);
+    return logs.includes('alpha saved') && count(logs, ' idle') >= 1 && lsState(ls.stdout, a) === 'idle';
+  });
+
+  result = run(['ls']);
   let logs = logText(a);
-  expect('logs A has spawned turn text alpha done', logs.includes(' spawned') && logs.includes(' turn ') && logs.includes('alpha') && logs.includes(' done'), logs);
+  expect('A returns to idle after first prompt', result.status === 0 && lsState(result.stdout, a) === 'idle', result.stdout || result.stderr);
+  expect('A log has spawned turn text idle', logs.includes(' spawned') && logs.includes(' turn ') && logs.includes('alpha saved') && logs.includes(' idle'), logs);
+  expect('A log has no done event', !logs.includes(' done'), logs);
+  expect('A runner stays alive after first prompt', findRunnerPid(a) === pidA && pidAlive(pidA), String(findRunnerPid(a)));
 
-  const manifestAfterStep1 = readFileSync(dockFile(a, '.json'));
+  result = run(['send', a, 'What token did I ask you to remember? Reply exactly: ALPHA-31']);
+  expect('send A second prompt acks', result.status === 0 && result.stdout.trim() === '{"ok":true}', result.stderr || result.stdout);
 
-  result = run(['send', a, 'Reply with exactly: beta']);
-  expect('send A resurrects and acks beta', result.status === 0 && result.stdout.trim() === '{"ok":true}', result.stderr || result.stdout);
+  await waitFor(() => {
+    const currentLogs = logText(a);
+    const ls = run(['ls']);
+    return currentLogs.includes('ALPHA-31') && count(currentLogs, ' idle') >= 2 && lsState(ls.stdout, a) === 'idle';
+  });
 
-  result = await waitLsState(a, 'done');
-  expect('ls shows A done after beta', result.status === 0 && lsState(result.stdout, a) === 'done', result.stdout || result.stderr);
-
+  result = run(['ls']);
   logs = logText(a);
-  expect('logs A has second spawned turn text beta done', count(logs, ' spawned') >= 2 && count(logs, ' turn ') >= 2 && logs.includes('beta') && count(logs, ' done') >= 2, logs);
-  expect('manifest A unchanged after resurrect', Buffer.compare(manifestAfterStep1, readFileSync(dockFile(a, '.json'))) === 0, 'manifest bytes changed');
+  expect('A remembers across resident runs', logs.includes('ALPHA-31'), logs);
+  expect('A returns to idle after second prompt', result.status === 0 && lsState(result.stdout, a) === 'idle', result.stdout || result.stderr);
+  expect('A runner stays alive after second prompt', findRunnerPid(a) === pidA && pidAlive(pidA), String(findRunnerPid(a)));
 
-  result = run(['spawn', '--name', b]);
-  expect('spawn B idle no prompt', result.status === 0 && result.stdout.trim() === `${b} idle`, result.stderr || result.stdout);
+  const manifestBytes = readFileSync(dockFile(a, '.json'));
+  const sessionFile = manifest(a).sessionFile;
+  result = run(['stop', a]);
+  expect('stop A reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
+
+  result = await waitLsState(a, 'stopped');
+  expect('ls shows A stopped', result?.status === 0 && lsState(result.stdout, a) === 'stopped', result?.stdout || result?.stderr);
+  expect('A manifest log session survive stop', existsSync(dockFile(a, '.json')) && existsSync(dockFile(a, '.log')) && existsSync(sessionFile), sessionFile);
+  expect('A manifest unchanged after stop', Buffer.compare(manifestBytes, readFileSync(dockFile(a, '.json'))) === 0, 'manifest bytes changed');
+
+  result = run(['start', a]);
+  expect('start A wakes idle without prompt', result.status === 0 && result.stdout.trim() === `${a} idle`, result.stderr || result.stdout);
+
+  result = await waitLsState(a, 'idle');
+  expect('ls shows A idle after start', result?.status === 0 && lsState(result.stdout, a) === 'idle', result?.stdout || result?.stderr);
+  const pidAWoken = findRunnerPid(a);
+  expect('A has new runner after start', Number.isInteger(pidAWoken) && pidAWoken !== pidA && pidAlive(pidAWoken), `${pidAWoken} vs ${pidA}`);
+
+  result = run(['stop', a]);
+  expect('stop A after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
+
+  result = run(['spawn', '--name', b, '--budget', '5,5']);
+  expect('spawn B idle without prompt', result.status === 0 && result.stdout.trim() === `${b} idle`, result.stderr || result.stdout);
 
   result = await waitLsState(b, 'idle');
-  expect('ls shows B idle', result.status === 0 && lsState(result.stdout, b) === 'idle', result.stdout || result.stderr);
+  expect('ls shows B idle', result?.status === 0 && lsState(result.stdout, b) === 'idle', result?.stdout || result?.stderr);
 
-  const pid = findRunnerPid(b);
-  expect('find B runner pid', Number.isInteger(pid), String(pid));
-  if (pid) {
-    killPid(pid);
+  const pidB = findRunnerPid(b);
+  expect('find B runner pid', Number.isInteger(pidB), String(pidB));
+  if (pidB) {
+    killPid(pidB);
   }
 
-  await sleep(500);
   result = await waitLsState(b, 'failed');
-  expect('ls shows killed B failed', result.status === 0 && lsState(result.stdout, b) === 'failed', result.stdout || result.stderr);
+  expect('ls shows killed idle B failed', result?.status === 0 && lsState(result.stdout, b) === 'failed', result?.stdout || result?.stderr);
+
+  result = run(['start', b]);
+  expect('start B revives idle', result.status === 0 && result.stdout.trim() === `${b} idle`, result.stderr || result.stdout);
+
+  result = await waitLsState(b, 'idle');
+  expect('ls shows B idle after start', result?.status === 0 && lsState(result.stdout, b) === 'idle', result?.stdout || result?.stderr);
 
   result = run(['stop', b]);
-  expect('stop killed B reports derived state', result.status === 0 && result.stdout.includes('already failed'), result.stderr || result.stdout);
+  expect('stop B after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
   result = run(['spawn', '--name', c, '--model', 'bogus/bogus']);
   expect('bad model preflight exits nonzero', result.status !== 0 && result.stderr.includes('preflight failed: model bogus/bogus not found; no agent was created'), result.stderr || result.stdout);
@@ -156,8 +221,9 @@ try {
 expect('cleanup leaves no dock files', names.every((name) => !existsSync(dockFile(name, '.json')) && !existsSync(dockFile(name, '.log'))), 'leftover dock files');
 
 if (results.every(Boolean)) {
-  console.log('PASS smoke');
+  console.log(`PASS smoke ${results.length}/${results.length}`);
 } else {
-  console.log('FAIL smoke');
+  const passed = results.filter(Boolean).length;
+  console.log(`FAIL smoke ${passed}/${results.length}`);
   process.exit(1);
 }
