@@ -3,7 +3,8 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   AuthStorage,
-  createAgentSession,
+  createAgentSessionFromServices,
+  createAgentSessionServices,
   ModelRegistry,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
@@ -17,6 +18,7 @@ const { values } = parseArgs({
     cwd: { type: 'string' },
     model: { type: 'string' },
     budget: { type: 'string' },
+    x: { type: 'string', multiple: true },
   },
 });
 
@@ -39,6 +41,51 @@ let budgetTimer;
 let budgetConfig;
 let queue = Promise.resolve();
 
+const theme = {
+  fg: (_role, text) => text,
+  bg: (_role, text) => text,
+  bold: (text) => text,
+  italic: (text) => text,
+  underline: (text) => text,
+  inverse: (text) => text,
+  strikethrough: (text) => text,
+  getFgAnsi: () => '',
+  getBgAnsi: () => '',
+  getColorMode: () => '256color',
+  getThinkingBorderColor: () => (text) => text,
+  getBashModeBorderColor: () => (text) => text,
+};
+const headlessUIContext = {
+  select: async () => undefined,
+  confirm: async () => false,
+  input: async () => undefined,
+  notify: () => {},
+  onTerminalInput: () => () => {},
+  setStatus: () => {},
+  setWorkingMessage: () => {},
+  setWorkingVisible: () => {},
+  setWorkingIndicator: () => {},
+  setHiddenThinkingLabel: () => {},
+  setWidget: () => {},
+  setFooter: () => {},
+  setHeader: () => {},
+  setTitle: () => {},
+  custom: async () => undefined,
+  pasteToEditor: () => {},
+  setEditorText: () => {},
+  getEditorText: () => '',
+  editor: async () => undefined,
+  addAutocompleteProvider: () => {},
+  setEditorComponent: () => {},
+  getEditorComponent: () => undefined,
+  theme,
+  getAllThemes: () => [],
+  getTheme: () => undefined,
+  setTheme: () => ({ success: false, error: 'UI not available' }),
+  getToolsExpanded: () => false,
+  setToolsExpanded: () => {},
+};
+
 function appendLog(event) {
   appendFileSync(log, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`, 'utf8');
 }
@@ -53,6 +100,13 @@ function parseBudget(value) {
   }
 
   return { turns: turnLimit, minutes: minuteLimit };
+}
+
+function parseExtensionFlags(flags) {
+  return new Map(flags.map((flag) => {
+    const equals = flag.indexOf('=');
+    return equals === -1 ? [flag, true] : [flag.slice(0, equals), flag.slice(equals + 1)];
+  }));
 }
 
 function textFromMessage(message) {
@@ -121,9 +175,11 @@ function subscribeToSession(budget) {
     }
 
     if (event.type === 'turn_start') {
-      turns += 1;
+      if (running) {
+        turns += 1;
+      }
       appendLog({ event: 'turn', n: turns });
-      if (turns > budget.turns) {
+      if (running && turns > budget.turns) {
         void fail(new Error('budget'));
       }
       return;
@@ -206,17 +262,22 @@ try {
   const createMode = existing === null;
   const cwd = createMode ? path.resolve(values.cwd ?? process.cwd()) : existing.cwd;
   const budget = createMode ? parseBudget(values.budget) : existing.budget;
+  const flags = createMode ? values.x ?? [] : existing.flags ?? [];
   budgetConfig = budget;
 
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
-  const model = createMode ? await findModel(modelRegistry, values.model) : undefined;
-  const sessionManager = createMode ? SessionManager.create(cwd) : SessionManager.open(existing.sessionFile);
-  ({ session } = await createAgentSession({
+  const services = await createAgentSessionServices({
     cwd,
-    sessionManager,
     authStorage,
     modelRegistry,
+    extensionFlagValues: parseExtensionFlags(flags),
+  });
+  const model = createMode ? await findModel(services.modelRegistry, values.model) : undefined;
+  const sessionManager = createMode ? SessionManager.create(cwd) : SessionManager.open(existing.sessionFile);
+  ({ session } = await createAgentSessionFromServices({
+    services,
+    sessionManager,
     ...(model ? { model } : {}),
   }));
 
@@ -227,6 +288,7 @@ try {
       cwd,
       modelId: session.model?.id ?? null,
       budget,
+      flags,
       pipe,
       startedAt: new Date().toISOString(),
     });
@@ -234,6 +296,13 @@ try {
 
   appendLog({ event: 'spawned' });
   subscribeToSession(budget);
+  await session.bindExtensions({
+    uiContext: headlessUIContext,
+    mode: 'print',
+    shutdownHandler: () => {
+      void stopSoon();
+    },
+  });
 
   server = serve(pipe, (msg) => {
     if (msg.cmd === 'status') {

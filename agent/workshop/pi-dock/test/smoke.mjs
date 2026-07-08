@@ -7,7 +7,8 @@ const cli = path.join(process.cwd(), 'bin', 'pi-dock.mjs');
 const a = `smoke-${process.pid}-a`;
 const b = `smoke-${process.pid}-b`;
 const c = `smoke-${process.pid}-c`;
-const names = [a, b, c];
+const d = `smoke-${process.pid}-d`;
+const names = [a, b, c, d];
 const results = [];
 
 function run(args) {
@@ -207,6 +208,13 @@ try {
 
   result = run(['stop', b]);
   expect('stop B after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
+
+  result = run(['spawn', '--name', d, '--budget', '5,5', '--x', 'bogus-flag=1']);
+  expect('spawn D with unknown extension flag idles', result.status === 0 && result.stdout.trim() === `${d} idle`, result.stderr || result.stdout);
+  expect('D manifest records raw flags', JSON.stringify(manifest(d).flags) === JSON.stringify(['bogus-flag=1']), JSON.stringify(manifest(d).flags));
+
+  result = run(['stop', d]);
+  expect('stop D after extension-flag spawn reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
   result = run(['spawn', '--name', c, '--model', 'bogus/bogus']);
   expect('bad model preflight exits nonzero', result.status !== 0 && result.stderr.includes('preflight failed: model bogus/bogus not found; no agent was created'), result.stderr || result.stdout);

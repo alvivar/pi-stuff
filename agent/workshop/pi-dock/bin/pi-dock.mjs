@@ -77,6 +77,9 @@ function launchRunner(name, options = {}) {
   if (options.budget) {
     argv.push('--budget', options.budget);
   }
+  for (const flag of options.flags ?? []) {
+    argv.push('--x', flag);
+  }
 
   const child = spawn(process.execPath, argv, {
     detached: true,
@@ -243,12 +246,13 @@ async function spawnCommand(argv) {
       name: { type: 'string' },
       model: { type: 'string' },
       budget: { type: 'string' },
+      x: { type: 'string', multiple: true },
     },
   });
 
   const name = values.name;
   if (!name || positionals.length > 0) {
-    fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--budget <turns>[,<minutes>]]');
+    fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--budget <turns>[,<minutes>]] [--x key[=value]]...');
   }
 
   if (await manifestExists(name)) {
@@ -262,7 +266,7 @@ async function spawnCommand(argv) {
     fail(`preflight failed: ${error.message}; no agent was created`);
   }
 
-  launchRunner(name, { cwd, model: values.model, budget: values.budget });
+  launchRunner(name, { cwd, model: values.model, budget: values.budget, flags: values.x });
 
   const result = await handshake(name);
   if (!result) {
@@ -277,11 +281,11 @@ async function sendPrompt(manifest, text) {
   return request(manifest.pipe, { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
 }
 
-async function wake(name) {
-  launchRunner(name);
-  const result = await handshake(name);
+async function wake(manifest) {
+  launchRunner(manifest.name, { flags: manifest.flags });
+  const result = await handshake(manifest.name);
   if (!result) {
-    reportHandshakeFailure(name);
+    reportHandshakeFailure(manifest.name);
     process.exit(1);
   }
 
@@ -313,7 +317,7 @@ async function sendCommand(argv) {
   }
 
   if (needsWake) {
-    reply = await sendPrompt((await wake(name)).manifest, text);
+    reply = await sendPrompt((await wake(manifest)).manifest, text);
   }
 
   if (!reply.ok) {
@@ -342,7 +346,7 @@ async function startCommand(argv) {
     }
   }
 
-  const result = await wake(name);
+  const result = await wake(manifest);
   console.log(`${name} ${result.status.state}`);
 }
 
