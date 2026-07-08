@@ -7,6 +7,10 @@
 > `stop` = power off (files + memory kept; waking resumes the session with memory).
 > Disposable exit-on-done was M0–M2's model; M3 refactors it away. Decisions #3/#5
 > amended, #8–#10 added below.
+> **AMENDMENT 2026-07-08 (ratified):** agent control — `set` (edit powered-off
+> identity: model/thinking/flags), `spawn --thinking`, `compact`. Decision #4
+> amended, #11–#13 added, milestone M4.5 inserted. `restart` was considered and
+> REJECTED — `stop` + `start` compose; sugar that can't help the wedged case.
 > **Style contract:** simple, performant, readable, idiomatic; every line justified; abstractions only when essential. Plain ESM `.mjs`, **no build step**, no runtime deps beyond the Pi SDK.
 
 ---
@@ -18,18 +22,21 @@
 | 1   | Plain `.mjs` (ESM), zero build. `node:util.parseArgs`, `node:net`, `node:fs` — no other deps besides `@earendil-works/pi-coding-agent`.                                                                                                                                                      |
 | 2   | Data dir: `~/.pi/dock/` → `<name>.json` (manifest) + `<name>.log` (event log).                                                                                                                                                                                                               |
 | 3   | **Status is derived, never stored.** Pipe alive → ask runner (`running`/`idle`). Pipe dead → last complete log line: `failed`/`stopped` is the state; anything else (incl. `idle`) = runner died without saying goodbye = `failed` (crash). A torn last line is ignored. *(Amended: `done` no longer exists — run completion logs non-terminal `idle`.)* |
-| 4   | Manifest is **immutable after spawn** — identity + config only (`name`, `sessionFile`, `cwd`, `modelId`, `budget`, `flags`, `pipe`, `startedAt`). Written atomically (tmp + rename) by the runner. Never rewritten.                                                                                   |
+| 4   | Manifest holds identity + config only (`name`, `sessionFile`, `cwd`, `modelId`, `model`, `budget`, `flags`, `pipe`, `startedAt`), written atomically (tmp + rename). *(Amended 2026-07-08:)* the **runner** still never mutates it; the only writer after spawn is the CLI `set` command, which requires the agent powered off and rewrites atomically. Nothing changes while a runner is alive.                                                                                   |
 | 5   | Budget enforced **inside the runner**, **per pipe prompt-run**: turn ceiling + wall-clock ceiling start with each pipe-delivered run and reset when the runner returns to idle; breach → `session.abort()` + log `failed:budget` + exit. Extension-originated work while idle is logged but unbudgeted; extension work steered into an active pipe run extends that run and counts toward its budget. Budget bounds total run size, never punishes longevity.                                                                                                                                |
 | 6   | `spawn` and `send` are distinct verbs — a typo can never silently create an agent.                                                                                                                                                                                                           |
 | 7   | No daemon. One runner process per agent, `detached: true, stdio: 'ignore', windowsHide: true`.                                                                                                                                                                                               |
 | 8   | **Resident lifecycle.** The runner never exits on its own: after each run it logs `{event:"idle"}` and waits. Exits only on `stop` (→ `stopped`), crash, or budget (→ `failed`). `stop` is power-off, not deletion — manifest/log/session survive; `send`/`start` wake a stopped or failed agent via `SessionManager.open(sessionFile)`, memory intact.                       |
 | 9   | **`spawn` takes no initial text** — it creates identity only (name, model, budget, extension flags, cwd) and leaves the agent idle. All work flows through `send`. One way to do things.                                                                                                     |
 | 10  | **`start <name>`** wakes a stopped/failed agent without sending work (symmetric with `stop`; needed for link presence without a prompt). Error if the name doesn't exist; success no-op if already running.                                                                                   |
+| 11  | **`set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...`** — controlled identity edit. Requires derived state `stopped`/`failed` (alive → error `agent <name> is running — stop it first`; missing → `no such agent`). `--model` re-runs the same preflight as spawn and writes a dedicated qualified `model` ref; the runner re-resolves that ref on every wake, so a qualified-model agent can fail honestly (`failed: model not found...`) if the model leaves the registry; recovery is `set --model <provider/id>`. Legacy manifests without `model` resume via the session file and never resolve ambiguous `modelId`. `--x` REPLACES the whole flags list (repeatable; no merge semantics — what you type is what you get); at least one option required. Hard identity (`name`, `sessionFile`, `cwd`, `pipe`, `startedAt`) untouchable. Atomic rewrite; next wake picks it up. |
+| 12  | **`spawn --thinking <level>`** — persisted in the manifest (`thinking`), applied to the session by the runner on every boot. Absent → model default, field omitted. Levels validated at spawn/set against what the SDK accepts; valid-but-unsupported levels are stored as requested and the SDK clamps per current model (spike M4.5-T1 pins the API). |
+| 13  | **`compact <name> [instructions]`** — resident-agent maintenance. Pipe gains a 4th request `{cmd:"compact", instructions?}`; runner refuses unless idle (`{ok:false,error:"busy"}` → CLI prints `agent <name> is busy`). Off → wake, compact, stays on (same semantics as `send`). Logs `{event:"compacted"}`. Costs one real LLM summarization; **unbudgeted** — maintenance, not a run (consistent with #5). Compact is refused while a run is active; prompts acked during a compact queue behind it via the existing promise chain. |
 
 ## Architecture (target)
 
 ```
-bin/pi-dock.mjs      CLI entry: parseArgs + dispatch to the 6 commands. Stateless.
+bin/pi-dock.mjs      CLI entry: parseArgs + dispatch to the 8 commands. Stateless.
 src/runner.mjs       Detached process entry: hosts ONE AgentSession, serves pipe,
                      appends log, enforces budget, writes manifest, exits clean.
 src/pipe.mjs         NDJSON over node:net — serve(path, handler) + request(path, msg).
@@ -38,12 +45,13 @@ src/paths.mjs        ~/.pi/dock resolution + pipe name per platform
                      (win: \\.\pipe\pi-dock-<name>, unix: ~/.pi/dock/<name>.sock).
 ```
 
-Pipe protocol — 3 requests, one JSON per line:
+Pipe protocol — 4 requests, one JSON per line:
 
 ```
-→ {cmd:"status"}                ← {ok:true, state:"running"|"idle", turns:n}
-→ {cmd:"prompt", text:"..."}    ← {ok:true}            (ack; run continues detached)
-→ {cmd:"stop"}                  ← {ok:true}            (runner aborts, logs, exits)
+→ {cmd:"status"}                 ← {ok:true, state:"running"|"idle", turns:n}
+→ {cmd:"prompt", text:"..."}     ← {ok:true}           (ack; run continues detached)
+→ {cmd:"compact", instructions?} ← {ok:true} | {ok:false,error:"busy"}   (M4.5)
+→ {cmd:"stop"}                   ← {ok:true}           (runner aborts, logs, exits)
 ```
 
 Log events (append-only NDJSON, one fact per line):
@@ -53,6 +61,7 @@ Log events (append-only NDJSON, one fact per line):
 {ts, event:"turn", n}
 {ts, event:"text", text}        (assistant output, for `logs`)
 {ts, event:"idle"}              (non-terminal: run complete, runner waiting)
+{ts, event:"compacted"}         (non-terminal: context compaction done — M4.5)
 {ts, event:"dropped", n}        (non-terminal: n acked-but-queued prompts lost
                                  to a stop/budget shutdown — logged just before
                                  the terminal event; review finding M3 T1)
@@ -72,6 +81,11 @@ Log events (append-only NDJSON, one fact per line):
   name, state, turns, elapsed, session file. States: `idle`/`running`/`stopped`/`failed`.
 - **logs** — print `<name>.log` human-readably; `--follow` = poll/watch appended lines.
   Never touches the runner.
+- **set** — error if manifest missing → error if pipe alive (`stop it first`) → validate
+  options (model preflight; thinking level; flags replace) → atomic manifest rewrite →
+  print new identity. Never launches a runner.
+- **compact** — error if manifest missing → pipe alive ? send `{cmd:"compact"}` (busy →
+  error) : wake runner, then compact. Agent stays on. Prints when the runner acks.
 
 ## Milestones
 
@@ -157,6 +171,30 @@ dependency. pi-link absent → flags are inert, agent runs normally.
    `link_list` from another terminal, `link_prompt` it, `pi-dock stop` removes
    it from the link, `start` puts it back.
 
+### M4.5 — Agent control (`set`, `--thinking`, `compact`)
+
+Ratified 2026-07-08 from real usage: agents created without link flags need them
+later; long-lived residents need model/effort changes and context maintenance.
+`restart` rejected (see header note).
+
+1. [x] Spike (throwaway, no commit): pin the SDK 0.80.3 APIs — (a) how to compact a
+   headless AgentSession (method name, does it need instructions, what happens
+   to the session file: rewrite vs marker-append; effect on a later resume);
+   (b) how to set thinking/reasoning level on a session at create/open (exact
+   option name, accepted values, per-model validity). Budget: ≤2 real LLM
+   operations (1 tiny prompt to give the scratch session content + 1
+   compaction). Findings shape task 2's brief.
+2. [x] Implementation: runner applies `thinking` from manifest on boot + serves
+   `{cmd:"compact"}` (idle-only, logs `compacted`, unbudgeted); CLI gains `set`
+   (decision #11) and `compact` (decision #13); `spawn --thinking` (decision
+   #12); usage lines updated; smoke additions, LLM-free only: `set` on
+   missing/alive agent errors, `set` rewrites manifest fields + preserves hard
+   identity, `compact` on missing agent errors. Compaction correctness was the
+   spike's job — smoke checks plumbing and error paths, not summarization.
+3. **Gate:** full smoke; manual — `set` a stopped agent's model + flags → `start`
+   → wakes with the new model and joins the link with the new flags; `compact`
+   an idle agent with memory → summary survives, agent still answers.
+
 ### M5 — Ship
 
 1. End-to-end pass on Windows (primary) — spawn/send/ls/logs/stop happy + crash paths.
@@ -165,5 +203,7 @@ dependency. pi-link absent → flags are inert, agent runs normally.
 
 ## Explicitly out of scope (v1.1+)
 
-`reset-to-zero`, `compact`, `fork`, `set-model`, `rm` (delete = manual file removal
-for now), any dashboard. (pi-link integration moved into scope — 2026-07-06.)
+`reset-to-zero`, `fork`, `rm` (delete = manual file removal for now), any
+dashboard, `restart` (rejected — composition covers it). (pi-link integration
+moved into scope 2026-07-06; `compact` and `set-model` promoted into M4.5,
+generalized as `set` — 2026-07-08.)

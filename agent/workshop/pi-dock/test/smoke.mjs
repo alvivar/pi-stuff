@@ -209,12 +209,33 @@ try {
   result = run(['stop', b]);
   expect('stop B after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
-  result = run(['spawn', '--name', d, '--budget', '5,5', '--x', 'bogus-flag=1']);
-  expect('spawn D with unknown extension flag idles', result.status === 0 && result.stdout.trim() === `${d} idle`, result.stderr || result.stdout);
-  expect('D manifest records raw flags', JSON.stringify(manifest(d).flags) === JSON.stringify(['bogus-flag=1']), JSON.stringify(manifest(d).flags));
+  result = run(['spawn', '--name', d, '--budget', '5,5', '--thinking', 'minimal', '--x', 'bogus-flag=1']);
+  expect('spawn D with unknown extension flag and thinking idles', result.status === 0 && result.stdout.trim() === `${d} idle`, result.stderr || result.stdout);
+  expect('D manifest records raw flags and thinking', JSON.stringify(manifest(d).flags) === JSON.stringify(['bogus-flag=1']) && manifest(d).thinking === 'minimal', JSON.stringify(manifest(d)));
+
+  result = run(['set', 'missing-smoke-agent', '--thinking', 'low']);
+  expect('set missing agent errors', result.status !== 0 && result.stderr.includes('no such agent: missing-smoke-agent'), result.stderr || result.stdout);
+
+  result = run(['set', d, '--thinking', 'low']);
+  expect('set live D refuses', result.status !== 0 && result.stderr.includes(`agent ${d} is running — stop it first`), result.stderr || result.stdout);
 
   result = run(['stop', d]);
   expect('stop D after extension-flag spawn reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
+
+  result = await waitLsState(d, 'stopped');
+  expect('ls shows D stopped before set', result?.status === 0 && lsState(result.stdout, d) === 'stopped', result?.stdout || result?.stderr);
+
+  result = run(['set', d]);
+  expect('set with no options shows usage', result.status !== 0 && result.stderr.includes('usage: pi-dock set <name>'), result.stderr || result.stdout);
+
+  const dBeforeSet = manifest(d);
+  result = run(['set', d, '--model', 'anthropic/claude-haiku-4-5', '--thinking', 'low', '--x', 'link', '--x', `link-name=${d}`]);
+  const dAfterSet = manifest(d);
+  expect('set stopped D rewrites mutable identity', result.status === 0 && dAfterSet.model === 'anthropic/claude-haiku-4-5' && dAfterSet.modelId === 'claude-haiku-4-5' && dAfterSet.thinking === 'low' && JSON.stringify(dAfterSet.flags) === JSON.stringify(['link', `link-name=${d}`]), result.stderr || result.stdout || JSON.stringify(dAfterSet));
+  expect('set stopped D preserves hard identity', dAfterSet.name === dBeforeSet.name && dAfterSet.sessionFile === dBeforeSet.sessionFile && dAfterSet.cwd === dBeforeSet.cwd && dAfterSet.pipe === dBeforeSet.pipe && dAfterSet.startedAt === dBeforeSet.startedAt, JSON.stringify({ before: dBeforeSet, after: dAfterSet }));
+
+  result = run(['compact', 'missing-smoke-agent']);
+  expect('compact missing agent errors', result.status !== 0 && result.stderr.includes('no such agent: missing-smoke-agent'), result.stderr || result.stdout);
 
   result = run(['spawn', '--name', c, '--model', 'bogus/bogus']);
   expect('bad model preflight exits nonzero', result.status !== 0 && result.stderr.includes('preflight failed: model bogus/bogus not found; no agent was created'), result.stderr || result.stdout);

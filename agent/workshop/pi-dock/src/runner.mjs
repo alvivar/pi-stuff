@@ -18,6 +18,7 @@ const { values } = parseArgs({
     cwd: { type: 'string' },
     model: { type: 'string' },
     budget: { type: 'string' },
+    thinking: { type: 'string' },
     x: { type: 'string', multiple: true },
   },
 });
@@ -35,6 +36,7 @@ let server;
 let unsubscribe = () => {};
 let turns = 0;
 let running = false;
+let compacting = false;
 let pending = 0;
 let terminal = false;
 let budgetTimer;
@@ -107,6 +109,10 @@ function parseExtensionFlags(flags) {
     const equals = flag.indexOf('=');
     return equals === -1 ? [flag, true] : [flag.slice(0, equals), flag.slice(equals + 1)];
   }));
+}
+
+function thinkingOption(level) {
+  return level ? { thinkingLevel: level } : {};
 }
 
 function textFromMessage(message) {
@@ -230,6 +236,39 @@ function runPrompt(text) {
   return true;
 }
 
+function busyForCompact() {
+  return running || compacting || pending > 0 || session?.isStreaming;
+}
+
+async function runOneCompact(instructions) {
+  try {
+    await session.compact(instructions);
+    if (!terminal) {
+      appendLog({ event: 'compacted' });
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    compacting = false;
+  }
+}
+
+function runCompact(instructions) {
+  if (terminal || !session) {
+    return { ok: false, error: 'terminal' };
+  }
+  if (busyForCompact()) {
+    return { ok: false, error: 'busy' };
+  }
+
+  compacting = true;
+  const compactInstructions = typeof instructions === 'string' && instructions.length > 0 ? instructions : undefined;
+  const task = queue.then(() => runOneCompact(compactInstructions));
+  queue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
 async function findModel(modelRegistry, spec) {
   if (!spec) {
     return undefined;
@@ -263,6 +302,7 @@ try {
   const cwd = createMode ? path.resolve(values.cwd ?? process.cwd()) : existing.cwd;
   const budget = createMode ? parseBudget(values.budget) : existing.budget;
   const flags = createMode ? values.x ?? [] : existing.flags ?? [];
+  const thinking = createMode ? values.thinking : existing.thinking;
   budgetConfig = budget;
 
   const authStorage = AuthStorage.create();
@@ -273,25 +313,32 @@ try {
     modelRegistry,
     extensionFlagValues: parseExtensionFlags(flags),
   });
-  const model = createMode ? await findModel(services.modelRegistry, values.model) : undefined;
+  const modelSpec = createMode ? values.model : existing.model;
+  const model = modelSpec ? await findModel(services.modelRegistry, modelSpec) : undefined;
   const sessionManager = createMode ? SessionManager.create(cwd) : SessionManager.open(existing.sessionFile);
   ({ session } = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(model ? { model } : {}),
+    ...thinkingOption(thinking),
   }));
 
   if (createMode) {
-    await writeManifest(name, {
+    const manifest = {
       name,
       sessionFile: session.sessionFile,
       cwd,
       modelId: session.model?.id ?? null,
+      model: values.model ?? (session.model ? `${session.model.provider}/${session.model.id}` : null),
       budget,
       flags,
       pipe,
       startedAt: new Date().toISOString(),
-    });
+    };
+    if (thinking) {
+      manifest.thinking = thinking;
+    }
+    await writeManifest(name, manifest);
   }
 
   appendLog({ event: 'spawned' });
@@ -320,6 +367,10 @@ try {
       }
 
       return { ok: true };
+    }
+
+    if (msg.cmd === 'compact') {
+      return runCompact(msg.instructions);
     }
 
     if (msg.cmd === 'stop') {

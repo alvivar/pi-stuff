@@ -5,7 +5,7 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { listManifests, readManifest } from '../src/manifest.mjs';
+import { listManifests, readManifest, rewriteManifest } from '../src/manifest.mjs';
 import { logPath, manifestPath } from '../src/paths.mjs';
 import { PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
 
@@ -13,6 +13,8 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runner = path.join(root, 'src', 'runner.mjs');
 const command = process.argv[2];
 const args = process.argv.slice(3);
+const COMPACT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+const VALID_THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 function fail(message) {
   console.error(message);
@@ -54,6 +56,12 @@ function failNotResponding(name) {
   fail(`agent ${name} is not responding`);
 }
 
+function validateThinking(level) {
+  if (level && !VALID_THINKING_LEVELS.has(level)) {
+    fail(`invalid thinking level: ${level}`);
+  }
+}
+
 async function tryStatus(manifest, timeoutMs = 200) {
   try {
     const reply = await request(manifest.pipe, { cmd: 'status' }, timeoutMs);
@@ -76,6 +84,9 @@ function launchRunner(name, options = {}) {
   }
   if (options.budget) {
     argv.push('--budget', options.budget);
+  }
+  if (options.thinking) {
+    argv.push('--thinking', options.thinking);
   }
   for (const flag of options.flags ?? []) {
     argv.push('--x', flag);
@@ -246,14 +257,17 @@ async function spawnCommand(argv) {
       name: { type: 'string' },
       model: { type: 'string' },
       budget: { type: 'string' },
+      thinking: { type: 'string' },
       x: { type: 'string', multiple: true },
     },
   });
 
   const name = values.name;
   if (!name || positionals.length > 0) {
-    fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--budget <turns>[,<minutes>]] [--x key[=value]]...');
+    fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--budget <turns>[,<minutes>]] [--x key[=value]]...');
   }
+
+  validateThinking(values.thinking);
 
   if (await manifestExists(name)) {
     fail(`agent already exists: ${name}`);
@@ -266,7 +280,7 @@ async function spawnCommand(argv) {
     fail(`preflight failed: ${error.message}; no agent was created`);
   }
 
-  launchRunner(name, { cwd, model: values.model, budget: values.budget, flags: values.x });
+  launchRunner(name, { cwd, model: values.model, budget: values.budget, thinking: values.thinking, flags: values.x });
 
   const result = await handshake(name);
   if (!result) {
@@ -282,7 +296,7 @@ async function sendPrompt(manifest, text) {
 }
 
 async function wake(manifest) {
-  launchRunner(manifest.name, { flags: manifest.flags });
+  launchRunner(manifest.name, { model: manifest.model, thinking: manifest.thinking, flags: manifest.flags });
   const result = await handshake(manifest.name);
   if (!result) {
     reportHandshakeFailure(manifest.name);
@@ -403,6 +417,91 @@ async function logsCommand(argv) {
   }
 }
 
+async function setCommand(argv) {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      model: { type: 'string' },
+      thinking: { type: 'string' },
+      x: { type: 'string', multiple: true },
+    },
+  });
+
+  const name = positionals[0];
+  const replacesFlags = values.x !== undefined;
+  if (!name || positionals.length > 1 || (!values.model && !values.thinking && !replacesFlags)) {
+    fail('usage: pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...');
+  }
+
+  validateThinking(values.thinking);
+  const manifest = await requireManifest(name);
+  if (await tryStatus(manifest, 200)) {
+    fail(`agent ${name} is running — stop it first`);
+  }
+
+  if (values.model) {
+    try {
+      await preflightSpawn(manifest.cwd, values.model);
+    } catch (error) {
+      fail(`preflight failed: ${error.message}; no agent was changed`);
+    }
+  }
+
+  const updated = {
+    ...manifest,
+    ...(values.model ? { modelId: values.model.slice(values.model.indexOf('/') + 1), model: values.model } : {}),
+    ...(values.thinking ? { thinking: values.thinking } : {}),
+    ...(replacesFlags ? { flags: values.x } : {}),
+  };
+
+  await rewriteManifest(name, updated);
+  console.log(`${name} model=${updated.model ?? updated.modelId ?? '-'} thinking=${updated.thinking ?? '-'} flags=${JSON.stringify(updated.flags ?? [])}`);
+}
+
+async function sendCompact(manifest, instructions) {
+  const msg = instructions.length > 0 ? { cmd: 'compact', instructions } : { cmd: 'compact' };
+  return request(manifest.pipe, msg, COMPACT_REQUEST_TIMEOUT_MS);
+}
+
+async function compactCommand(argv) {
+  const [name, ...instructionParts] = argv;
+  if (!name) {
+    fail('usage: pi-dock compact <name> [instructions]');
+  }
+
+  const instructions = instructionParts.join(' ');
+  const manifest = await requireManifest(name);
+  let reply;
+  let needsWake = false;
+
+  try {
+    reply = await sendCompact(manifest, instructions);
+  } catch (error) {
+    if (isTimeout(error)) {
+      failNotResponding(name);
+    }
+    needsWake = true;
+  }
+
+  if (reply && !reply.ok && reply.error === 'terminal') {
+    needsWake = true;
+  }
+
+  if (needsWake) {
+    reply = await sendCompact((await wake(manifest)).manifest, instructions);
+  }
+
+  if (!reply.ok) {
+    if (reply.error === 'busy') {
+      fail(`agent ${name} is busy`);
+    }
+    fail(reply.error ?? JSON.stringify(reply));
+  }
+
+  console.log('compacted');
+}
+
 async function stopCommand(argv) {
   const [name] = argv;
   if (!name) {
@@ -436,10 +535,14 @@ try {
     await lsCommand();
   } else if (command === 'logs') {
     await logsCommand(args);
+  } else if (command === 'set') {
+    await setCommand(args);
+  } else if (command === 'compact') {
+    await compactCommand(args);
   } else if (command === 'stop') {
     await stopCommand(args);
   } else {
-    fail('usage: pi-dock <spawn|send|start|stop|ls|logs> ...');
+    fail('usage: pi-dock <spawn|send|start|stop|ls|logs|set|compact> ...');
   }
 } catch (error) {
   fail(error.message);

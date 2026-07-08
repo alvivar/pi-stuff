@@ -2,12 +2,24 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { ensureDockDir, manifestPath } from './paths.mjs';
 
-export async function writeManifest(name, manifest) {
+async function writeManifestFile(name, manifest, flag) {
   const dir = await ensureDockDir();
   const target = manifestPath(name);
+  const tmp = path.join(dir, `${name}.json.${process.pid}.${Date.now()}.tmp`);
+  const body = `${JSON.stringify(manifest)}\n`;
 
   try {
-    await fs.access(target);
+    await fs.writeFile(tmp, body, { flag });
+    await fs.rename(tmp, target);
+  } catch (error) {
+    await fs.rm(tmp, { force: true });
+    throw error;
+  }
+}
+
+export async function writeManifest(name, manifest) {
+  try {
+    await fs.access(manifestPath(name));
     throw new Error(`manifest already exists: ${name}`);
   } catch (error) {
     if (error.code !== 'ENOENT') {
@@ -15,16 +27,12 @@ export async function writeManifest(name, manifest) {
     }
   }
 
-  const tmp = path.join(dir, `${name}.json.${process.pid}.${Date.now()}.tmp`);
-  const body = `${JSON.stringify(manifest)}\n`;
+  await writeManifestFile(name, manifest, 'wx');
+}
 
-  try {
-    await fs.writeFile(tmp, body, { flag: 'wx' });
-    await fs.rename(tmp, target);
-  } catch (error) {
-    await fs.rm(tmp, { force: true });
-    throw error;
-  }
+export async function rewriteManifest(name, manifest) {
+  await fs.access(manifestPath(name));
+  await writeManifestFile(name, manifest, 'wx');
 }
 
 export async function readManifest(name) {
