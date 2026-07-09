@@ -145,6 +145,15 @@
         ]
       },
       {
+        "name": "tester@pi-dock",
+        "icon": "beaker",
+        "color": "terminal.ansiBlue",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link tester@pi-dock"
+        ]
+      },
+      {
         "name": "committer@.pi",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
