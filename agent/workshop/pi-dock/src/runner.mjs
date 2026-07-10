@@ -8,6 +8,7 @@ import {
   ModelRegistry,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
+import { parseBudget } from './budget.mjs';
 import { readManifest, writeManifest } from './manifest.mjs';
 import { ensureDockDir, logPath, pipePath } from './paths.mjs';
 import { serve } from './pipe.mjs';
@@ -92,18 +93,6 @@ function appendLog(event) {
   appendFileSync(log, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`, 'utf8');
 }
 
-function parseBudget(value) {
-  const [turnText = '20', minuteText = '30'] = (value ?? '20,30').split(',');
-  const turnLimit = Number.parseInt(turnText, 10);
-  const minuteLimit = Number.parseFloat(minuteText);
-
-  if (!Number.isFinite(turnLimit) || turnLimit < 1 || !Number.isFinite(minuteLimit) || minuteLimit <= 0) {
-    throw new Error('invalid budget');
-  }
-
-  return { turns: turnLimit, minutes: minuteLimit };
-}
-
 function parseExtensionFlags(flags) {
   return new Map(flags.map((flag) => {
     const equals = flag.indexOf('=');
@@ -168,6 +157,9 @@ function clearBudgetTimer() {
 
 function startBudgetTimer(budget) {
   clearBudgetTimer();
+  if (budget === 'off') {
+    return;
+  }
   budgetTimer = setTimeout(() => {
     void fail(new Error('budget'));
   }, budget.minutes * 60 * 1000);
@@ -185,7 +177,7 @@ function subscribeToSession(budget) {
         turns += 1;
       }
       appendLog({ event: 'turn', n: turns });
-      if (running && turns > budget.turns) {
+      if (running && budget !== 'off' && turns > budget.turns) {
         void fail(new Error('budget'));
       }
       return;
@@ -300,7 +292,7 @@ try {
   });
   const createMode = existing === null;
   const cwd = createMode ? path.resolve(values.cwd ?? process.cwd()) : existing.cwd;
-  const budget = createMode ? parseBudget(values.budget) : existing.budget;
+  const budget = parseBudget(createMode ? values.budget : existing.budget, { manifest: !createMode });
   const flags = createMode ? values.x ?? [] : existing.flags ?? [];
   const thinking = createMode ? values.thinking : existing.thinking;
   budgetConfig = budget;
@@ -341,7 +333,6 @@ try {
     await writeManifest(name, manifest);
   }
 
-  appendLog({ event: 'spawned' });
   subscribeToSession(budget);
   await session.bindExtensions({
     uiContext: headlessUIContext,
@@ -383,6 +374,9 @@ try {
     return { ok: false, error: 'unknown' };
   });
 
+  server.once('listening', () => {
+    appendLog({ event: 'spawned', pid: process.pid });
+  });
   server.on('error', (error) => {
     if (error.piDockRetrying) {
       return;
