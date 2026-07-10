@@ -73,9 +73,9 @@ Binding procedure:
 ```
 for each task in plan (sequence order):
   PRE-FLIGHT  task-boundary dispatches only (new IMPLEMENT, REVIEW, COMMIT):
-              link_list → if context + est. task cost > 70% of the worker's
-              window, link_compact it (idle only; "?" = just compacted = fresh
-              window, track estimates in the ledger). Never mid-task — §3.4.
+              link_list → if the worker's window may not fit the coming task,
+              link_compact it (idle only; "?" = just compacted = fresh window).
+              Never mid-task — §3.4.
   IMPLEMENT   link_send(implementer, triggerTurn:true) + full dispatch brief (§4)
   WAIT        hold for DONE/BLOCKED  (Golden Rule — do NOT link_prompt before callback)
   GATE        worker self-ran build+tests; a red/missing gate == BLOCKED → relay
@@ -114,14 +114,21 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
    scope (which findings/sections), the go-signal, gate commands, constraints
    (no-commit / no-version-bump unless that IS the task), and the callback contract
    (report DONE/BLOCKED to `<you>` via `link_send(triggerTurn:true)` with a diff
-   summary + gate results — **declaring any judgment call beyond the brief's
-   letter, with its rationale**: an undeclared deviation is the one change review
-   cannot target, because nothing pinned it and nobody said it exists).
+   summary + gate results — **declaring any MATERIAL judgment call beyond the
+   brief's letter** (contract, data shape, error semantics, scope, test
+   strategy — anything a reviewer would evaluate differently if told), with its
+   rationale: an undeclared deviation is the one change review cannot target,
+   because nothing pinned it and nobody said it exists. **Declared deviations
+   then travel with the work into the review brief, verbatim** — relayed by
+   you, or the declaration terminates at the hub and reviewed-hardest never
+   happens. In a shared worktree, also state which pre-existing dirt is
+   expected and owned (plan, ledger, prior-task leftovers) — a worker cannot
+   infer whose the dirt is or whether it may clean it.
 3. **Gate is non-negotiable and worker-self-run.** Never trust "looks done." The
    worker runs the build + tests and reports results; red or missing = BLOCKED.
-4. **Predictive context management.** Compact any worker when `current +
-estimated_task_cost` would exceed 70% of its window — NOT only when `current`
-   already does (the implementer grows fastest). The hazard is Pi's
+4. **Predictive context management.** Compact any worker whose window may not
+   fit the coming task — judge the fit BEFORE dispatching, not once the window
+   is already full (the implementer grows fastest). The hazard is Pi's
    auto-compaction firing MID-TASK, which can shed the dispatch brief's details
    at the worst moment; orchestrated compaction while the worker is idle
    (`link_compact` blocks, then returns) exists to pre-empt exactly that.
@@ -134,15 +141,18 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
    irrecoverable loss is what the worker learned that is NOT in the plan — aim
    the compaction instructions at exactly that.
 5. **Serialize shared-resource edits.** One file / sensitive logic → strictly
-   sequential. Do the most sensitive task LAST, in a freshly compacted context, with
-   its invariants spelled out in both the implement and review briefs.
+   sequential. Enter a sensitive task in a freshly compacted window, with its
+   invariants spelled out in both the implement and review briefs; sequence it
+   where risk dictates (often last — but the critical path may say otherwise).
 6. **Acyclic, hub-routed delegation.** You are always the relay. Workers never
    message each other to close a loop: a cycle-closing `link_prompt` is rejected
    as busy, and an async cycle loops with no exit.
 7. **Convergence has a backstop.** Cap review iterations at 2; if implementer and
    reviewer can't agree, the implementer's final decision wins — record the
    dissent in the ledger and move on. The pipeline must never deadlock on opinion.
-   Exception: on tasks marked sensitive/serialized (§3.5) a deadlock escalates to
+   This is a LIVENESS policy, not a correctness claim — the tie-break decides
+   who moves, not who is right; the recorded dissent is what preserves the
+   question for the user. Exception: on tasks marked sensitive/serialized (§3.5) a deadlock escalates to
    the user instead — the tie-break is a bet, and sensitive code is where you
    don't bet.
 8. **You stay hands-off.** Do not edit or review code yourself — ever. Do not
@@ -165,6 +175,9 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
 - **Quick pre-start question** (not active work) → `link_prompt` is fine.
 - After triggering a worker, **WAIT** for its callback before any follow-up to it
   (Golden Rule).
+- **Untracked files are invisible to `git diff`.** A reviewer following the diff
+  command silently covers only modified files — route every new in-scope file
+  to the reviewer explicitly, by path.
 - Write the brief each task actually needs — the non-negotiables are §3.2's
   (self-contained, go-signal, gate, callback contract), not any format. The
   templates are worked examples from good runs: what generalizes is what their

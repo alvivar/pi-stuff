@@ -35,7 +35,8 @@ Report DONE/BLOCKED to <orchestrator> via link_send(triggerTurn:true) with:
   - diff summary (functions/sites touched)
   - gate results (build ok? test count?)
   - the requested reasoning
-  - any judgment call beyond this brief's letter, each with its rationale
+  - material judgment calls beyond this brief's letter (contract, data shape,
+    error semantics, scope, test strategy), each with its rationale
   - if BLOCKED: what failed
 ```
 
@@ -48,4 +49,6 @@ Report DONE/BLOCKED to <orchestrator> via link_send(triggerTurn:true) with:
 - **"Confirm in your report"**: surfaces reasoning instead of a bare "done."
 - **Declared judgment calls**: review can only target what the plan pinned or
   the implementer declared — undeclared deviations are invisible to it.
+  "Material" keeps this from becoming a design diary: declare what a reviewer
+  would evaluate differently if told, not every local choice.
 - **Callback contract**: triggerTurn:true returns nothing automatically — you must ask.
