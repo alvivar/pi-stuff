@@ -117,6 +117,25 @@
     ],
     "pi-dock": [
       {
+        "name": "archon@pi-dock",
+        "icon": "organization",
+        "color": "terminal.ansiBrightYellow",
+        "focus": true,
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-dock"
+        ]
+      },
+      {
+        "name": "sol@pi-dock",
+        "icon": "lightbulb",
+        "color": "terminal.ansiBrightYellow",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-dock"
+        ]
+      },
+      {
         "name": "fable@pi-dock",
         "icon": "flame",
         "color": "terminal.ansiBrightRed",
@@ -126,40 +145,12 @@
         ]
       },
       {
-        "name": "sol@pi-dock",
-        "icon": "lightbulb",
-        "color": "terminal.ansiBrightYellow",
-        "focus": true,
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-dock"
-        ]
-      },
-      {
-        "name": "opus@pi-dock",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightMagenta",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-dock"
-        ]
-      },
-      {
         "name": "terra@pi-dock",
         "icon": "globe",
         "color": "terminal.ansiGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link terra@pi-dock"
-        ]
-      },
-      {
-        "name": "tester@pi-dock",
-        "icon": "beaker",
-        "color": "terminal.ansiBlue",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link tester@pi-dock"
         ]
       },
       {
