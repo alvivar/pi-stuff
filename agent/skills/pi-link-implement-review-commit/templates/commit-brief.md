@@ -1,4 +1,4 @@
-# Commit brief template (committer)
+# Commit brief — worked example (committer)
 
 Send via `link_send(to: <committer>, triggerTurn: true)`. This is the most
 dangerous dispatch in the pipeline: the committer commits **another terminal's**

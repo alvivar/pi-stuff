@@ -1,7 +1,9 @@
-# Dispatch brief template (implementer)
+# Dispatch brief — worked example (implementer)
 
-Send via `link_send(to: <implementer>, triggerTurn: true)`. Fill every field —
-the worker shares none of your context.
+Send via `link_send(to: <implementer>, triggerTurn: true)`. This is an example
+from good runs, not a form — write the brief YOUR task needs. What is
+non-negotiable is §3.2: self-contained (the worker shares none of your
+context), go-signal, gate, callback contract.
 
 ```
 GO — <prior task> committed (<hash>). Proceed with <this task>.
@@ -33,6 +35,7 @@ Report DONE/BLOCKED to <orchestrator> via link_send(triggerTurn:true) with:
   - diff summary (functions/sites touched)
   - gate results (build ok? test count?)
   - the requested reasoning
+  - any judgment call beyond this brief's letter, each with its rationale
   - if BLOCKED: what failed
 ```
 
@@ -43,4 +46,6 @@ Report DONE/BLOCKED to <orchestrator> via link_send(triggerTurn:true) with:
 - **CRITICAL invariants**: the only place a "behavior-identical" refactor can go wrong.
 - **Worker self-runs the gate**: you never trust "looks done."
 - **"Confirm in your report"**: surfaces reasoning instead of a bare "done."
+- **Declared judgment calls**: review can only target what the plan pinned or
+  the implementer declared — undeclared deviations are invisible to it.
 - **Callback contract**: triggerTurn:true returns nothing automatically — you must ask.

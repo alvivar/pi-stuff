@@ -1,7 +1,8 @@
-# Review brief template (reviewer)
+# Review brief — worked example (reviewer)
 
-Send via `link_send(to: <reviewer>, triggerTurn: true)`. The reviewer must differ
-from the implementer.
+Send via `link_send(to: <reviewer>, triggerTurn: true)`. An example, not a form
+— aim the checks at THIS task's real risks. The reviewer must differ from the
+implementer.
 
 ```
 REVIEW TASK<( — sensitive, extra scrutiny)> — <implementer> implemented <task id>
@@ -38,3 +39,6 @@ specific fix so the implementer can act directly.
 - **New files don't diff** — untracked files are invisible to `git diff`;
   always route the reviewer at the file itself, or the review silently
   covers only the modified files.
+- **Relay declared judgment calls** — anything the implementer did beyond the
+  brief's letter goes to the reviewer verbatim: it is the only code no
+  contract pinned.

@@ -14,7 +14,8 @@ This skill is **policy**. For link tool mechanics (link_send / link_prompt /
 link_compact / link_list, the Golden Rule, delivery shapes, anti-patterns) load the
 `pi-link-coordination` skill (listed in your available skills) and read it first.
 
-Brief templates and the expected plan schema live next to this file:
+Worked examples (briefs from runs that went well) and the expected plan schema
+live next to this file — examples, not forms (§4):
 
 - [templates/dispatch-brief.md](templates/dispatch-brief.md)
 - [templates/review-brief.md](templates/review-brief.md)
@@ -91,9 +92,6 @@ for each task in plan (sequence order):
   ADVANCE     record commit/hash/gate in ledger; next task
 ```
 
-Task-cost heuristics for PRE-FLIGHT (rough — budget with the UPPER bound):
-small fix 10–20K · medium task 40–80K · review 20–40K.
-
 **WAIT means end your turn.** The callback _is_ your next turn — do not poll,
 sleep, or busy-loop `link_list` waiting for it.
 
@@ -116,7 +114,9 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
    scope (which findings/sections), the go-signal, gate commands, constraints
    (no-commit / no-version-bump unless that IS the task), and the callback contract
    (report DONE/BLOCKED to `<you>` via `link_send(triggerTurn:true)` with a diff
-   summary + gate results). Use `templates/dispatch-brief.md`.
+   summary + gate results — **declaring any judgment call beyond the brief's
+   letter, with its rationale**: an undeclared deviation is the one change review
+   cannot target, because nothing pinned it and nobody said it exists).
 3. **Gate is non-negotiable and worker-self-run.** Never trust "looks done." The
    worker runs the build + tests and reports results; red or missing = BLOCKED.
 4. **Predictive context management.** Compact any worker when `current +
@@ -131,10 +131,8 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
    the very in-flight state compaction sheds; if the window truly can't fit the
    fix, escalate to the user instead. Because dispatches are self-contained
    (§3.2), the next brief re-supplies everything task-specific; the only
-   irrecoverable loss is what the worker learned that is NOT in the plan. So the
-   compaction instructions say exactly that: "preserve what you've learned about
-   the codebase that isn't written in the plan; the next task arrives as a full
-   brief."
+   irrecoverable loss is what the worker learned that is NOT in the plan — aim
+   the compaction instructions at exactly that.
 5. **Serialize shared-resource edits.** One file / sensitive logic → strictly
    sequential. Do the most sensitive task LAST, in a freshly compacted context, with
    its invariants spelled out in both the implement and review briefs.
@@ -150,6 +148,9 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
 8. **You stay hands-off.** Do not edit or review code yourself — ever. Do not
    commit, except the §1 committer fold-in with the user's explicit permission.
    Your neutrality is what makes the review independent and the constraints hold.
+   Hands-off applies to the CODE: plans and ledgers are yours to write, and
+   mid-run plan amendments are orchestrator work (user-ratified, committed
+   alongside the code that implements them).
 9. **The committer checks scope and hygiene, not correctness — never re-review.**
    It verifies the staged diff matches the brief's path list and the worktree is
    safe to commit. Correctness was settled at REVIEW; a committer that
@@ -164,9 +165,11 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
 - **Quick pre-start question** (not active work) → `link_prompt` is fine.
 - After triggering a worker, **WAIT** for its callback before any follow-up to it
   (Golden Rule).
-- Fill the briefs from `templates/dispatch-brief.md`, `templates/review-brief.md`,
-  and `templates/commit-brief.md` — every field, structure intact; their embedded
-  asks (per-finding checklist, "confirm the reasoning") do the correctness-surfacing.
+- Write the brief each task actually needs — the non-negotiables are §3.2's
+  (self-contained, go-signal, gate, callback contract), not any format. The
+  templates are worked examples from good runs: what generalizes is what their
+  asks _surface_ (per-finding confirmation, "confirm the reasoning", named
+  highest-risk checks), not their shape. Aim your asks at THIS task's real risks.
 
 ---
 
@@ -177,15 +180,10 @@ estimated_task_cost` would exceed 70% of its window — NOT only when `current`
 | No callback, worker **idle**, context grew                     | Worker ran a turn but withheld callback (often: waiting for approval) | A single status `link_prompt` — the ONLY sanctioned Golden Rule exception, allowed only after `link_list` confirms the worker idle with no callback received; then re-dispatch with the go-signal included |
 | No callback, worker **busy**                                   | Still working                                                         | Keep waiting; do not link_prompt (busy = rejected)                                                                                                                                                         |
 | No callback, worker **absent** from list                       | Offline; messages were dropped (not queued)                           | Wait for reconnect or rebind the role; re-dispatch                                                                                                                                                         |
-| Gate red                                                       | Implementation defect                                                 | Treat as BLOCKED; relay failure details to implementer                                                                                                                                                     |
 | Committer BLOCKED (staged junk / wrong branch / hook mutation) | Dirty shared worktree                                                 | Relay the exact `git status` to the user — worktree hygiene is the user's to fix, not a worker's                                                                                                           |
-| Reviewer ↔ implementer deadlock                                | Genuine disagreement                                                  | Bounded iterations, then implementer tie-break (§3.7)                                                                                                                                                      |
-| Worker context near limit                                      | Predictable growth                                                    | Pre-emptive `link_compact` before the next/large task (§3.4)                                                                                                                                               |
 | `link_compact` errors at its 3-min ceiling                     | Compaction outlived the call — not necessarily failed                 | `link_list` before assuming failure: a "?" or shrunken context means it finished on its own; only retry if still idle and full                                                                             |
 
-Rule of thumb: when something seems "stuck," read live state with `link_list`
-(status + context delta) **before** guessing. Idle + grown context means a logic
-hold, not a crash.
+Idle + grown context is a logic hold, not a crash.
 
 ---
 
