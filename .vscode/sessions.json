@@ -126,22 +126,31 @@
         ]
       },
       {
+        "name": "sol@pi-dock",
+        "icon": "lightbulb",
+        "color": "terminal.ansiBrightYellow",
+        "focus": true,
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-dock"
+        ]
+      },
+      {
         "name": "opus@pi-dock",
         "icon": "sparkle",
         "color": "terminal.ansiBrightMagenta",
-        "focus": true,
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-dock"
         ]
       },
       {
-        "name": "gpt@pi-dock",
-        "icon": "copilot",
+        "name": "terra@pi-dock",
+        "icon": "globe",
         "color": "terminal.ansiGreen",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi-dock"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link terra@pi-dock"
         ]
       },
       {
