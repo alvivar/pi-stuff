@@ -1,13 +1,23 @@
 {
-  "active": "pi-dock",
+  "active": "pi-link",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
   "sessions": {
     "pi-link": [
       {
+        "name": "archon@pi-link",
+        "icon": "organization",
+        "color": "terminal.ansiBrightYellow",
+        "focus": true,
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-link"
+        ]
+      },
+      {
         "name": "fable@pi-link",
-        "icon": "link",
+        "icon": "flame",
         "color": "terminal.ansiBrightRed",
         "autoExecuteCommands": true,
         "commands": [
@@ -15,31 +25,30 @@
         ]
       },
       {
-        "name": "opus@pi-link",
-        "icon": "link",
-        "color": "terminal.ansiBrightMagenta",
-        "focus": true,
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-link"
-        ]
-      },
-      {
-        "name": "gpt@pi-link",
-        "icon": "link",
-        "color": "terminal.ansiGreen",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi-link"
-        ]
-      },
-      {
-        "name": "archon@pi-link",
-        "icon": "organization",
+        "name": "sol@pi-link",
+        "icon": "lightbulb",
         "color": "terminal.ansiBrightYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-link"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-link"
+        ]
+      },
+      {
+        "name": "terra@pi-link",
+        "icon": "globe",
+        "color": "terminal.ansiGreen",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link terra@pi-link"
+        ]
+      },
+      {
+        "name": "opus@pi-link",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightMagenta",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-link"
         ]
       },
       {
