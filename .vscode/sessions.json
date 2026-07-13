@@ -1,5 +1,5 @@
 {
-  "active": "pi-link",
+  "active": "pi-dock",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -136,21 +136,21 @@
         ]
       },
       {
-        "name": "sol@pi-dock",
-        "icon": "lightbulb",
-        "color": "terminal.ansiBrightYellow",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-dock"
-        ]
-      },
-      {
         "name": "fable@pi-dock",
         "icon": "flame",
         "color": "terminal.ansiBrightRed",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link fable@pi-dock"
+        ]
+      },
+      {
+        "name": "sol@pi-dock",
+        "icon": "lightbulb",
+        "color": "terminal.ansiBrightYellow",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-dock"
         ]
       },
       {
