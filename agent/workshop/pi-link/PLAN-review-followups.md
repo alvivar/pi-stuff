@@ -1,9 +1,9 @@
 # PLAN — Review follow-ups (2026-07 pass)
 
 > **Status:** Draft — for discussion, not yet executable
-> **Last aligned:** 2026-07-13
-> **Build from this?** Not yet — discuss T4 sub-decisions first; T1–T3 and T5 carry recommendations.
-> **Open decisions:** T4a startHub comment (rec: add) · T4b welcome-loop tightening (rec: skip) · T4c link_list records-then-render (rec: skip).
+> **Last aligned:** 2026-07-13 (revised after independent review by sol@pi-link: T4a rec flipped to skip; T5 harness prerequisites added; T3 justification corrected)
+> **Build from this?** Not yet — confirm T4 sub-decisions with owner; T1–T3 and T5 carry recommendations.
+> **Open decisions:** T4a startHub comment (rec: skip — flipped per review) · T4b welcome-loop tightening (rec: skip) · T4c link_list records-then-render (rec: skip).
 > **Gate:** `node test/cli-flags-test.mjs` (40/40 at plan time) + esbuild bundle check of `index.ts`. T5 extends the suite (~12 new cases).
 > **Summary:** five tasks from the fresh full-codebase review @ `1a8c495` — T1 typeof guard on saved link-name (only correctness item), T2 remove redundant `.has()` guards (net −2 lines), T3 CLI `normalizeName` helper (dedupe ×4), T4 optional polish (three sub-decisions), T5 fixture tests for `--list`/`--resolve`/launcher resolution (**moved here from PLAN-cli-hardening #1** — that plan now covers shipped-code changes only).
 
@@ -18,16 +18,22 @@ Gates green at plan time: 40/40 + clean bundle (47.3kb).
 
 ## Decisions
 
-- **Recommended, no controversy expected:** T1 (correctness), T2 and T3
-  (net-negative line count, zero behavior change), T5 (test-only; its
-  conventions were already decided in PLAN-cli-hardening: inline temp-dir
-  fixtures, no mtime-ordering assertions).
+- **Recommended, no controversy expected:** T1 (correctness), T2 (net-negative
+  line count, zero behavior change), T3 (invariant deduplication/greppability
+  — not net-negative: the helper adds ~4 lines; the win is single-sourcing the
+  name-canonicalization contract per file), T5 (test-only; its conventions
+  were already decided in PLAN-cli-hardening: inline temp-dir fixtures, no
+  mtime-ordering assertions).
 - **T4a (open) — `startHub` post-listen error swallow** (`index.ts:1002`).
   The `error` handler exists for pre-listen EADDRINUSE (→ resolve(false) →
   client attempt). Post-listen server errors are silently ignored: `resolve`
   is a no-op and the hub keeps its role. Realistically unreachable on a
-  localhost listener. **Recommendation: one-line comment** ("pre-listen only;
-  post-listen errors surface per-client socket"), no code change.
+  localhost listener. **Recommendation: skip** (flipped per sol@pi-link
+  review): the handler already carries "Port in use → someone else is the
+  hub", which documents the intended pre-listen path; the originally proposed
+  wording ("post-listen errors surface per-client socket") is not established
+  by the source and would be an overbroad claim. If ever revisited, say only
+  that the handler's election result matters before `listening`.
 - **T4b (open) — welcome-case triple loop** (`index.ts:617–631`). Three
   `if (msg.x) { for … set }` blocks could each collapse to
   `for (const [k, v] of Object.entries(msg.x ?? {}))`. Saves ~6 lines; the
@@ -133,13 +139,15 @@ whitespace normalization end-to-end).
 
 ## T4 — optional polish (blocked on decisions above)
 
-- **T4a** (rec: do): comment on `startHub`'s `server.on("error")` explaining
-  its pre-listen-only role. One line, zero behavior.
+- **T4a** (rec: skip): comment on `startHub`'s `server.on("error")`. See
+  Decisions — existing inline comment suffices; proposed wording overclaims.
 - **T4b** (rec: skip): welcome-case loop tightening.
 - **T4c** (rec: skip): `link_list` records-then-render split.
 
-**Risk:** T4a none; T4b/T4c pure churn risk.
-**Verify:** bundle check.
+If all three stay "skip", T4 dissolves and the plan is four tasks.
+
+**Risk:** pure churn risk in all three.
+**Verify:** bundle check (only if any flips to "do").
 
 ---
 
@@ -170,7 +178,10 @@ guard.
   subdir name; no cwd-encoding knowledge needed. The harness already isolates
   `agentDir` per run.
 - Custom layout (flat `<dir>/*.jsonl`) is selected by
-  `PI_CODING_AGENT_SESSION_DIR` — settable per-case via `run()`'s env.
+  `PI_CODING_AGENT_SESSION_DIR`. **Harness prerequisite (sol review):**
+  `run(args)` currently has no per-case env override — extend it to
+  `run(args, envOverrides = {})` (spread over `baseEnv`) before H11 can set
+  this variable.
 - Local/global scoping compares the **`session` entry's `cwd` field** against
   `process.cwd()` (normalized, case-insensitive on Windows) — not the
   directory encoding. Local-match fixtures must set `cwd` to the harness's
@@ -179,6 +190,12 @@ guard.
   lines from plain objects: `{type:"session", cwd, id}`,
   `{type:"session_info", name}`,
   `{type:"custom", customType:"link-name", data:{name}}`, `{type:"message"}`.
+- **Harness prerequisite (sol review) — per-case fixture isolation.** Cases
+  share one `agentDir` today; without isolation, H1's `alpha` fixture makes
+  H2's expected `--resolve alpha` miss impossible, and filtered runs
+  (`node test/cli-flags-test.mjs H2`) become order-dependent. Give each H-case
+  a fresh session subdir (or fresh agent dir) created and torn down inside its
+  `runCase` thunk.
 
 **Cases (section H):**
 
@@ -195,7 +212,7 @@ guard.
 | H9             | `link-name` data `"  foo   bar "` → `--resolve "foo bar"`                                | exit 0 (trim + whitespace collapse)                                                                                                                   |
 | H10            | Launcher resume: `pi-link alpha` with existing local session (expectSpawn)               | spawned argv includes `--session <fixture path>` + `--link`; `PI_LINK_NAME=alpha` (exact argv form per implementation — pin it when writing the case) |
 | H11            | Flat custom layout via `PI_CODING_AGENT_SESSION_DIR` → `--resolve`                       | exit 0 (isCustom branch of `scanSessions`)                                                                                                            |
-| H12 (optional) | link-name entry with empty/invalid name only                                             | `--list` shows `(unnamed)`                                                                                                                            |
+| H12 (optional) | link-name entry `{data:{name:"   "}}` (whitespace-only), **no** `session_info` entry     | `--list` shows `(unnamed)` (exact spec per sol review; drop entirely if any doubt — optional under minimalism)                                        |
 
 **Risk:** none to shipped code (test-only). Flakiness controlled by the
 no-mtime-assertions rule.
@@ -220,11 +237,13 @@ e.g. invert last-wins).
 
 ## Sequencing
 
-1. **Pass A — T1 + T2 + T4a** (one `index.ts` pass). Gate: bundle check +
-   suite green.
+1. **Pass A — T1 + T2** (one `index.ts` pass). Gate: bundle check + suite
+   green.
 2. **Pass B — T3** (CLI-only). Gate: `node --check` + suite green.
 3. **Pass C — T5** (test-only; independent of A/B, last so the new H-section
-   lands against a stable CLI). Gate: full suite green (~52), spot-check one
-   inverted case.
+   lands against a stable CLI). Includes the two harness prerequisites
+   (env-override param, per-case isolation) as its first step. Gate: full
+   suite green (~52), spot-check one inverted case, and one filtered
+   single-case run (isolation proof).
 
-T4b/T4c only if their decisions flip to "do" — they'd join Pass A.
+T4a/T4b/T4c only if their decisions flip to "do" — they'd join Pass A.
