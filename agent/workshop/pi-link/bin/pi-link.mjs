@@ -19,6 +19,12 @@ import { join } from "path";
 import { homedir } from "os";
 import { spawn } from "child_process";
 
+// Canonicalize a link/session name: trim + collapse internal whitespace.
+// Must match the extension's normalizeName (index.ts).
+function normalizeName(s) {
+  return s.trim().replace(/\s+/g, " ");
+}
+
 // ── Pi config resolution ───────────────────────────────────────────────────
 // Match Pi's session-dir lookup order so list/resolve/<name> see what Pi sees.
 // Custom sessionDir → flat layout; default → <agentDir>/sessions/<encoded-cwd>.
@@ -88,11 +94,11 @@ async function getSessionMeta(filePath) {
         if (typeof entry.cwd === "string") cwd = entry.cwd;
         if (typeof entry.id === "string") id = entry.id;
       } else if (entry.type === "session_info" && typeof entry.name === "string") {
-        sessionName = entry.name.trim().replace(/\s+/g, " ") || undefined;
+        sessionName = normalizeName(entry.name) || undefined;
       } else if (entry.type === "custom" && entry.customType === "link-name") {
         hasLinkName = true;
         if (entry.data && typeof entry.data.name === "string") {
-          const n = entry.data.name.trim().replace(/\s+/g, " ");
+          const n = normalizeName(entry.data.name);
           if (n) linkName = n;
         }
       } else if (entry.type === "message" || entry.type === "user" || entry.type === "assistant") {
@@ -466,14 +472,14 @@ if (state.mode === "resolve") {
   if (state.resolveName === null) {
     fail(`--resolve requires a name argument.\n  Usage: pi-link --resolve <name> [--global|-g]`);
   }
-  const normalized = state.resolveName.trim().replace(/\s+/g, " ");
+  const normalized = normalizeName(state.resolveName);
   if (!normalized) {
     fail(`--resolve requires a non-empty name argument.\n  Usage: pi-link --resolve <name> [--global|-g]`);
   }
   state.resolveName = normalized;
 }
 if (state.mode === "launcher") {
-  const normalized = state.launcherName.trim().replace(/\s+/g, " ");
+  const normalized = normalizeName(state.launcherName);
   if (!normalized) {
     fail(`session name cannot be empty.\n  Usage: pi-link <name> [--global|-g] [pi flags...]`);
   }
