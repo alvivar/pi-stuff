@@ -1514,7 +1514,7 @@ export default function (pi: ExtensionAPI) {
           instructions: params.instructions,
         });
 
-        if (!delivered && pendingCompactResponses.has(requestId)) {
+        if (!delivered) {
           const pending = cleanupPendingCompact(requestId);
           if (pending) {
             pending.resolve(
@@ -1623,7 +1623,7 @@ export default function (pi: ExtensionAPI) {
           prompt: params.prompt,
         });
 
-        if (!delivered && pendingPromptResponses.has(requestId)) {
+        if (!delivered) {
           const pending = cleanupPending(requestId);
           if (pending) {
             pending.resolve(
