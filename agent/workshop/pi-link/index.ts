@@ -1228,9 +1228,11 @@ export default function (pi: ExtensionAPI) {
       if (fromEnv && !pi.getSessionName()) pi.setSessionName(flagName);
     } else {
       const saved = latestCustomData("link-name") as
-        | { name?: string }
+        | { name?: unknown }
         | undefined;
-      const savedName = normalizeName(saved?.name);
+      const savedName = normalizeName(
+        typeof saved?.name === "string" ? saved.name : undefined,
+      );
       if (savedName) {
         preferredName = savedName;
         terminalName = preferredName;
