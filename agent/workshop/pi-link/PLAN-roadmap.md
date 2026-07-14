@@ -34,8 +34,7 @@ commits versions.**
 | # | Work item | File | Status | Readiness | Next action |
 |---|-----------|------|--------|-----------|-------------|
 | P0 | Compact-race guard (Defect 2) | `REPORT-compact-race.md` | Report → needs plan | Not executable until event surface verified | Verify `session_before_compact` / `session_compact` fire on manual/remote/auto/error paths; then write `PLAN-compact-race-guard.md` |
-| P1 | CLI hardening (#2–#4) | `PLAN-cli-hardening.md` | Executable | Ready after D1–D4 cleared | Owner clears D1–D4 (defaults recommended in-file); then implement |
-| P1b | Review follow-ups T1–T5 (incl. former hardening #1) | `PLAN-review-followups.md` | Draft — in discussion | T4a–T4c decisions open | Discuss plan with owner; T1–T3/T5 carry recommendations |
+| P1 | CLI closeout: shim removal + resolution-core tests (+ optional `--version`) | `PLAN-cli-closeout.md` | Executable | Tasks 1–2 ready; Task 3 needs owner go/no-go | Implement Task 1 then Task 2; consolidates retired PLAN-cli-hardening + PLAN-review-followups (T1–T3 shipped `00f155e`/`a9cd9e8`/`8e461d7`) |
 | P2 | Link status endpoint + `--status` | `PLAN-cli-status.md` | Executable | Ready (owner-approved, no open decisions) | Implement *after* P1 — status touches the parser too; clean it first |
 
 ## Stale / historical
