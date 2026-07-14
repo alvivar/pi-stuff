@@ -8,7 +8,7 @@
 //   pi-link --list [--global|-g] List pi-link sessions in current cwd (or everywhere).
 //   pi-link --resolve <name> [--global|-g]
 //                                Print just the session path (machine-readable).
-//
+//   pi-link --version            Print the installed pi-link version.
 
 import { readdir, stat } from "fs/promises";
 import { createReadStream, existsSync, readFileSync } from "fs";
@@ -491,18 +491,18 @@ async function runList(state) {
   }
   const columns = state.global
     ? [
-        { header: "NAME", get: (s) => s.name },
-        { header: "CWD", get: (s) => displayPath(s.cwd) },
-        { header: "MODIFIED", get: (s) => relTime(s.modified), dim: true },
-        { header: "MESSAGES", get: (s) => s.messages, dim: true },
-        { header: "ID", get: (s) => s.id, dim: true },
-      ]
+      { header: "NAME", get: (s) => s.name },
+      { header: "CWD", get: (s) => displayPath(s.cwd) },
+      { header: "MODIFIED", get: (s) => relTime(s.modified), dim: true },
+      { header: "MESSAGES", get: (s) => s.messages, dim: true },
+      { header: "ID", get: (s) => s.id, dim: true },
+    ]
     : [
-        { header: "NAME", get: (s) => s.name },
-        { header: "MODIFIED", get: (s) => relTime(s.modified), dim: true },
-        { header: "MESSAGES", get: (s) => s.messages, dim: true },
-        { header: "ID", get: (s) => s.id, dim: true },
-      ];
+      { header: "NAME", get: (s) => s.name },
+      { header: "MODIFIED", get: (s) => relTime(s.modified), dim: true },
+      { header: "MESSAGES", get: (s) => s.messages, dim: true },
+      { header: "ID", get: (s) => s.id, dim: true },
+    ];
   console.log(renderTable(sessions, columns));
   if (process.stdout.isTTY) {
     console.log("");
