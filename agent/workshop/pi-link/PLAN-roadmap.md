@@ -1,7 +1,7 @@
 # PLAN — pi-link roadmap (triage index)
 
 > **Status:** Index / source of truth
-> **Last aligned:** 2026-07-01
+> **Last aligned:** 2026-07-14
 
 Single entry point for pi-link's plan backlog. Lists what shipped, what's open
 (priority-ranked), what's stale, and what's parked — so a future agent or the
@@ -28,14 +28,23 @@ commits versions.**
   until the target reports done, ~180s ceiling; busy targets decline; self /
   not-found rejected). Note: this is *not* the fire-and-forget, consent-gated
   design in `PLAN-orchestration.md` — that framing was never built.
+- **Review follow-ups** (2026-07-13) — typeof guard on saved link-name
+  (`00f155e`), redundant `.has()` cleanup (`a9cd9e8`), CLI `normalizeName`
+  helper (`8e461d7`). Double-reviewed (fable + sol).
+- **CLI closeout** (2026-07-14) — 0.1.12 deprecation shims removed +
+  `list`/`resolve` tombstone + `-a`/`--all` un-shadowed (`186365d`);
+  resolution-semantics test core H2/H5/H7/H10 (`0db1e61`); minimal `--version`
+  (`f73d563`). Suite 49/49. Plan file retired (was `PLAN-cli-closeout.md`,
+  archived in git history at `4017d97`). Explicitly dropped along the way:
+  displayPath separator cosmetics, the eight cut fixture cases, T4 polish
+  items — do not re-propose without new evidence.
 
 ## Open work (priority-ranked)
 
 | # | Work item | File | Status | Readiness | Next action |
 |---|-----------|------|--------|-----------|-------------|
 | P0 | Compact-race guard (Defect 2) | `REPORT-compact-race.md` | Report → needs plan | Not executable until event surface verified | Verify `session_before_compact` / `session_compact` fire on manual/remote/auto/error paths; then write `PLAN-compact-race-guard.md` |
-| P1 | CLI closeout: shim removal + resolution-core tests (+ optional `--version`) | `PLAN-cli-closeout.md` | Executable | Tasks 1–2 ready; Task 3 needs owner go/no-go | Implement Task 1 then Task 2; consolidates retired PLAN-cli-hardening + PLAN-review-followups (T1–T3 shipped `00f155e`/`a9cd9e8`/`8e461d7`) |
-| P2 | Link status endpoint + `--status` | `PLAN-cli-status.md` | Executable | Ready (owner-approved, no open decisions) | Implement *after* P1 — status touches the parser too; clean it first |
+| P1 | Link status endpoint + `--status` | `PLAN-cli-status.md` | Executable | Ready (owner-approved, no open decisions; parser cleaned by CLI closeout, no remaining blocker) | Implement; re-check its parser line references against the post-closeout 5-phase parser before building |
 
 ## Stale / historical
 
