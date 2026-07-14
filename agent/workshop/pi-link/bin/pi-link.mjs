@@ -281,14 +281,27 @@ function printHelp() {
   console.error("Usage: pi-link <name> [--global|-g] [pi flags...]");
   console.error("       pi-link --list [--global|-g]");
   console.error("       pi-link --resolve <name> [--global|-g]");
+  console.error("       pi-link --version");
   console.error("");
   console.error("By default, name lookup is scoped to the current cwd.");
   console.error("--global / -g widens the search to sessions in any cwd.");
 }
 
+function printVersion() {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
+    );
+    console.log(pkg.version ?? "unknown");
+  } catch {
+    console.log("unknown");
+  }
+}
+
 function describeMode(mode) {
   switch (mode) {
     case "help": return "--help";
+    case "version": return "--version";
     case "list": return "--list";
     case "resolve": return "--resolve";
     case "launcher": return "session name";
@@ -299,14 +312,14 @@ function describeMode(mode) {
 // ── Parser ─────────────────────────────────────────────────────────────────
 //
 // Single sequential pass populates `state`; dispatcher reads it. Phases:
-//   1. Global flags (--global, --help, --)
+//   1. Global flags (--global, --help, --version, --)
 //   2. Mode-selecting flags (--list, --resolve, --resolve=<name>)
 //   3. Mode-specific extra-token rejection
 //   4. Launcher mode entry (mode null + bare positional)
 //   5. Launcher passthrough (mode launcher) with orphan-positional rejection
 
 const state = {
-  mode: null, // null | "help" | "list" | "resolve" | "launcher"
+  mode: null, // null | "help" | "version" | "list" | "resolve" | "launcher"
   resolveName: null,
   launcherName: null,
   global: false,
@@ -333,6 +346,10 @@ for (let i = 0; i < rawArgs.length; i++) {
   }
   if (a === "--help" || a === "-h") {
     setMode("help"); // errors if combined with another mode
+    continue;
+  }
+  if (a === "--version") {
+    setMode("version"); // errors if combined with another mode
     continue;
   }
   if (a === "--") {
@@ -373,6 +390,9 @@ for (let i = 0; i < rawArgs.length; i++) {
   // Phase 3: mode-specific extra-token rejection.
   if (state.mode === "help") {
     fail(`--help does not accept arguments: ${a}`);
+  }
+  if (state.mode === "version") {
+    fail(`--version does not accept arguments: ${a}`);
   }
   if (state.mode === "list") {
     fail(`--list does not accept argument: ${a}\n  Usage: pi-link --list [--global|-g]`);
@@ -440,6 +460,10 @@ switch (state.mode) {
   case null:
   case "help":
     printHelp();
+    process.exit(0);
+    break; // unreachable; present to satisfy no-fallthrough lints
+  case "version":
+    printVersion();
     process.exit(0);
     break; // unreachable; present to satisfy no-fallthrough lints
   case "list":

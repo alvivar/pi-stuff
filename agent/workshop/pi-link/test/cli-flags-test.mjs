@@ -260,6 +260,18 @@ const h10FilePath = writeSession(join("h10-resume", "existing.jsonl"), [
 ]);
 expectSpawn("H10: launcher resumes existing local session", ["resume-existing"], ["--session", h10FilePath, "--link"], "resume-existing");
 
+// I. Version
+runCase("I43: --version prints semver", () => {
+  const r = run(["--version"]);
+  return [
+    r.code === 0 && /^\d+\.\d+\.\d+/.test(r.stdout) && r.stderr === "",
+    `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}, stderr=${JSON.stringify(r.stderr)}`,
+  ];
+});
+expectExit("I44: --version foo rejects arguments", ["--version", "foo"], 1, "does not accept arguments");
+expectExit("I45: foo --version cannot combine", ["foo", "--version"], 1, "cannot combine");
+expectExit("I46: --list --version cannot combine", ["--list", "--version"], 1, "cannot combine");
+
 // ── Report ──────────────────────────────────────────────────────────────────
 
 console.log(`\n\nPassed: ${pass}`);
