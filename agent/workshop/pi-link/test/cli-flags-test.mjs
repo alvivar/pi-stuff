@@ -88,6 +88,13 @@ function run(args) {
   };
 }
 
+function writeSession(relPath, entries) {
+  const filePath = join(agentDir, "sessions", relPath);
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+  return filePath;
+}
+
 // Single place the filter is applied: caller passes a thunk that runs the spawn
 // and returns [ok, detail]. Skipped cases never spawn.
 function runCase(label, body) {
@@ -190,6 +197,68 @@ expectSpawn("G39: foo -- --global escapes through to pi", ["foo", "--", "--globa
 expectSpawn("G40: foo (no extra args) passes only --link", ["foo"], ["--link"], "foo");
 expectSpawn("G41: PI_LINK_NAME equals the resolved name (whitespace normalized)", ["  foo  "], ["--link"], "foo");
 expectSpawn("G42: foo -a passes through to pi", ["foo", "-a"], ["--link", "-a"], "foo");
+
+// H. Resolution semantics
+runCase("H2: renamed link-name is last-wins", () => {
+  const filePath = writeSession(join("h2-rename", "renamed.jsonl"), [
+    { type: "session", cwd: stubDir, id: "h2-rename" },
+    { type: "custom", customType: "link-name", data: { name: "rename-old" } },
+    { type: "custom", customType: "link-name", data: { name: "rename-new" } },
+  ]);
+  const current = run(["--resolve", "rename-new"]);
+  const historical = run(["--resolve", "rename-old"]);
+  const ok =
+    current.code === 0 &&
+    current.stdout === filePath &&
+    historical.code === 2;
+  return [
+    ok,
+    `new: exit ${current.code}, stdout=${JSON.stringify(current.stdout)}; old: exit ${historical.code}, stderr=${JSON.stringify(historical.stderr)}`,
+  ];
+});
+
+runCase("H5: resolve scopes cwd unless global", () => {
+  const filePath = writeSession(join("h5-elsewhere", "elsewhere.jsonl"), [
+    { type: "session", cwd: join(stubDir, "other-cwd"), id: "h5-elsewhere" },
+    { type: "custom", customType: "link-name", data: { name: "elsewhere" } },
+  ]);
+  const local = run(["--resolve", "elsewhere"]);
+  const global = run(["--resolve", "elsewhere", "-g"]);
+  const localOutput = local.stdout + local.stderr;
+  const ok =
+    local.code === 2 &&
+    localOutput.includes("match in other cwds") &&
+    localOutput.includes("try --global") &&
+    global.code === 0 &&
+    global.stdout === filePath;
+  return [
+    ok,
+    `local: exit ${local.code}, output=${JSON.stringify(localOutput)}; global: exit ${global.code}, stdout=${JSON.stringify(global.stdout)}`,
+  ];
+});
+
+runCase("H7: duplicate local names are ambiguous", () => {
+  writeSession(join("h7-dupe-a", "first.jsonl"), [
+    { type: "session", cwd: stubDir, id: "h7-dupe-a" },
+    { type: "custom", customType: "link-name", data: { name: "dupe" } },
+  ]);
+  writeSession(join("h7-dupe-b", "second.jsonl"), [
+    { type: "session", cwd: stubDir, id: "h7-dupe-b" },
+    { type: "custom", customType: "link-name", data: { name: "dupe" } },
+  ]);
+  const r = run(["--resolve", "dupe"]);
+  const output = r.stdout + r.stderr;
+  return [
+    r.code === 1 && output.includes("Multiple sessions named"),
+    `exit ${r.code}, output=${JSON.stringify(output)}`,
+  ];
+});
+
+const h10FilePath = writeSession(join("h10-resume", "existing.jsonl"), [
+  { type: "session", cwd: stubDir, id: "h10-resume" },
+  { type: "custom", customType: "link-name", data: { name: "resume-existing" } },
+]);
+expectSpawn("H10: launcher resumes existing local session", ["resume-existing"], ["--session", h10FilePath, "--link"], "resume-existing");
 
 // ── Report ──────────────────────────────────────────────────────────────────
 
