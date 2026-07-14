@@ -1,20 +1,20 @@
 # PLAN — CLI closeout (shim removal + resolution-core tests)
 
-> **Status:** Executable (Task 3 optional, blocked on one owner call)
-> **Last aligned:** 2026-07-13
-> **Build from this?** Yes — Tasks 1–2 are fully decided; Task 3 only if the owner reconfirms wanting `--version`.
-> **Open decisions:** none for Tasks 1–2 · Task 3 go/no-go (owner reconfirmation of the 2026-06-09 `--version` request; if go, minimal shape below).
-> **Gate:** `node --check bin/pi-link.mjs` + `node test/cli-flags-test.mjs` (40/40 at plan time; ~44 after Task 2). No esbuild gate — `index.ts` is untouched by this plan.
-> **Summary:** consolidates the survivors of PLAN-cli-hardening.md and PLAN-review-followups.md (both retired; see Provenance). Two tasks, serialized: **Task 1** removes the 0.1.12 deprecation shims (net-deletion, ~25 lines of compat machinery, closes the `-a`/`--all` passthrough hole); **Task 2** adds the 4-case resolution-semantics test core (no harness changes needed). **Task 3** (optional) is a minimal `--version`.
+> **Status:** Executable — owner approved Tasks 1–3 on 2026-07-13
+> **Last aligned:** 2026-07-13 (owner approved full run; scope/count/fixture/version-help ambiguities resolved)
+> **Build from this?** Yes — all three tasks are fully decided.
+> **Open decisions:** none.
+> **Gate:** `node --check bin/pi-link.mjs` + `node test/cli-flags-test.mjs` (40/40 at plan time; ~41 after Task 1, ~45 after Task 2, ~49 after Task 3). No esbuild gate — `index.ts` is untouched by this plan.
+> **Summary:** consolidates the survivors of PLAN-cli-hardening.md and PLAN-review-followups.md (both retired; see Provenance). Three tasks, serialized: **Task 1** removes the 0.1.12 deprecation shims (net-deletion, ~25 lines of compat machinery, closes the `-a`/`--all` passthrough hole); **Task 2** adds the 4-case resolution-semantics test core (no existing harness API changes needed); **Task 3** adds a minimal, documented `--version` for release/build identification.
 
-Scope is `bin/pi-link.mjs` + `test/cli-flags-test.mjs` only. Everything here
+Scope is `bin/pi-link.mjs` + `test/cli-flags-test.mjs` + `README.md`. Everything here
 was double-reviewed (fable + sol@pi-link, 2026-07-13) under the owner's strict
 minimalism lens; value ranking and case selection were unanimous.
 
 ## Provenance
 
-- **PLAN-cli-hardening.md** (retired): #4 → Task 1; #3 → Task 3 (demoted to
-  optional, minimal shape); #2 displayPath separator → **dropped** (cosmetic,
+- **PLAN-cli-hardening.md** (retired): #4 → Task 1; #3 → Task 3 (minimal
+  shape; owner-approved 2026-07-13); #2 displayPath separator → **dropped** (cosmetic,
   one Windows-only column; D1 dissolves with it).
 - **PLAN-review-followups.md** (retired): T1–T3 shipped (`00f155e`, `a9cd9e8`,
   `8e461d7`; reviewed, gates green); T4 dissolved as all-skip; T5 → Task 2,
@@ -37,10 +37,11 @@ minimalism lens; value ranking and case selection were unanimous.
   fable's drop). H11's env-override and per-case isolation machinery are
   unnecessary once fixtures use unique names — both former harness
   prerequisites existed only to serve the full 12-case suite.
-- **If Task 3 happens** (was D2, minimized per sol): bare semver to stdout,
-  exit 0; **no `-V` alias**, no version line in help; exclusivity mirrors
-  `--help` (cannot combine with modes or a session name; accepts no
-  arguments); never forwarded to pi.
+- **Task 3 approved by owner** (was D2, minimized per sol): bare semver to
+  stdout, exit 0; **no `-V` alias**; one help option/usage line documents
+  `--version`, but the current version is not embedded in the help banner;
+  exclusivity mirrors `--help` (cannot combine with modes or a session name;
+  accepts no arguments); never forwarded to pi.
 - **Conventions:** inline temp-dir fixtures, no checked-in fixture files, no
   mtime-ordering assertions, no version bump / CHANGELOG edits in this plan.
 
@@ -64,7 +65,7 @@ ever reaching pi.
 
 - Delete `printDeprecationWarning`, `state.deprecated`, the Phase 4 detection
   block, the Phase 5 leniency clause, and the dispatch-time warning.
-- Tombstone at the name-binding position (Phase 6):
+- Tombstone at the name-binding position (Phase 4):
 
   ```js
   if (token === "list" || token === "resolve") {
@@ -108,7 +109,10 @@ fixtures must set the session entry's `cwd` to the harness spawn cwd
 fixture names no other case looks up (`rename-old`/`rename-new`, `elsewhere`,
 `dupe`, `resume-existing`). Retained cases do exact-name lookups and no
 `--list`, so shared suite-level fixtures are safe and filtered single-case
-runs stay deterministic.
+runs stay deterministic. All retained fixtures use custom `link-name` entries;
+H2 contains two successive link-name entries and no competing `session_info`
+alias, so its old-name miss proves last-wins behavior rather than a fallback
+interaction.
 
 **Cases (section H):**
 
@@ -120,18 +124,18 @@ runs stay deterministic.
 | H10 | Launcher resume: `pi-link resume-existing` with one local fixture (expectSpawn) | spawned argv is exactly `--session <fixture path> --link`; `PI_LINK_NAME=resume-existing` (pin exact argv form when writing) |
 
 **Risk:** none to shipped code.
-**Verify:** full suite green (~44); spot-check one inversion (e.g. flip
+**Verify:** full suite green (~45); spot-check one inversion (e.g. flip
 last-wins in a scratch copy → H2 must fail); one filtered run
 (`node test/cli-flags-test.mjs H7`) passes standalone.
 
 ---
 
-## Task 3 (optional) — minimal `--version` (blocked on owner go/no-go)
+## Task 3 — minimal `--version` (owner-approved)
 
 **Where:** `bin/pi-link.mjs` — helper near `printHelp`; flag recognition
 alongside `--help`/`-h`; one usage line in help.
 
-**Fix (only if owner reconfirms the 2026-06-09 request):**
+**Fix (owner reconfirmed the 2026-06-09 request on 2026-07-13):**
 
 ```js
 function printVersion() {
@@ -148,14 +152,15 @@ function printVersion() {
 
 Register `--version` as an exclusive mode mirroring `--help` semantics
 (cannot-combine per D29 precedent; no-arguments per E31 precedent). Stdout,
-exit 0. No alias, no help-banner version.
+exit 0. No alias. Add one help option/usage line for discoverability, but do
+not embed the current version in the help banner.
 
 **Tests (section I):** `--version` → exit 0, stdout `/^\d+\.\d+\.\d+/`, stderr
 empty; `--version foo` → exit 1 "does not accept arguments"; `foo --version` →
 exit 1 "cannot combine"; `--list --version` → exit 1 "cannot combine".
 
 **Risk:** low.
-**Verify:** section I green; `E33: --unknown` still rejects.
+**Verify:** section I green; `E33: --unknown` still rejects; full suite ~49.
 
 ---
 
@@ -180,7 +185,7 @@ exit 1 "cannot combine"; `--list --version` → exit 1 "cannot combine".
 1. **Task 1** — settles the parser's final shape (rewrites B/E cases).
 2. **Task 2** — adds section H against that stable shape. No collision with
    Task 1 (separate test sections) but serialized on purpose.
-3. **Task 3** — anytime after Task 1, if greenlit.
+3. **Task 3** — after Task 2; owner-approved minimal version reporting.
 
 **Gate after each task:**
 

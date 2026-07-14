@@ -145,11 +145,11 @@ expectExit("A4: --resolve missing → exit 2", ["--resolve", "nope"], 2, "No ses
 expectExit("A6: --resolve=missing → exit 2", ["--resolve=nope"], 2, "No session named");
 expectExit("A7: --resolve missing -g → exit 2", ["--resolve", "nope", "-g"], 2);
 
-// B. Deprecation aliases
-expectExit("B8: list (deprecated)", ["list"], 0, "deprecated");
-expectExit("B9: resolve missing (deprecated)", ["resolve", "nope"], 2, "deprecated");
-expectExit("B10: list -g (deprecated)", ["list", "-g"], 0, "deprecated");
-expectExit("B11: resolve --global foo (lenient ordering)", ["resolve", "--global", "nope"], 2, "deprecated");
+// B. Removed subcommands
+expectExit("B8: list removed", ["list"], 1, "was removed");
+expectExit("B9: resolve removed", ["resolve", "nope"], 1, "was removed");
+expectExit("B10: list -g removed", ["list", "-g"], 1, "was removed");
+expectExit("B11: resolve --global nope removed", ["resolve", "--global", "nope"], 1, "was removed");
 
 // C. Orphan-positional rejection (launcher mode)
 expectExit("C12: foo extra → unexpected", ["foo", "extra"], 1, "Unexpected argument after session name");
@@ -179,7 +179,7 @@ expectExit("E30b: -h", ["-h"], 0, "Usage:");
 expectExit("E31: --help foo", ["--help", "foo"], 1, "--help does not accept arguments");
 expectExit("E32: no args", [], 0, "Usage:");
 expectExit("E33: --unknown", ["--unknown"], 1, "Unknown argument");
-expectExit("E34: --all (renamed)", ["--all"], 1, "renamed");
+expectExit("E34: --all unknown", ["--all"], 1, "Unknown argument");
 expectExit("E35: --session foo.jsonl", ["--session", "foo.jsonl"], 1, "managed by pi-link");
 expectExit("E36: foo --session bar.jsonl", ["foo", "--session", "bar.jsonl"], 1, "managed by pi-link");
 expectExit("E37: foo --link-name bar", ["foo", "--link-name", "bar"], 1, "--link-name is not accepted");
@@ -189,6 +189,7 @@ expectSpawn("G38: foo --global is consumed by wrapper (not forwarded)", ["foo", 
 expectSpawn("G39: foo -- --global escapes through to pi", ["foo", "--", "--global"], ["--link", "--global"], "foo");
 expectSpawn("G40: foo (no extra args) passes only --link", ["foo"], ["--link"], "foo");
 expectSpawn("G41: PI_LINK_NAME equals the resolved name (whitespace normalized)", ["  foo  "], ["--link"], "foo");
+expectSpawn("G42: foo -a passes through to pi", ["foo", "-a"], ["--link", "-a"], "foo");
 
 // ── Report ──────────────────────────────────────────────────────────────────
 

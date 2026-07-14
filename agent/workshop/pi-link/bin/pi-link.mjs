@@ -9,8 +9,6 @@
 //   pi-link --resolve <name> [--global|-g]
 //                                Print just the session path (machine-readable).
 //
-// Deprecated subcommand forms `pi-link list` / `pi-link resolve <name>` still
-// work for one release with a stderr warning.
 
 import { readdir, stat } from "fs/promises";
 import { createReadStream, existsSync, readFileSync } from "fs";
@@ -243,20 +241,9 @@ function renderTable(rows, columns) {
 
 const rawArgs = process.argv.slice(2);
 
-// Reject pi-link flags renamed in 0.1.12 with a clear pointer to the new name.
-// Same intent as `rejectManagedFlag` (specific message > generic "Unknown argument")
-// but for our own renames, not Pi-managed flags.
-function rejectRenamedFlag(token) {
-  if (token === "--all" || token === "-a") {
-    const replacement = token === "-a" ? "-g" : "--global";
-    console.error(`Error: ${token} was renamed to ${replacement}.`);
-    process.exit(1);
-  }
-}
-
 // Reject Pi flags that pi-link manages, plus --link-name (which exists at the
 // `pi` level for link-only naming, but the wrapper's combined-mode contract
-// conflicts with it). Called from Phase 6 (mode entry) and Phase 7 (after
+// conflicts with it). Called from Phase 4 (mode entry) and Phase 5 (after
 // launcher name), so it fires on both `pi-link --session foo` and
 // `pi-link foo --session bar` with the friendly message.
 function rejectManagedFlag(token) {
@@ -299,14 +286,6 @@ function printHelp() {
   console.error("--global / -g widens the search to sessions in any cwd.");
 }
 
-function printDeprecationWarning(form) {
-  const canonical = form === "list" ? "--list" : "--resolve";
-  console.error(
-    `Warning: 'pi-link ${form}' is deprecated. Use 'pi-link ${canonical}' instead. ` +
-    `(Subcommand form will be removed in a future release.)`,
-  );
-}
-
 function describeMode(mode) {
   switch (mode) {
     case "help": return "--help";
@@ -319,15 +298,12 @@ function describeMode(mode) {
 
 // ── Parser ─────────────────────────────────────────────────────────────────
 //
-// Single sequential pass populates `state`; dispatcher reads it. Phases (per
-// PLAN-cli-flags.md):
-//   1. Renamed-flag rejection (always-on for --all/-a)
-//   2. Global flags (--global, --help, --)
-//   3. Mode-selecting flags (--list, --resolve, --resolve=<name>)
-//   4. Deprecated subcommands (list, resolve <name>) — only at mode-null position
-//   5. Mode-specific extra-token rejection (with deprecated-resolve leniency)
-//   6. Launcher mode entry (mode null + bare positional)
-//   7. Launcher passthrough (mode launcher) with orphan-positional rejection
+// Single sequential pass populates `state`; dispatcher reads it. Phases:
+//   1. Global flags (--global, --help, --)
+//   2. Mode-selecting flags (--list, --resolve, --resolve=<name>)
+//   3. Mode-specific extra-token rejection
+//   4. Launcher mode entry (mode null + bare positional)
+//   5. Launcher passthrough (mode launcher) with orphan-positional rejection
 
 const state = {
   mode: null, // null | "help" | "list" | "resolve" | "launcher"
@@ -335,7 +311,6 @@ const state = {
   launcherName: null,
   global: false,
   piPassthrough: [],
-  deprecated: null, // null | "list" | "resolve"
 };
 
 function setMode(mode) {
@@ -350,10 +325,7 @@ let lastWasFlag = false;
 for (let i = 0; i < rawArgs.length; i++) {
   const a = rawArgs[i];
 
-  // Phase 1: renamed-flag rejection.
-  rejectRenamedFlag(a);
-
-  // Phase 2: global flags / scope-affecting tokens.
+  // Phase 1: global flags / scope-affecting tokens.
   if (a === "--global" || a === "-g") {
     state.global = true;
     lastWasFlag = false;
@@ -375,7 +347,7 @@ for (let i = 0; i < rawArgs.length; i++) {
     break;
   }
 
-  // Phase 3: mode-selecting flags.
+  // Phase 2: mode-selecting flags.
   if (a === "--list") {
     setMode("list");
     continue;
@@ -398,24 +370,7 @@ for (let i = 0; i < rawArgs.length; i++) {
     continue;
   }
 
-  // Phase 4: deprecated subcommands (only at mode-null position).
-  if (state.mode === null && (a === "list" || a === "resolve")) {
-    state.deprecated = a;
-    if (a === "list") {
-      setMode("list");
-    } else {
-      setMode("resolve");
-      const next = rawArgs[i + 1];
-      if (next !== undefined && !next.startsWith("-")) {
-        state.resolveName = next;
-        i++;
-      }
-      // else: leave null; Phase 5 leniency or post-parse validation handles it.
-    }
-    continue;
-  }
-
-  // Phase 5: mode-specific extra-token rejection.
+  // Phase 3: mode-specific extra-token rejection.
   if (state.mode === "help") {
     fail(`--help does not accept arguments: ${a}`);
   }
@@ -423,32 +378,25 @@ for (let i = 0; i < rawArgs.length; i++) {
     fail(`--list does not accept argument: ${a}\n  Usage: pi-link --list [--global|-g]`);
   }
   if (state.mode === "resolve") {
-    // Deprecated-form leniency: `pi-link resolve --global foo` was order-independent;
-    // if we entered via deprecated path and haven't bound a name yet, take this.
-    if (
-      state.deprecated === "resolve" &&
-      state.resolveName === null &&
-      !a.startsWith("-")
-    ) {
-      state.resolveName = a;
-      continue;
-    }
     fail(`--resolve accepts exactly one name; got extra: ${a}`);
   }
 
-  // Phase 6: launcher mode entry. state.mode === null here, no name set yet.
-  // (lastWasFlag is still false here — only Phase 7 sets it, and Phase 7 requires launcher mode.)
+  // Phase 4: launcher mode entry. state.mode === null here, no name set yet.
+  // (lastWasFlag is still false here — only Phase 5 sets it, and Phase 5 requires launcher mode.)
   if (state.mode === null) {
     rejectManagedFlag(a);
     if (a.startsWith("-")) {
       fail(`Unknown argument: ${a}\n  Usage: pi-link <name> [--global|-g] [pi flags...]`);
+    }
+    if (a === "list" || a === "resolve") {
+      fail(`'pi-link ${a}' was removed. Use 'pi-link --${a}'.`);
     }
     state.mode = "launcher";
     state.launcherName = a;
     continue;
   }
 
-  // Phase 7: launcher mode, name set. Tokens go to passthrough or get rejected.
+  // Phase 5: launcher mode, name set. Tokens go to passthrough or get rejected.
   rejectManagedFlag(a);
   if (a.startsWith("-")) {
     state.piPassthrough.push(a);
@@ -484,10 +432,6 @@ if (state.mode === "launcher") {
     fail(`session name cannot be empty.\n  Usage: pi-link <name> [--global|-g] [pi flags...]`);
   }
   state.launcherName = normalized;
-}
-
-if (state.deprecated) {
-  printDeprecationWarning(state.deprecated);
 }
 
 // ── Dispatch ───────────────────────────────────────────────────────────────
