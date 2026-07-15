@@ -149,13 +149,6 @@ function reportHandshakeFailure(name) {
   }
 }
 
-let sdkPromise;
-
-async function loadSdk() {
-  sdkPromise ??= import('@earendil-works/pi-coding-agent');
-  return sdkPromise;
-}
-
 async function verifyModelAuth(modelRegistry, model) {
   const available = await modelRegistry.getAvailable();
   const configured = available.some((candidate) => candidate.provider === model.provider && candidate.id === model.id);
@@ -175,7 +168,7 @@ async function preflightSpawn(cwd, modelSpec) {
     createAgentSession,
     ModelRegistry,
     SessionManager,
-  } = await loadSdk();
+  } = await import('@earendil-works/pi-coding-agent');
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
 
@@ -463,6 +456,27 @@ async function logsCommand(argv) {
   }
 }
 
+async function confirmPipeAbsent(manifest, name) {
+  try {
+    const status = await request(manifest.pipe, { cmd: 'status' });
+    if (status?.ok === true && typeof status.state === 'string') {
+      fail(`agent ${name} is running — stop it first`);
+    }
+    fail(`agent ${name} liveness check failed: invalid status reply`);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      fail(`agent ${name} liveness check failed: invalid status reply`);
+    }
+    if (error.code === 'ETIMEDOUT') {
+      failNotResponding(name);
+    }
+    if (error.code === 'ENOENT' || error.code === 'ECONNREFUSED') {
+      return;
+    }
+    fail(`agent ${name} liveness check failed: ${error.message}`);
+  }
+}
+
 async function setCommand(argv) {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -484,9 +498,7 @@ async function setCommand(argv) {
   validateThinking(values.thinking);
   const budget = values.budget === undefined ? undefined : validateBudget(values.budget);
   const manifest = await requireManifest(name);
-  if (await tryStatus(manifest, 200)) {
-    fail(`agent ${name} is running — stop it first`);
-  }
+  await confirmPipeAbsent(manifest, name);
 
   if (values.model) {
     try {

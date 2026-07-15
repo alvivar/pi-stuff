@@ -1,7 +1,7 @@
 # pi-dock — pre-release cleanup plan
 
-> **Status:** RATIFIED — execution authorized. The owner gave the explicit run-through go with `Go!` on 2026-07-14.
-> Q1–Q10 are resolved and recorded in §4. The baseline passed 7/7 syntax checks with no product drift; execute the serial pipeline under §6 and HOLD only on its listed exceptions.
+> **Status:** RATIFIED — current cleanup-loop execution authorized. The owner gave the explicit run-through go with `Go!` on 2026-07-14.
+> Q1–Q10 are resolved and recorded in §4. The current authorization covers T1–T5 plus integrated gate/smoke I1. Post-loop T6 release docs/package/publication copy requires a separate plan, ledger, and go. Execute under §6 and HOLD only on its listed exceptions.
 >
 > **Project:** `C:/Users/andre/.pi/agent/workshop/pi-dock/`
 > **Repository root:** `C:/Users/andre/.pi/`
@@ -21,8 +21,9 @@ The release bar is:
 2. Tasks T1–T5 are implemented **serially**, independently reviewed, gated LLM-free, and committed one at a time.
 3. Sol approves each task and the integrated result. Per owner direction, Fable is outside the orchestrated cycle and may be invoked manually by the owner; Fable approval is not an automated pipeline gate.
 4. Exactly one final full smoke is run only after integrated code approval; Q9 records the owner's authorization for its two real model prompts and forbids fallback/retry.
-5. T6 documentation and package preparation are approved before copying to the publication repository.
-6. No runtime dependencies, build step, destructive agent command, or unrequested architecture is introduced.
+5. The current cleanup loop closes after T1–T5 plus integrated review and the one authorized smoke; it performs no release-doc/package/publication-copy work.
+6. Post-loop T6 documentation/package/copy runs separately and must be approved before publication preparation.
+7. No runtime dependencies, build step, destructive agent command, or unrequested architecture is introduced.
 
 ## 2. Consolidated review findings
 
@@ -209,10 +210,11 @@ Per-task convergence can be fully LLM-free. The existing smoke makes exactly two
 
 ### Q10 — Autonomy
 
-- **Run-through:** one owner go covers T1–T6; HOLD on material deviation, red gate, review deadlock, paid-gate failure, or scope change.
-- **Gate-per-task:** owner approves before every commit.
+- **Run-through:** one owner go covers T1–T5 plus integrated gate/smoke I1. Ordinary implementation red gates and bounded `CHANGES-NEEDED` auto-converge within the pinned contract through the two-iteration cap, including sensitive tasks.
+- **HOLD:** only for a material contract/scope/safety change, unresolved sensitive disagreement or red gate after the cap, paid-smoke failure (no retry), or ambiguous user-resource action.
+- **Post-loop T6:** requires a separate plan, ledger, and go.
 
-**Owner decision:** run-through, effective only after all remaining questions are resolved and the final plan receives an explicit implementation go. The decision itself implied no go; the owner subsequently activated it with `Go!` on 2026-07-14.
+**Owner decision:** run-through, activated with `Go!` on 2026-07-14. The owner later corrected over-escalation with `T6 debe estar fuera de este loop. Me estas pidiendo muchas confirmaciones, parece que se rompió el plan.` Bounded corrections no longer require repeated approval; T6 is outside this authorization.
 
 ### T1 mid-review amendment — concurrent public spawn ownership
 
@@ -234,7 +236,7 @@ Fill this section during point-by-point analysis. A decision is not ratified unt
 | Q2 long budgets | DECIDED — cap numeric minutes at 35791; `off` unlimited | `Estoy feliz con el máximo numérico a menos que encuentres un problema o una desventaja fuerte con esto.` No strong disadvantage found. | T2 validates cap consistently and updates help/docs. |
 | Q3 torn state | DECIDED — preserve contract; ignore only torn suffix and derive from prior complete event | `Estoy de acuerdo.` after the explicit Q3 recommendation. | T3 state matrix pinned. |
 | Q4 follow mechanism freedom | DECIDED — whole-file Buffer, byte offset, commit through last newline only; no appended-only optimization | `La opción más simple, el archivo completo, documenta este punto para luego.` | T3 mechanism and tests pinned. |
-| Q5 task order | DECIDED — manifest → runner/budget → logs → set → names → integration/docs | `Estoy de acuerdo.` after the explicit Q5 recommendation. | Final serial sequence pinned. |
+| Q5 task order | AMENDED — manifest → runner/budget → logs → set → names → integrated review/smoke; docs/package/copy in separate post-loop T6 | Original `Estoy de acuerdo.` plus later `T6 debe estar fuera de este loop.` | Current serial loop ends after I1; T6 gets new plan/ledger/go. |
 | Q6 micro-cleanups | DECIDED — include N1/N4 as T2 riders; exclude N2/N3 | `De acuerdo con lo que acabas de decir.` | T2 exact cleanup scope pinned. |
 | Q7 regression organization | DECIDED — simplest dedicated direct LLM-free test; narrow real-runner SDK/sandbox exception for T1, zero prompts/provider | `Me gusta la idea del test más simple posible.` and later `Estoy de acuerdo con el diseño de Fable.` | Use production runner race, not mirrored protocol or test-only abstraction; exhaustive owned cleanup. |
 | Q8 review topology | DECIDED — Terra → Sol → committer; Fable manual/outside cycle | `Terra implementa, Sol hace review, committer sigue clásico, Fable queda fuera del ciclo (yo lo invoco manual).` | Bind roles exactly; no orchestrated Fable gate. |
@@ -244,10 +246,11 @@ Fill this section during point-by-point analysis. A decision is not ratified unt
 | Global replacement hygiene | DECIDED — chosen implementation replaces rejected/intermediate designs completely; no dead shims, parallel paths, stale helpers/imports/tests, or speculative compatibility | `No me interesa backward compatibility, o arrastrar cosas sin terminar. La implementación que se decide se crea y se eliminan las sobras innecesarias. No arrastramos basura.` | Enforce deletion in implementation/review. Explicit previously ratified compatibility contracts require a separate owner amendment rather than silent removal. |
 | T1 final harness isolation/cleanup | DECIDED — explicit owned SDK/session dirs + offline; clear losing timers; sandbox removal survives child-cleanup errors; loser exit 0 asserted | `Estoy de acuerdo con 2 y 3...` then `Autorizo A.` after item 1 explanation. | One final `test/regression.mjs`-only correction and Sol verification; production frozen. |
 | T2 model authority/schema | DECIDED — qualified durable `model` is mandatory and sole wake authority; remove `modelId` and legacy session fallback; full qualified display; natural explicit `set --model` repair | `Autorizo el contrato refinado por Fable para T2.` after manual Fable validation. | Spawn flag remains optional but creation must resolve a non-null model before manifest publication. Missing-model wake fails before session open with `manifest model missing: <name> — set --model <provider/id> to repair`. Delete old code/tests/comments; preserve `sessionFile` and JSONL. |
+| Current-loop boundary/convergence | DECIDED — T1–T5 + I1 only; bounded corrections auto-converge through cap; T6 separate | `T6 debe estar fuera de este loop. Me estas pidiendo muchas confirmaciones, parece que se rompió el plan.` | Do not ask on first bounded correction. No T6 paths/publication copy now; create new plan/ledger/go later. |
 
 ## 5. Proposed serial implementation tasks
 
-These tasks are ratified by the owner and execute serially under the run-through go recorded above.
+T1–T5 and I1 are ratified by the owner and execute serially under the current run-through go. Post-loop T6 is documented below for boundary clarity only and is not authorized by this run.
 
 ### T1 — Exclusive manifest publication
 
@@ -420,30 +423,32 @@ Raw names can escape the state root or create ambiguous, nonportable identities.
 - Sentinel files both inside and outside sandbox remain unchanged for every rejection.
 - Windows case/path and pipe behavior verified.
 
-### T6 — Integrated gate, release docs, and publication-package preparation
-
-**Code integration gate before docs**
+### I1 — Integrated code gate and one authorized smoke (inside current loop)
 
 1. Full syntax gate in §6.
 2. Full LLM-free regression suite.
-3. Integrated review by Sol, routed through the orchestrator.
-4. LLM-free convergence only, bounded by the pipeline policy.
-5. Fable is outside the orchestrated cycle; any manual owner-requested Fable review is informational unless the owner explicitly amends the plan.
+3. Integrated T1–T5 review by Sol, routed through the orchestrator.
+4. LLM-free bounded convergence under the pipeline policy.
+5. Fable remains outside the orchestrated cycle; manual advice is informational unless the owner amends the plan.
 6. Run the Q9-authorized final full smoke exactly once with exactly two provider prompts, no fallback, and no automatic retry.
+7. Close the current ledger after a green smoke. No README, CHANGELOG, package, pack, publication-copy, login, or publish work belongs to I1.
 
-**Documentation/package scope**
+**Risk:** high; integrated lifecycle plus the single paid/no-retry gate.
+
+### Post-loop T6 — Release docs, package, and publication-copy preparation
+
+**Not authorized in the current loop.** After I1 closes, create a separate self-contained plan and ledger, bind roles, verify its baseline, and obtain a new owner go before any T6 edit or publication-copy access.
 
 - Complete README: install, all 8 commands, resident lifecycle, durable session/memory association, model/thinking/budget rules, opaque repeatable `--x`, pi-link use, compact semantics, crash/budget/wedge recovery, PID ownership warning, support/platform honesty, and headless trust warning.
 - Create/update CHANGELOG for `0.1.0` without vendor-internal noise.
 - Explain lock scope only if dependencies/reproducibility are discussed; make no consumer-transitive guarantee.
 - Confirm package metadata, files, license, bin, no runtime dependency drift, and version `0.1.0`.
 - Run `npm pack --dry-run` and inspect the exact file list; no publish.
-- Independently review docs/package.
-- Commit approved release docs/package changes.
+- Independently review docs/package and commit approved release changes.
 - Copy only the tested publication package to `C:/AERO/me/code/pi-dock/`; compare contents against the approved source/package manifest.
 - Owner alone performs `npm login` and `npm publish`; verify published `pi-dock@0.1.0` afterward.
 
-**Risk:** medium; public contract and publication contents.
+**Risk:** medium; separate public-contract/publication run.
 
 ## 6. Gates and orchestration contract
 
@@ -485,7 +490,7 @@ node test/smoke.mjs
 - Dedicated committer verifies scope/hygiene and commits only after approval; never re-reviews correctness.
 - Commit each task before the next implementation so diffs stay task-scoped.
 - Shared `bin/pi-dock.mjs` and `test/regression.mjs` edits are strictly serial.
-- Maximum two review-convergence iterations per task; sensitive disagreement escalates to the owner rather than using a tie-break. T1 exhausted that cap and escalated; the owner explicitly authorized one pinned Fable-design rework plus one fresh Sol review. Sol approved production and found only harness isolation/cleanup defects; the owner explicitly authorized one final `test/regression.mjs`-only correction plus Sol verification. No production change or further T1 convergence is implicit.
+- Maximum two implementation/review convergence iterations per task. Ordinary red gates and bounded `CHANGES-NEEDED` auto-relay without owner confirmation while inside the pinned contract, including sensitive tasks. Escalate only when the cap leaves a red gate or sensitive disagreement unresolved, or when contract/scope/safety changes materially. T1's historical cap escalation remains recorded; it does not establish per-correction approval.
 - Every material deviation travels verbatim into review.
 - Replacement hygiene is mandatory: when a design supersedes an intermediate/rejected design, delete the old path, helpers, imports, state, fixtures, and comments completely. Do not add compatibility shims or parallel implementations unless the owner explicitly ratifies that compatibility. The owner explicitly revoked T2's former missing-`model` wake compatibility and durable `modelId`; remove them completely rather than retaining a fallback or migration branch.
 - Reassess worker context at every IMPLEMENT/REVIEW/COMMIT boundary; compact only at task boundaries, never mid-task.
@@ -493,14 +498,14 @@ node test/smoke.mjs
 
 ## 7. Definition of done
 
-This cleanup plan is complete only when:
+The **current cleanup loop** is complete only when:
 
-- §4 contains owner decisions for Q1–Q10.
-- The owner explicitly ratifies the final plan and autonomy level.
+- §4 contains the owner decisions and current-loop amendment.
 - T1–T5 each have a scoped approved commit and green LLM-free gate.
-- Sol approves every task and the integrated code; Fable remains outside the orchestrated cycle unless the owner amends this decision.
+- Sol approves every task and the integrated T1–T5 code; Fable remains outside the orchestrated cycle unless the owner amends this decision.
 - The Q9-authorized final smoke is green with exactly two prompts.
-- T6 docs/package are independently approved and committed.
-- Publication repo is an exact copy of the tested package.
+- No T6 docs/package/publication-copy path was touched.
+
+Post-loop T6 is explicitly not a condition for closing this ledger. Its separate release run completes only after independently approved docs/package, an inspected pack, an exact publication copy, and owner-only publish actions.
 - Workshop worktree is clean and run-state plan/ledger/report artifacts are disposed after the final summary.
 - `npm publish` remains an explicit owner action.

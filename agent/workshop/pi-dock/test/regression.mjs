@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import net from 'node:net';
 import { parseBudget, MAX_BUDGET_MINUTES } from '../src/budget.mjs';
-import { request } from '../src/pipe.mjs';
+import { request, serve } from '../src/pipe.mjs';
 import { pipePath } from '../src/paths.mjs';
 
 const filename = fileURLToPath(import.meta.url);
@@ -190,6 +191,73 @@ function countOccurrences(text, needle) {
 function stateFromLs(output, name) {
   const line = output.split('\n').find((candidate) => candidate.startsWith(`${name}\t`));
   return line?.split('\t')[1] ?? null;
+}
+
+async function waitForServer(server) {
+  if (server.listening) {
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    const listening = () => finish();
+    const error = (failure) => finish(failure);
+    const finish = (failure) => {
+      server.off('listening', listening);
+      server.off('error', error);
+      failure ? reject(failure) : resolve();
+    };
+    server.once('listening', listening);
+    server.once('error', error);
+  });
+}
+
+async function closeOwnedServer(server, sockets = new Set()) {
+  for (const socket of sockets) {
+    socket.destroy();
+  }
+  if (!server.listening) {
+    return;
+  }
+  try {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  } catch (error) {
+    if (error.code !== 'ERR_SERVER_NOT_RUNNING') {
+      throw error;
+    }
+  }
+}
+
+async function withOwnedServer(server, sockets, work) {
+  let primaryError;
+  try {
+    await waitForServer(server);
+    return await work();
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    try {
+      await closeOwnedServer(server, sockets);
+    } catch (cleanupError) {
+      if (primaryError) {
+        throw new AggregateError([primaryError, cleanupError], 'server fixture and cleanup failed');
+      }
+      throw cleanupError;
+    }
+  }
+}
+
+async function writeSetFixture(dock, name) {
+  const fixture = {
+    ...manifest('set'),
+    name,
+    sessionFile: `session-${name}.jsonl`,
+    model: 'anthropic/claude-haiku-4-5',
+    budget: { turns: 3, minutes: 4 },
+    pipe: pipePath(name),
+  };
+  const target = path.join(dock, `${name}.json`);
+  await fs.writeFile(target, `${JSON.stringify(fixture)}\n`);
+  return target;
 }
 
 async function waitForStatus(pipe, timeoutMs = 15000) {
@@ -382,6 +450,72 @@ async function main() {
       assert.equal(stateFromLs(lsResult.stdout, stateName), expectedState, `${suffix} state`);
     }
 
+    const absentSetName = `set-absent-${randomUUID()}`;
+    const absentSetFile = await writeSetFixture(dock, absentSetName);
+    const absentSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', absentSetName, '--budget', 'off']);
+    assert.equal(absentSet.code, 0, absentSet.stderr);
+    assert.equal(JSON.parse(await fs.readFile(absentSetFile, 'utf8')).budget, 'off', 'affirmative absent pipe permits powered-off set');
+
+    const liveSetName = `set-live-${randomUUID()}`;
+    const liveSetFile = await writeSetFixture(dock, liveSetName);
+    const liveServer = serve(pipePath(liveSetName), () => ({ ok: true, state: 'idle' }));
+    await withOwnedServer(liveServer, new Set(), async () => {
+      const beforeLiveSet = await fs.readFile(liveSetFile);
+      const liveSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', liveSetName, '--budget', 'off']);
+      assert.equal(liveSet.code, 1);
+      assert.equal(liveSet.stderr.trim(), `agent ${liveSetName} is running — stop it first`);
+      assert.deepEqual(await fs.readFile(liveSetFile), beforeLiveSet, 'live pipe refusal preserves manifest bytes');
+    });
+
+    const timeoutSetName = `set-timeout-${randomUUID()}`;
+    const timeoutSetFile = await writeSetFixture(dock, timeoutSetName);
+    const timeoutSockets = new Set();
+    let timeoutAccepted = 0;
+    const timeoutServer = net.createServer((socket) => {
+      timeoutAccepted += 1;
+      timeoutSockets.add(socket);
+      socket.on('close', () => timeoutSockets.delete(socket));
+    });
+    timeoutServer.listen(pipePath(timeoutSetName));
+    await withOwnedServer(timeoutServer, timeoutSockets, async () => {
+      const beforeTimeoutSet = await fs.readFile(timeoutSetFile);
+      const timeoutSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', timeoutSetName, '--budget', 'off']);
+      assert.equal(timeoutSet.code, 1);
+      assert.equal(timeoutSet.stderr.trim(), `agent ${timeoutSetName} is not responding`);
+      assert(timeoutAccepted >= 1, 'timeout fixture accepted the production request');
+      assert.deepEqual(await fs.readFile(timeoutSetFile), beforeTimeoutSet, 'timeout refusal preserves manifest bytes');
+    });
+
+    const unknownSetName = `set-unknown-${randomUUID()}`;
+    const unknownSetFile = await writeSetFixture(dock, unknownSetName);
+    const unknownServer = serve(pipePath(unknownSetName), () => ({ unexpected: true }));
+    await withOwnedServer(unknownServer, new Set(), async () => {
+      const beforeUnknownSet = await fs.readFile(unknownSetFile);
+      const unknownSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', unknownSetName, '--budget', 'off']);
+      assert.equal(unknownSet.code, 1);
+      assert.equal(unknownSet.stderr.trim(), `agent ${unknownSetName} liveness check failed: invalid status reply`);
+      assert.deepEqual(await fs.readFile(unknownSetFile), beforeUnknownSet, 'unknown status refusal preserves manifest bytes');
+    });
+
+    const malformedSetName = `set-malformed-${randomUUID()}`;
+    const malformedSetFile = await writeSetFixture(dock, malformedSetName);
+    const malformedSockets = new Set();
+    const malformedSentinel = 'MALFORMED_STATUS_PAYLOAD';
+    const malformedServer = net.createServer((socket) => {
+      malformedSockets.add(socket);
+      socket.once('data', () => socket.write(`${malformedSentinel}\n`));
+      socket.on('close', () => malformedSockets.delete(socket));
+    });
+    malformedServer.listen(pipePath(malformedSetName));
+    await withOwnedServer(malformedServer, malformedSockets, async () => {
+      const beforeMalformedSet = await fs.readFile(malformedSetFile);
+      const malformedSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', malformedSetName, '--budget', 'off']);
+      assert.equal(malformedSet.code, 1);
+      assert.equal(malformedSet.stderr.trim(), `agent ${malformedSetName} liveness check failed: invalid status reply`);
+      assert.equal(malformedSet.stderr.includes(malformedSentinel), false, 'malformed payload does not leak into diagnostic');
+      assert.deepEqual(await fs.readFile(malformedSetFile), beforeMalformedSet, 'malformed status refusal preserves manifest bytes');
+    });
+
     const runnerName = `t1-${randomUUID()}`;
     const runnerCwd = path.join(sandbox, 'trusted-empty-cwd');
     await fs.mkdir(runnerCwd);
@@ -411,7 +545,7 @@ async function main() {
     assert.deepEqual(await tempFiles(dock), [], 'real runner race leaves no manifest temp files');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 9 cases passed');
+    console.log('regression: 14 cases passed');
   } catch (error) {
     primaryError = error;
   }
