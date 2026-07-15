@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { parseBudget, formatBudget } from '../src/budget.mjs';
 import { listManifests, readManifest, rewriteManifest } from '../src/manifest.mjs';
-import { logPath, manifestPath } from '../src/paths.mjs';
+import { logPath, manifestPath, validateAgentName } from '../src/paths.mjs';
 import { PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -269,10 +269,11 @@ async function spawnCommand(argv) {
     },
   });
 
-  const name = values.name;
-  if (!name || positionals.length > 0) {
+  let name = values.name;
+  if (name === undefined || positionals.length > 0) {
     fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--budget <turns>[,<minutes>]|off] [--x key[=value]]...');
   }
+  name = validateAgentName(name);
 
   validateThinking(values.thinking);
   const budget = validateBudget(values.budget);
@@ -326,10 +327,11 @@ async function wake(manifest) {
 async function sendCommand(argv) {
   const [name, ...textParts] = argv;
   const text = textParts.join(' ');
-  if (!name || text.length === 0) {
+  if (name === undefined || text.length === 0) {
     fail('usage: pi-dock send <name> <text>');
   }
 
+  validateAgentName(name);
   const manifest = await requireManifest(name);
   let reply;
   let needsWake = false;
@@ -360,10 +362,11 @@ async function sendCommand(argv) {
 
 async function startCommand(argv) {
   const [name] = argv;
-  if (!name) {
+  if (name === undefined) {
     fail('usage: pi-dock start <name>');
   }
 
+  validateAgentName(name);
   const manifest = await requireManifest(name);
   try {
     const status = await request(manifest.pipe, { cmd: 'status' }, PIPE_REQUEST_TIMEOUT_MS);
@@ -433,10 +436,11 @@ async function logsCommand(argv) {
   });
 
   const name = positionals[0];
-  if (!name) {
+  if (name === undefined) {
     fail('usage: pi-dock logs <name> [--follow]');
   }
 
+  validateAgentName(name);
   await requireManifest(name);
   if (!existsSync(logPath(name))) {
     fail(`no log for agent: ${name}`);
@@ -489,12 +493,13 @@ async function setCommand(argv) {
     },
   });
 
-  const name = positionals[0];
+  let name = positionals[0];
   const replacesFlags = values.x !== undefined;
-  if (!name || positionals.length > 1 || (!values.model && !values.thinking && values.budget === undefined && !replacesFlags)) {
+  if (name === undefined || positionals.length > 1 || (!values.model && !values.thinking && values.budget === undefined && !replacesFlags)) {
     fail('usage: pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--budget <turns>[,<minutes>]|off] [--x key[=value]]...');
   }
 
+  name = validateAgentName(name);
   validateThinking(values.thinking);
   const budget = values.budget === undefined ? undefined : validateBudget(values.budget);
   const manifest = await requireManifest(name);
@@ -528,11 +533,12 @@ async function sendCompact(manifest, instructions) {
 
 async function compactCommand(argv) {
   const [name, ...instructionParts] = argv;
-  if (!name) {
+  if (name === undefined) {
     fail('usage: pi-dock compact <name> [instructions]');
   }
 
   const instructions = instructionParts.join(' ');
+  validateAgentName(name);
   const manifest = await requireManifest(name);
   let reply;
   let needsWake = false;
@@ -566,10 +572,11 @@ async function compactCommand(argv) {
 
 async function stopCommand(argv) {
   const [name] = argv;
-  if (!name) {
+  if (name === undefined) {
     fail('usage: pi-dock stop <name>');
   }
 
+  validateAgentName(name);
   const manifest = await requireManifest(name);
   try {
     const reply = await request(manifest.pipe, { cmd: 'stop' }, PIPE_REQUEST_TIMEOUT_MS);

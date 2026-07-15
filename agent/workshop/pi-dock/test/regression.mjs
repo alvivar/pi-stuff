@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { parseBudget, MAX_BUDGET_MINUTES } from '../src/budget.mjs';
 import { request, serve } from '../src/pipe.mjs';
-import { pipePath } from '../src/paths.mjs';
+import { logPath, manifestPath, pipePath, validateAgentName } from '../src/paths.mjs';
 
 const filename = fileURLToPath(import.meta.url);
 const root = path.dirname(path.dirname(filename));
@@ -80,6 +80,19 @@ async function tempFiles(dock) {
     }
     throw error;
   }
+}
+
+async function treeEntries(dir, relative = '') {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const result = [];
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const childRelative = path.join(relative, entry.name);
+    result.push(`${entry.isDirectory() ? 'd' : 'f'}:${childRelative}`);
+    if (entry.isDirectory()) {
+      result.push(...await treeEntries(path.join(dir, entry.name), childRelative));
+    }
+  }
+  return result;
 }
 
 async function worker(action, name, id) {
@@ -317,6 +330,66 @@ async function main() {
   const ownedRunnerPipes = new Map();
   let primaryError;
   try {
+    const validNames = [
+      'a', 'haiku1', 'dockcheck-202610', 'segmented.name-part_1', 'a.b.c',
+      'x'.repeat(64), 'console', 'auxiliary', 'com0', 'com10', 'lpt10',
+    ];
+    for (const name of validNames) {
+      assert.equal(validateAgentName(name), name);
+      assert.match(manifestPath(name), new RegExp(`${name.replace(/[.]/g, '\\.')}.json$`));
+      assert.match(logPath(name), new RegExp(`${name.replace(/[.]/g, '\\.')}.log$`));
+      assert.match(pipePath(name), new RegExp(name.replace(/[.]/g, '\\.')));
+    }
+    const invalidNames = [
+      '', 'x'.repeat(65), 'Upper', 'café', 'a b', 'a\tb', 'a\nb', 'a\u0000b',
+      'a/b', 'a\\b', 'a:b', '../escape', '..\\escape', '.start', 'end.', 'a..b', 'a--b', 'a._b',
+      'con', 'CON', 'con.txt', 'con.txt.more', 'com1', 'com1.agent', 'lpt9', 'lpt9.x', 'prn', 'aux', 'nul', null, undefined,
+    ];
+    for (const name of invalidNames) {
+      const expected = new Error(`invalid agent name: ${name}`);
+      assert.throws(() => validateAgentName(name), expected);
+      assert.throws(() => manifestPath(name), expected);
+      assert.throws(() => logPath(name), expected);
+      assert.throws(() => pipePath(name), expected);
+    }
+
+    const traversalName = '../t5-sentinel';
+    const sentinelDir = path.join(sandbox, '.pi');
+    const sentinelManifest = path.join(sentinelDir, 't5-sentinel.json');
+    const sentinelLog = path.join(sentinelDir, 't5-sentinel.log');
+    await fs.mkdir(sentinelDir, { recursive: true });
+    await fs.writeFile(sentinelManifest, 'manifest sentinel');
+    await fs.writeFile(sentinelLog, 'log sentinel');
+    const beforeInvalidCliTree = await treeEntries(sandbox);
+    const namedCommands = [
+      ['spawn', '--name', traversalName, '--budget', 'off'],
+      ['send', traversalName, 'text'],
+      ['start', traversalName],
+      ['stop', traversalName],
+      ['logs', traversalName],
+      ['set', traversalName, '--budget', 'off'],
+      ['compact', traversalName, 'instructions'],
+    ];
+    for (const commandArgs of namedCommands) {
+      const result = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
+      assert.equal(result.code, 1, `${commandArgs[0]} invalid-name exit`);
+      assert.equal(result.signal, null);
+      assert.equal(result.stdout, '');
+      assert.equal(result.stderr.trim(), `invalid agent name: ${traversalName}`, `${commandArgs[0]} invalid-name error`);
+    }
+    assert.equal(await fs.readFile(sentinelManifest, 'utf8'), 'manifest sentinel');
+    assert.equal(await fs.readFile(sentinelLog, 'utf8'), 'log sentinel');
+    assert.deepEqual(await treeEntries(sandbox), beforeInvalidCliTree, 'invalid commands do not alter the owned sandbox tree');
+
+    const valid64Name = 'v'.repeat(64);
+    const valid64Result = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['start', valid64Name]);
+    assert.equal(valid64Result.code, 1);
+    assert.equal(valid64Result.stderr.trim(), `no such agent: ${valid64Name}`);
+    const validSegmentedName = 'valid.segment-1';
+    const validSegmentedResult = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['send', validSegmentedName, 'text']);
+    assert.equal(validSegmentedResult.code, 1);
+    assert.equal(validSegmentedResult.stderr.trim(), `no such agent: ${validSegmentedName}`);
+
     const raceName = 'manifest-race';
     const racers = await Promise.all(Array.from({ length: 12 }, (_, index) => runWorker(sandbox, 'create', raceName, `racer-${index}`)));
     const winners = racers.filter((result) => result.ok);
@@ -545,7 +618,7 @@ async function main() {
     assert.deepEqual(await tempFiles(dock), [], 'real runner race leaves no manifest temp files');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 14 cases passed');
+    console.log('regression: 17 cases passed');
   } catch (error) {
     primaryError = error;
   }
