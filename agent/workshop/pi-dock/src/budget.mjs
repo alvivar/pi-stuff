@@ -1,3 +1,5 @@
+export const MAX_BUDGET_MINUTES = 35791;
+
 function renderBudget(value) {
   return typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
 }
@@ -12,12 +14,12 @@ export function parseBudget(value, { manifest = false } = {}) {
   }
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const { turns, minutes } = value;
-    if (Number.isSafeInteger(turns) && turns > 0 && Number.isFinite(minutes) && minutes > 0) {
+    if (Number.isSafeInteger(turns) && turns > 0 && Number.isFinite(minutes) && minutes > 0 && minutes <= MAX_BUDGET_MINUTES) {
       return { turns, minutes };
     }
     invalidBudget(value);
   }
-  if (manifest || typeof value !== 'string' && value !== undefined) {
+  if (manifest || (typeof value !== 'string' && value !== undefined)) {
     invalidBudget(value);
   }
 
@@ -34,7 +36,7 @@ export function parseBudget(value, { manifest = false } = {}) {
 
   const turns = Number(turnText);
   const minutes = Number(minuteText);
-  if (!Number.isSafeInteger(turns) || turns <= 0 || !Number.isFinite(minutes) || minutes <= 0) {
+  if (!Number.isSafeInteger(turns) || turns <= 0 || !Number.isFinite(minutes) || minutes <= 0 || minutes > MAX_BUDGET_MINUTES) {
     invalidBudget(source);
   }
 

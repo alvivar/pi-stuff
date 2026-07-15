@@ -194,12 +194,11 @@ function subscribeToSession(budget) {
 }
 
 async function runOnePrompt(text) {
+  pending -= 1;
   if (terminal || !session) {
-    pending -= 1;
     return;
   }
 
-  pending -= 1;
   running = true;
   turns = 0;
   startBudgetTimer(budgetConfig);
@@ -262,11 +261,7 @@ function runCompact(instructions) {
   return task;
 }
 
-async function findModel(modelRegistry, spec) {
-  if (!spec) {
-    return undefined;
-  }
-
+function findModel(modelRegistry, spec) {
   const slash = spec.indexOf('/');
   if (slash === -1) {
     throw new Error(`model not found: ${spec}`);
@@ -293,6 +288,9 @@ try {
     throw error;
   });
   const createMode = existing === null;
+  if (!createMode && !existing.model) {
+    throw new Error(`manifest model missing: ${name} — set --model <provider/id> to repair`);
+  }
   const cwd = createMode ? path.resolve(values.cwd ?? process.cwd()) : existing.cwd;
   const budget = parseBudget(createMode ? values.budget : existing.budget, { manifest: !createMode });
   const flags = createMode ? values.x ?? [] : existing.flags ?? [];
@@ -308,7 +306,7 @@ try {
     extensionFlagValues: parseExtensionFlags(flags),
   });
   const modelSpec = createMode ? values.model : existing.model;
-  const model = modelSpec ? await findModel(services.modelRegistry, modelSpec) : undefined;
+  const model = modelSpec ? findModel(services.modelRegistry, modelSpec) : undefined;
   const sessionManager = createMode ? SessionManager.create(cwd) : SessionManager.open(existing.sessionFile);
   ({ session } = await createAgentSessionFromServices({
     services,
@@ -318,12 +316,17 @@ try {
   }));
 
   if (createMode) {
+    const resolvedModel = model ?? session.model;
+    if (!resolvedModel?.provider || !resolvedModel?.id) {
+      session.dispose();
+      session = undefined;
+      throw new Error('no model with usable credentials available');
+    }
     const manifest = {
       name,
       sessionFile: session.sessionFile,
       cwd,
-      modelId: session.model?.id ?? null,
-      model: values.model ?? (session.model ? `${session.model.provider}/${session.model.id}` : null),
+      model: `${resolvedModel.provider}/${resolvedModel.id}`,
       budget,
       flags,
       pipe,

@@ -37,7 +37,7 @@ runner  (one per agent)     a tiny process that hosts ONE AgentSession via the
 ```
 
 - **One OS process per agent.** This gives crash isolation _and_ per-agent kill/limits for free — while each runner uses the **in-process SDK** internally, so `prompt` / `compact` / `navigateTree` stay first-class with **no RPC gap and no upstream dependency**. (This dissolves the earlier in-process-vs-subprocess question: you get both.)
-- **Registry = a directory of `<name>.json` manifests** (`{name, sessionFile, cwd, modelId, thinkingLevel, tools, budget, pipe, startedAt}`), one file per agent, written atomically (temp + rename). No shared store, so no concurrent-write race and nothing to rehydrate.
+- **Registry = a directory of `<name>.json` manifests** (`{name, sessionFile, cwd, model, thinkingLevel, tools, budget, pipe, startedAt}`), one file per agent. Qualified mandatory `model` is the sole wake authority; no duplicate `modelId` or session-derived fallback. Targets are published with exclusive winner-safe semantics and later rewrites are atomic. No shared store and nothing to rehydrate.
 - **Status is derived, never stored** — from pipe liveness + the session's own state. A stored status lies after a crash; deriving is both less code and always correct.
 - **No new runtime dependency** beyond the SDK (Node `net` for the pipe, newline-delimited JSON).
 

@@ -473,16 +473,17 @@ async function setCommand(argv) {
     }
   }
 
+  const { modelId: _legacyModelId, ...durableManifest } = manifest;
   const updated = {
-    ...manifest,
-    ...(values.model ? { modelId: values.model.slice(values.model.indexOf('/') + 1), model: values.model } : {}),
+    ...durableManifest,
+    ...(values.model ? { model: values.model } : {}),
     ...(values.thinking ? { thinking: values.thinking } : {}),
     ...(budget !== undefined ? { budget } : {}),
     ...(replacesFlags ? { flags: values.x } : {}),
   };
 
   await rewriteManifest(name, updated);
-  console.log(`${name} model=${updated.model ?? updated.modelId ?? '-'} thinking=${updated.thinking ?? '-'} budget=${formatBudget(updated.budget)} flags=${JSON.stringify(updated.flags ?? [])}`);
+  console.log(`${name} model=${updated.model ?? '-'} thinking=${updated.thinking ?? '-'} budget=${formatBudget(updated.budget)} flags=${JSON.stringify(updated.flags ?? [])}`);
 }
 
 async function sendCompact(manifest, instructions) {
@@ -566,7 +567,7 @@ Agents are resident. spawn creates an idle identity in the current cwd and never
 
 stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start or send wakes a stopped/failed agent. ls derives idle/running while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
 
-Budget defaults to 20,30. Each numeric budget limits one pipe-delivered run and resets at idle: turns is a positive integer; minutes is a positive number (one number means 30 minutes). off explicitly disables both limits. compact is idle-only, wakes an off agent, stays on, and is unbudgeted. set requires a stopped/failed agent; it changes model, thinking, budget, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
+Budget defaults to 20,30. Each numeric budget limits one pipe-delivered run and resets at idle: turns is a positive integer; minutes is a positive number up to 35791 (one number means 30 minutes). off explicitly disables both limits and is unlimited. compact is idle-only, wakes an off agent, stays on, and is unbudgeted. set requires a stopped/failed agent; it changes model, thinking, budget, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
 
 try {
   if (command === undefined || command === '--help' || command === '-h') {

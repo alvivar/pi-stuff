@@ -46,7 +46,7 @@ The release bar is:
 
 | ID | Location / anchor | Finding | Required disposition |
 |---|---|---|---|
-| FBL-C1 + SOL-08 | `src/runner.mjs`: `findModel` and sole caller | The `!spec` guard is unreachable because the caller checks first; the function is also `async` without `await`. | Resolve together: one clear optional-model boundary, synchronous lookup, same errors and legacy behavior. |
+| FBL-C1 + SOL-08 | `src/runner.mjs`: `findModel` and sole caller | The `!spec` guard is unreachable because the caller checks first; the function is also `async` without `await`. | Resolve together: optional model selection only while creating, mandatory qualified manifest model on wake, synchronous lookup, and complete removal of the owner-revoked legacy fallback. |
 | FBL-C2 | `src/manifest.mjs`: writer helper | `flag` is always `'wx'` and does not express target create-vs-rewrite semantics. | Fold into SOL-03; do not make a standalone cleanup. |
 | FBL-C3 | `bin/pi-dock.mjs`: `sdkPromise`, `loadSdk`, `preflightSpawn` | One CLI invocation can preflight at most once, so the explicit promise cache cannot be reused. Lazy import itself is justified. | Preserve lazy dynamic import; remove only the dead cache/wrapper axis. |
 
@@ -243,6 +243,7 @@ Fill this section during point-by-point analysis. A decision is not ratified unt
 | T1 concurrent spawn ownership | DECIDED — delete stdout/token; boolean create intent + additive status PID + launched child PID comparison over baseline handshake; silent loser; real state | `Estoy de acuerdo con el diseño de Fable.` after manual fresh-eyes advice. | One pinned rework + one Sol review authorized beyond old cap; no new protocol/module/reservation. |
 | Global replacement hygiene | DECIDED — chosen implementation replaces rejected/intermediate designs completely; no dead shims, parallel paths, stale helpers/imports/tests, or speculative compatibility | `No me interesa backward compatibility, o arrastrar cosas sin terminar. La implementación que se decide se crea y se eliminan las sobras innecesarias. No arrastramos basura.` | Enforce deletion in implementation/review. Explicit previously ratified compatibility contracts require a separate owner amendment rather than silent removal. |
 | T1 final harness isolation/cleanup | DECIDED — explicit owned SDK/session dirs + offline; clear losing timers; sandbox removal survives child-cleanup errors; loser exit 0 asserted | `Estoy de acuerdo con 2 y 3...` then `Autorizo A.` after item 1 explanation. | One final `test/regression.mjs`-only correction and Sol verification; production frozen. |
+| T2 model authority/schema | DECIDED — qualified durable `model` is mandatory and sole wake authority; remove `modelId` and legacy session fallback; full qualified display; natural explicit `set --model` repair | `Autorizo el contrato refinado por Fable para T2.` after manual Fable validation. | Spawn flag remains optional but creation must resolve a non-null model before manifest publication. Missing-model wake fails before session open with `manifest model missing: <name> — set --model <provider/id> to repair`. Delete old code/tests/comments; preserve `sessionFile` and JSONL. |
 
 ## 5. Proposed serial implementation tasks
 
@@ -296,9 +297,11 @@ Additionally, parent CLIs currently handshake by shared name rather than launche
 
 **Where**
 
-- `src/budget.mjs`: parser/validation if Q2 chooses a maximum.
-- `src/runner.mjs`: `startBudgetTimer`, `findModel`, sole caller.
-- Regression harness.
+- `src/budget.mjs`: bounded parser/validation.
+- `src/runner.mjs`: `startBudgetTimer`, model persistence/wake boundary, `findModel`, sole caller, pending accounting.
+- `bin/pi-dock.mjs`: help plus `set --model` durable-field cleanup/full-model output.
+- `test/smoke.mjs` fixtures/assertions and the direct regression harness.
+- `PLAN.md` Decision #4/#11 and `PROPOSAL.md` manifest schema, so no normative document retains `modelId` or legacy wake.
 
 **Problem**
 
@@ -309,8 +312,10 @@ Large accepted minute values overflow Node timers. Model lookup has a redundant 
 - Implement the ratified Q2 policy consistently in CLI validation, powered-off `set`, manifest wake validation, timer behavior, help, and later README.
 - No accepted numeric budget fails near-immediately because of timer overflow.
 - `off` remains unlimited.
-- `findModel` becomes a single synchronous optional-model boundary with unchanged qualification/error semantics.
-- Legacy manifests without dedicated `model` continue to wake according to the approved compatibility rules.
+- Model selection remains optional only during create pre-resolution (`spawn --model` stays optional); before manifest publication, creation must have resolved a non-null qualified `provider/id` model or fail and clean up.
+- Wake requires durable `manifest.model` before session open and uses it as the sole authority. Missing model fails exactly `manifest model missing: <name> — set --model <provider/id> to repair`; never restore/guess from the session or `modelId`, and never produce `model not found: undefined`.
+- `findModel` is synchronous and is called only with a present spec; delete its redundant nullish guard while preserving existing qualification and unknown-model errors.
+- Delete durable `modelId` from creation, `set`, fixtures, assertions, schemas, and comments. `set` prints the full qualified `model`; ordinary powered-off `set <name> --model <provider/id>` naturally repairs an old manifest while preserving `sessionFile`, without a compatibility-specific branch.
 - Hoist the duplicated `pending -= 1` exactly once per queued prompt without changing shutdown snapshot semantics.
 - Parenthesize the mixed budget-validation condition without changing behavior.
 - Do not change thinking-level semantics or prompt budget reset rules; do not inline `thinkingOption` or hide the subscription's explicit budget dependency.
@@ -321,7 +326,8 @@ Large accepted minute values overflow Node timers. Model lookup has a redundant 
 
 - Boundary matrix below/at/above chosen maximum, or deterministic chunk-scheduling tests.
 - Malformed budget grammar remains rejected exactly as before.
-- Legacy missing-model path preserves behavior.
+- Missing-model wake refuses before opening the standard session; explicit normal `set --model` repair preserves the exact `sessionFile`/JSONL and removes any stale durable `modelId` on rewrite.
+- Qualified model switching remains `stop` → `set --model` → `start` against the same session association.
 - No provider call.
 
 ### T3 — Complete-record and UTF-8 log correctness
@@ -481,7 +487,7 @@ node test/smoke.mjs
 - Shared `bin/pi-dock.mjs` and `test/regression.mjs` edits are strictly serial.
 - Maximum two review-convergence iterations per task; sensitive disagreement escalates to the owner rather than using a tie-break. T1 exhausted that cap and escalated; the owner explicitly authorized one pinned Fable-design rework plus one fresh Sol review. Sol approved production and found only harness isolation/cleanup defects; the owner explicitly authorized one final `test/regression.mjs`-only correction plus Sol verification. No production change or further T1 convergence is implicit.
 - Every material deviation travels verbatim into review.
-- Replacement hygiene is mandatory: when a design supersedes an intermediate/rejected design, delete the old path, helpers, imports, state, fixtures, and comments completely. Do not add compatibility shims or parallel implementations unless the owner explicitly ratifies that compatibility. Previously ratified compatibility requirements (notably T2 legacy missing-`model` wake behavior) remain contracts until separately amended; do not silently reinterpret them.
+- Replacement hygiene is mandatory: when a design supersedes an intermediate/rejected design, delete the old path, helpers, imports, state, fixtures, and comments completely. Do not add compatibility shims or parallel implementations unless the owner explicitly ratifies that compatibility. The owner explicitly revoked T2's former missing-`model` wake compatibility and durable `modelId`; remove them completely rather than retaining a fallback or migration branch.
 - Reassess worker context at every IMPLEMENT/REVIEW/COMMIT boundary; compact only at task boundaries, never mid-task.
 - Scratch resources are collision-resistant and exhaustively removed. Never touch unrelated dock agents, sessions, pipes, settings, processes, or link identities.
 

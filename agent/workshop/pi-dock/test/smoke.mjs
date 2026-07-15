@@ -150,7 +150,7 @@ try {
     expect(`manifest budget rejects ${JSON.stringify(badBudget)}`, budgetError(badBudget, { manifest: true })?.startsWith('invalid budget: ') === true, budgetError(badBudget, { manifest: true }));
   }
 
-  writeFileSync(dockFile(h, '.json'), `${JSON.stringify({ name: h, sessionFile: 'invalid-session', cwd: process.cwd(), modelId: null, model: null, budget: { turns: 20, minutes: 'x' }, flags: [], pipe: pipePath(h), startedAt: new Date().toISOString() })}\n`);
+  writeFileSync(dockFile(h, '.json'), `${JSON.stringify({ name: h, sessionFile: 'invalid-session', cwd: process.cwd(), model: 'anthropic/claude-haiku-4-5', budget: { turns: 20, minutes: 'x' }, flags: [], pipe: pipePath(h), startedAt: new Date().toISOString() })}\n`);
   let result = spawnSync(process.execPath, [path.join(process.cwd(), 'src', 'runner.mjs'), '--name', h], { cwd: process.cwd(), encoding: 'utf8' });
   const corruptLog = existsSync(dockFile(h, '.log')) ? readFileSync(dockFile(h, '.log'), 'utf8') : '';
   const corruptEvents = corruptLog.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
@@ -159,7 +159,7 @@ try {
 
   result = run([]);
   const help = result.stdout;
-  expect('bare help is static and complete', result.status === 0 && help.includes('pi-dock spawn') && help.includes('pi-dock compact') && help.includes('not responding') && help.includes('event:"text"') && help.includes('--budget') && help.includes('--follow'), result.stderr || help);
+  expect('bare help is static and complete', result.status === 0 && help.includes('pi-dock spawn') && help.includes('pi-dock compact') && help.includes('not responding') && help.includes('event:"text"') && help.includes('--budget') && help.includes('35791') && help.includes('unlimited') && help.includes('--follow'), result.stderr || help);
 
   result = run(['--help']);
   expect('long help matches bare help', result.status === 0 && result.stdout === help, result.stderr || result.stdout);
@@ -299,7 +299,7 @@ try {
   const dBeforeSet = manifest(d);
   result = run(['set', d, '--model', 'anthropic/claude-haiku-4-5', '--thinking', 'low', '--x', 'link', '--x', `link-name=${d}`]);
   const dAfterSet = manifest(d);
-  expect('set stopped D rewrites mutable identity', result.status === 0 && dAfterSet.model === 'anthropic/claude-haiku-4-5' && dAfterSet.modelId === 'claude-haiku-4-5' && dAfterSet.thinking === 'low' && JSON.stringify(dAfterSet.flags) === JSON.stringify(['link', `link-name=${d}`]), result.stderr || result.stdout || JSON.stringify(dAfterSet));
+  expect('set stopped D rewrites mutable identity', result.status === 0 && dAfterSet.model === 'anthropic/claude-haiku-4-5' && dAfterSet.thinking === 'low' && JSON.stringify(dAfterSet.flags) === JSON.stringify(['link', `link-name=${d}`]) && result.stdout.includes('model=anthropic/claude-haiku-4-5'), result.stderr || result.stdout || JSON.stringify(dAfterSet));
   expect('set stopped D preserves hard identity', dAfterSet.name === dBeforeSet.name && dAfterSet.sessionFile === dBeforeSet.sessionFile && dAfterSet.cwd === dBeforeSet.cwd && dAfterSet.pipe === dBeforeSet.pipe && dAfterSet.startedAt === dBeforeSet.startedAt, JSON.stringify({ before: dBeforeSet, after: dAfterSet }));
 
   const dBeforeInvalidBudget = readFileSync(dockFile(d, '.json'));
