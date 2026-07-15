@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -216,12 +216,13 @@ function lastCompleteLogEvent(name) {
     return null;
   }
 
-  const body = readFileSync(file, 'utf8');
-  if (!body.endsWith('\n')) {
+  const body = readFileSync(file);
+  const lastNewline = body.lastIndexOf(0x0A);
+  if (lastNewline === -1) {
     return null;
   }
 
-  const lines = body.slice(0, -1).split('\n');
+  const lines = body.subarray(0, lastNewline).toString('utf8').split('\n');
   const line = lines.at(-1);
   if (!line) {
     return null;
@@ -400,21 +401,35 @@ async function lsCommand() {
   }
 }
 
-function printLog(name, fromByte = 0) {
+function printLog(name) {
   const file = logPath(name);
   if (!existsSync(file)) {
     fail(`no log for agent: ${name}`);
   }
 
   const body = readFileSync(file, 'utf8');
-  const chunk = body.slice(fromByte);
-  for (const line of chunk.split('\n')) {
+  for (const line of body.split('\n')) {
+    if (line.length > 0) {
+      console.log(formatLogLine(line));
+    }
+  }
+}
+
+function printFollowLog(name, offset) {
+  const body = readFileSync(logPath(name));
+  const lastNewline = body.lastIndexOf(0x0A);
+  if (lastNewline < offset) {
+    return offset;
+  }
+
+  const complete = body.subarray(offset, lastNewline + 1).toString('utf8');
+  for (const line of complete.split('\n')) {
     if (line.length > 0) {
       console.log(formatLogLine(line));
     }
   }
 
-  return Buffer.byteLength(body);
+  return lastNewline + 1;
 }
 
 async function logsCommand(argv) {
@@ -430,12 +445,20 @@ async function logsCommand(argv) {
   }
 
   await requireManifest(name);
+  if (!existsSync(logPath(name))) {
+    fail(`no log for agent: ${name}`);
+  }
 
-  let offset = printLog(name);
+  if (!values.follow) {
+    printLog(name);
+    return;
+  }
+
+  let offset = printFollowLog(name, 0);
   while (values.follow) {
     await sleep(500);
-    if (existsSync(logPath(name)) && statSync(logPath(name)).size > offset) {
-      offset = printLog(name, offset);
+    if (existsSync(logPath(name))) {
+      offset = printFollowLog(name, offset);
     }
   }
 }

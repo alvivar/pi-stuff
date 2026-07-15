@@ -133,6 +133,65 @@ function runOwnedNode(sandbox, script, args) {
   });
 }
 
+function launchOwnedFollow(sandbox, name) {
+  const child = spawn(process.execPath, [path.join(root, 'bin', 'pi-dock.mjs'), 'logs', name, '--follow'], {
+    env: sandboxEnv(sandbox),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  let output = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => { output += chunk; });
+  return { child, output: () => output };
+}
+
+async function waitForFollowOutput(follower, predicate, timeoutMs = 5000) {
+  if (predicate(follower.output())) {
+    return;
+  }
+  let dataHandler;
+  let closeHandler;
+  let errorHandler;
+  let timer;
+  try {
+    await new Promise((resolve, reject) => {
+      const finish = (error) => error ? reject(error) : resolve();
+      dataHandler = () => {
+        if (predicate(follower.output())) {
+          finish();
+        }
+      };
+      closeHandler = () => finish(new Error('follow process closed before expected output'));
+      errorHandler = (error) => finish(error);
+      timer = setTimeout(() => finish(new Error('follow process did not produce expected output')), timeoutMs);
+      follower.child.stdout.on('data', dataHandler);
+      follower.child.once('close', closeHandler);
+      follower.child.once('error', errorHandler);
+    });
+  } finally {
+    clearTimeout(timer);
+    follower.child.stdout.off('data', dataHandler);
+    follower.child.off('close', closeHandler);
+    follower.child.off('error', errorHandler);
+  }
+}
+
+async function stopOwnedFollow(follower) {
+  if (follower.child.exitCode === null && follower.child.signalCode === null) {
+    follower.child.kill();
+  }
+  await waitForExit(follower.child, 5000);
+}
+
+function countOccurrences(text, needle) {
+  return text.split(needle).length - 1;
+}
+
+function stateFromLs(output, name) {
+  const line = output.split('\n').find((candidate) => candidate.startsWith(`${name}\t`));
+  return line?.split('\t')[1] ?? null;
+}
+
 async function waitForStatus(pipe, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -252,6 +311,77 @@ async function main() {
     assert.deepEqual(missingEvents.map((event) => event.event), ['failed']);
     assert.equal(missingEvents[0].reason, `manifest model missing: ${missingName} — set --model <provider/id> to repair`);
 
+    const followName = `follow-${randomUUID()}`;
+    const followManifest = { ...manifest('follow'), name: followName, pipe: pipePath(followName) };
+    const followLog = path.join(dock, `${followName}.log`);
+    const accentedEvent = JSON.stringify({ ts: '2026-01-01T00:00:00.000Z', event: 'text', text: 'café 😀' });
+    await fs.writeFile(path.join(dock, `${followName}.json`), `${JSON.stringify(followManifest)}\n`);
+    await fs.writeFile(followLog, `${accentedEvent}\n`);
+    const follower = launchOwnedFollow(sandbox, followName);
+    try {
+      await waitForFollowOutput(follower, (output) => output.includes('café 😀'));
+      const noGrowthOutput = follower.output();
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      assert.equal(follower.output(), noGrowthOutput, 'no-growth poll emits nothing');
+
+      const laterEvent = JSON.stringify({ ts: '2026-01-01T00:00:01.000Z', event: 'text', text: 'later 😀' });
+      await fs.appendFile(followLog, `${laterEvent}\n`);
+      await waitForFollowOutput(follower, (output) => output.includes('later 😀'));
+      assert.equal(countOccurrences(follower.output(), 'café 😀'), 1, 'accented event is emitted once');
+      assert.equal(countOccurrences(follower.output(), 'later 😀'), 1, 'later emoji event is emitted once');
+
+      const splitEvent = Buffer.from(`${JSON.stringify({ ts: '2026-01-01T00:00:02.000Z', event: 'text', text: 'split é 😀' })}\n`);
+      const splitAt = splitEvent.indexOf(Buffer.from('é')) + 1;
+      assert(splitAt > 0, 'split fixture contains a multibyte code point');
+      const beforeSplit = follower.output();
+      await fs.appendFile(followLog, splitEvent.subarray(0, splitAt));
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      assert.equal(follower.output(), beforeSplit, 'torn multibyte event emits no corrupt or partial output');
+      await fs.appendFile(followLog, splitEvent.subarray(splitAt));
+      await waitForFollowOutput(follower, (output) => output.includes('split é 😀'));
+      assert.equal(countOccurrences(follower.output(), 'split é 😀'), 1, 'completed multibyte event emits once');
+
+      const orderedOne = JSON.stringify({ ts: '2026-01-01T00:00:03.000Z', event: 'text', text: 'ordered-one' });
+      const orderedTwo = JSON.stringify({ ts: '2026-01-01T00:00:04.000Z', event: 'text', text: 'ordered-two' });
+      await fs.appendFile(followLog, `${orderedOne}\n${orderedTwo}\n`);
+      await waitForFollowOutput(follower, (output) => output.includes('ordered-one') && output.includes('ordered-two'));
+      const followed = follower.output();
+      assert(followed.indexOf('ordered-one') < followed.indexOf('ordered-two'), 'multiple complete events preserve order');
+      assert.equal(countOccurrences(followed, 'ordered-one'), 1);
+      assert.equal(countOccurrences(followed, 'ordered-two'), 1);
+    } finally {
+      await stopOwnedFollow(follower);
+    }
+
+    const absentLogName = `absent-follow-${randomUUID()}`;
+    await fs.writeFile(path.join(dock, `${absentLogName}.json`), `${JSON.stringify({ ...manifest('absent-follow'), name: absentLogName, pipe: pipePath(absentLogName) })}\n`);
+    const absentFollow = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['logs', absentLogName, '--follow']);
+    assert.equal(absentFollow.code, 1);
+    assert.equal(absentFollow.signal, null);
+    assert.equal(absentFollow.stdout, '');
+    assert.equal(absentFollow.stderr.trim(), `no log for agent: ${absentLogName}`);
+    assert.equal(absentFollow.stderr.includes(sandbox), false, 'absent follow does not leak a sandbox path');
+
+    const stateCases = [
+      ['stopped', '{"event":"stopped"}\n', 'stopped'],
+      ['stopped-torn', '{"event":"stopped"}\n{"event":', 'stopped'],
+      ['failed-torn', '{"event":"failed"}\n{"event":', 'failed'],
+      ['idle-torn', '{"event":"idle"}\n{"event":', 'failed'],
+      ['only-torn', '{"event":', 'failed'],
+      ['empty', '', 'failed'],
+      ['missing', null, 'failed'],
+    ];
+    for (const [suffix, body, expectedState] of stateCases) {
+      const stateName = `state-${suffix}-${randomUUID()}`;
+      await fs.writeFile(path.join(dock, `${stateName}.json`), `${JSON.stringify({ ...manifest('state'), name: stateName, pipe: pipePath(stateName) })}\n`);
+      if (body !== null) {
+        await fs.writeFile(path.join(dock, `${stateName}.log`), body);
+      }
+      const lsResult = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['ls']);
+      assert.equal(lsResult.code, 0, lsResult.stderr);
+      assert.equal(stateFromLs(lsResult.stdout, stateName), expectedState, `${suffix} state`);
+    }
+
     const runnerName = `t1-${randomUUID()}`;
     const runnerCwd = path.join(sandbox, 'trusted-empty-cwd');
     await fs.mkdir(runnerCwd);
@@ -281,7 +411,7 @@ async function main() {
     assert.deepEqual(await tempFiles(dock), [], 'real runner race leaves no manifest temp files');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 6 cases passed');
+    console.log('regression: 9 cases passed');
   } catch (error) {
     primaryError = error;
   }
