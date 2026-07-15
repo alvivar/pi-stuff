@@ -1,12 +1,12 @@
 # pi-dock — pre-release cleanup plan
 
-> **Status:** DECISIONS COMPLETE — ready for final ratification. **No implementation is authorized yet.**
-> Q1–Q10 are resolved and recorded in §4. After context compaction, perform final plan/preflight review, create the run ledger, and obtain an explicit implementation go before dispatching code work.
+> **Status:** RATIFIED — execution authorized. The owner gave the explicit run-through go with `Go!` on 2026-07-14.
+> Q1–Q10 are resolved and recorded in §4. The baseline passed 7/7 syntax checks with no product drift; execute the serial pipeline under §6 and HOLD only on its listed exceptions.
 >
 > **Project:** `C:/Users/andre/.pi/agent/workshop/pi-dock/`
 > **Repository root:** `C:/Users/andre/.pi/`
 > **Publication copy (do not touch before the final release task):** `C:/AERO/me/code/pi-dock/`
-> **Reviewed product baseline:** last commit touching pi-dock `04424af` (`chore(pi-dock): lock development dependencies`). The repository-wide HEAD observed by both reviewers was `60054e1`; intervening commits affected pi-link only, and `git diff --quiet 04424af -- agent/workshop/pi-dock` passed.
+> **Reviewed product baseline:** last pre-plan commit touching pi-dock product/runtime/package files `04424af` (`chore(pi-dock): lock development dependencies`). Reviewers originally observed repository-wide HEAD `60054e1`; run preflight observed current HEAD `a76e0de` (`docs(pi-dock): plan pre-release cleanup`) and confirmed the only pi-dock delta from `04424af` was this plan, with no product/runtime/package drift.
 > **Last approved gates:** SDK `0.80.6`; syntax ×7; smoke `69/69`; Windows E2E of all 8 public commands approved at cumulative 8/8 provider operations. The pi-dock worktree was clean before this draft was created.
 > **Review sources:** independent full-tree reviews and cross-reconciliation by Fable and Sol. Both read `bin/pi-dock.mjs`, all `src/*.mjs`, `test/smoke.mjs`, `package.json`, and relevant `PLAN.md` contracts.
 > **Line numbers are approximate.** Re-locate by named functions and behavior anchors before editing.
@@ -20,7 +20,7 @@ The release bar is:
 1. All accepted findings in §2 have an owner-ratified outcome.
 2. Tasks T1–T5 are implemented **serially**, independently reviewed, gated LLM-free, and committed one at a time.
 3. Sol approves each task and the integrated result. Per owner direction, Fable is outside the orchestrated cycle and may be invoked manually by the owner; Fable approval is not an automated pipeline gate.
-4. Exactly one final full smoke is run only after integrated code approval, if the owner authorizes its two real model prompts.
+4. Exactly one final full smoke is run only after integrated code approval; Q9 records the owner's authorization for its two real model prompts and forbids fallback/retry.
 5. T6 documentation and package preparation are approved before copying to the publication repository.
 6. No runtime dependencies, build step, destructive agent command, or unrequested architecture is introduced.
 
@@ -30,7 +30,7 @@ The release bar is:
 
 | ID | Location / anchor | Finding | Consensus |
 |---|---|---|---|
-| SOL-03 / FBL-C2 | `src/manifest.mjs`: `writeManifestFile`, `writeManifest`, `rewriteManifest` | Create uses `access(target)` followed by temp + `rename`; two creators can both observe absence, and a later loser can replace the winner's manifest. `wx` protects only the unique temp file. This can bind a durable name to the wrong session. The `flag` parameter is also a constant, false degree of freedom. | Release-blocker. |
+| SOL-03 / FBL-C2 | `src/manifest.mjs`: `writeManifestFile`, `writeManifest`, `rewriteManifest`; concurrent `spawn` startup ownership | Create uses `access(target)` followed by temp + `rename`; two creators can both observe absence, and a later loser can replace the winner's manifest. `wx` protects only the unique temp file. This can bind a durable name to the wrong session. The `flag` parameter is also a constant, false degree of freedom. Mid-review, Sol proved that name-only parent handshake also lets a concurrent losing invocation report the winner as its own. | Release-blocker; fix both atomic publication and public invocation ownership under the owner-ratified T1 amendment. |
 | SOL-02 | `src/paths.mjs` path/pipe derivation; every CLI name entry | Agent names are not validated. Separators such as `../x` can address files outside `~/.pi/dock`; whitespace/control/case/path syntax can break identity and output invariants. | Release-blocker. |
 | SOL-04 / FBL-D1 / FBL-D1b | `bin/pi-dock.mjs`: `printLog`, `logsCommand` | Follow stores byte offsets but slices a UTF-16 string. Normal accented/emoji output shifts the offset and silently drops or garbles later records. It also emits torn fragments and advances past them, so completion can be printed as a second corrupt line. | Release-blocker. |
 | SOL-01 | `bin/pi-dock.mjs`: `tryStatus`, `setCommand` | `tryStatus` swallows timeout and returns `null`; `set` therefore treats an unresponsive live pipe owner as powered off and rewrites the manifest, contradicting the powered-off-only mutation contract and the actionable timeout rule. | High and release-blocking. |
@@ -175,7 +175,7 @@ N2/N3 are explicitly rejected in §2.5.
 
 ### Q7 — Regression-test organization
 
-**Recommended:** create `test/regression.mjs`, Node built-ins only, isolated temporary home/data, no SDK session/model/provider, no user registry/session mutation. It will accumulate focused tests across T1–T5 and run after every task.
+**Recommended:** create `test/regression.mjs`, Node built-ins only, isolated temporary home/data, no model/provider/prompt and no user registry/session mutation. It will accumulate focused tests across T1–T5 and run after every task. The owner later ratified one narrow T1 exception: the sandboxed concurrency case may launch the real runner and therefore import the official SDK/create disposable sessions, but it must use an empty trusted scratch cwd, perform zero provider operations, and remove every owned artifact/process.
 
 Constraints:
 
@@ -190,7 +190,7 @@ Questions:
 1. Ratify one dedicated LLM-free test file?
 2. Add an npm script such as `test:regression`, or invoke it directly? **Recommendation: direct invocation unless a public contributor workflow benefits from the script.**
 
-**Owner decision:** use the simplest possible dedicated LLM-free regression test, invoked directly; do not add a test framework or npm-script layer unless implementation proves it materially simpler.
+**Owner decision:** use the simplest possible dedicated LLM-free regression test, invoked directly; do not add a test framework or npm-script layer. Under the later Fable design ratification, prefer a real isolated runner race over a mirrored startup protocol: SDK import/disposable sandbox sessions are allowed only for that T1 case, with zero model prompts/provider operations and exhaustive cleanup. The owner subsequently authorized explicit SDK isolation option A: override `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` to owned paths under the sandbox and set `PI_OFFLINE=1`; inherited host overrides must never escape the sandbox.
 
 ### Q8 — Review topology
 
@@ -212,7 +212,17 @@ Per-task convergence can be fully LLM-free. The existing smoke makes exactly two
 - **Run-through:** one owner go covers T1–T6; HOLD on material deviation, red gate, review deadlock, paid-gate failure, or scope change.
 - **Gate-per-task:** owner approves before every commit.
 
-**Owner decision:** run-through, effective only after all remaining questions are resolved and the final plan receives an explicit implementation go. No current go is implied by this decision.
+**Owner decision:** run-through, effective only after all remaining questions are resolved and the final plan receives an explicit implementation go. The decision itself implied no go; the owner subsequently activated it with `Go!` on 2026-07-14.
+
+### T1 mid-review amendment — concurrent public spawn ownership
+
+Sol proved that atomic manifest publication alone cannot preserve the ratified public loser error: concurrent parent CLIs handshake only by shared name and can both report the one winner as `idle`, even with different requested configuration. The owner chose the ownership-aware option with `Ok, me parece bien esta recomendación.`
+
+**Ratified outcome:** for simultaneous successful same-name create attempts, exactly one invocation may report success, and that success must belong to the runner/configuration launched by that invocation; every publication loser returns exact `agent already exists: <name>` with exit 1. An expected publication loss must not append `failed` to the winner's shared log or bind/wake the winner while pretending to own creation. Preserve ordinary wake/start behavior and truthful crash/timeout failures.
+
+After two rejected stdout-ack review iterations, the owner ratified Fable's simpler design with `Estoy de acuerdo con el diseño de Fable.` Delete the private stdout/token protocol entirely. Keep explicit boolean create intent; retain the launched `child.pid`; use the existing name/pipe handshake; add the serving runner's `process.pid` to the additive status reply; succeed and print the real returned state only when `status.pid === child.pid`; PID mismatch is exact public already-exists. Expected manifest losers dispose/exit silently before catch-all failure logging. Do not add stdout/IPC channels, tokens, a new protocol module, log archaeology, or reservation/stale-lock state.
+
+This design accepts the already-ratified pre-publication loser SDK/session/extension residual and negligible live-window PID-reuse risk. Winner crash after manifest publication but before listening retains truthful baseline handshake-failure behavior. The T1 regression may launch real runners in a fully isolated sandbox despite Q7's original no-SDK wording; it must send zero prompts/provider operations and clean all sessions, pipes, children, logs, and registry files. The owner authorized one pinned T1 rework implementation pass and one fresh Sol review beyond the prior iteration cap. That review approved production and found only bounded harness defects; the owner then authorized one final test-only cleanup plus Sol verification. Production must not reopen; any further issue returns to HOLD.
 
 ## 4. Owner decision log
 
@@ -226,44 +236,61 @@ Fill this section during point-by-point analysis. A decision is not ratified unt
 | Q4 follow mechanism freedom | DECIDED — whole-file Buffer, byte offset, commit through last newline only; no appended-only optimization | `La opción más simple, el archivo completo, documenta este punto para luego.` | T3 mechanism and tests pinned. |
 | Q5 task order | DECIDED — manifest → runner/budget → logs → set → names → integration/docs | `Estoy de acuerdo.` after the explicit Q5 recommendation. | Final serial sequence pinned. |
 | Q6 micro-cleanups | DECIDED — include N1/N4 as T2 riders; exclude N2/N3 | `De acuerdo con lo que acabas de decir.` | T2 exact cleanup scope pinned. |
-| Q7 regression organization | DECIDED — simplest dedicated direct LLM-free test | `Me gusta la idea del test más simple posible.` | T1 establishes one built-in-only file, no unnecessary layer. |
+| Q7 regression organization | DECIDED — simplest dedicated direct LLM-free test; narrow real-runner SDK/sandbox exception for T1, zero prompts/provider | `Me gusta la idea del test más simple posible.` and later `Estoy de acuerdo con el diseño de Fable.` | Use production runner race, not mirrored protocol or test-only abstraction; exhaustive owned cleanup. |
 | Q8 review topology | DECIDED — Terra → Sol → committer; Fable manual/outside cycle | `Terra implementa, Sol hace review, committer sigue clásico, Fable queda fuera del ciclo (yo lo invoco manual).` | Bind roles exactly; no orchestrated Fable gate. |
 | Q9 paid smoke | DECIDED — one final 2-prompt smoke after Sol approval; no fallback/retry | `Ok, sigo tu recomendación.` | Final paid gate authorized once. |
 | Q10 autonomy | DECIDED — run-through after final explicit go | `Run-through` | One go after plan ratification; HOLD on listed exceptions. |
+| T1 concurrent spawn ownership | DECIDED — delete stdout/token; boolean create intent + additive status PID + launched child PID comparison over baseline handshake; silent loser; real state | `Estoy de acuerdo con el diseño de Fable.` after manual fresh-eyes advice. | One pinned rework + one Sol review authorized beyond old cap; no new protocol/module/reservation. |
+| Global replacement hygiene | DECIDED — chosen implementation replaces rejected/intermediate designs completely; no dead shims, parallel paths, stale helpers/imports/tests, or speculative compatibility | `No me interesa backward compatibility, o arrastrar cosas sin terminar. La implementación que se decide se crea y se eliminan las sobras innecesarias. No arrastramos basura.` | Enforce deletion in implementation/review. Explicit previously ratified compatibility contracts require a separate owner amendment rather than silent removal. |
+| T1 final harness isolation/cleanup | DECIDED — explicit owned SDK/session dirs + offline; clear losing timers; sandbox removal survives child-cleanup errors; loser exit 0 asserted | `Estoy de acuerdo con 2 y 3...` then `Autorizo A.` after item 1 explanation. | One final `test/regression.mjs`-only correction and Sol verification; production frozen. |
 
 ## 5. Proposed serial implementation tasks
 
-These tasks are provisional until §4 is complete. No task may start from this draft alone.
+These tasks are ratified by the owner and execute serially under the run-through go recorded above.
 
 ### T1 — Exclusive manifest publication
 
 **Where**
 
 - `src/manifest.mjs`: `writeManifestFile`, `writeManifest`, `rewriteManifest`.
+- `bin/pi-dock.mjs`: create-only `spawnCommand` / `launchRunner` ownership check reusing the existing `handshake` unchanged in lifecycle.
+- `src/runner.mjs`: boolean create intent, expected publication-loss handling, and additive PID in existing status; do not alter ordinary wake/start semantics.
 - New LLM-free regression harness from Q7.
 
 **Problem**
 
 Create checks and target publication are separate. A concurrent loser can replace the winner's durable identity/session mapping. The writer's `flag` parameter is constant and applies to the wrong object (the temp file rather than target install semantics).
 
+Additionally, parent CLIs currently handshake by shared name rather than launched-runner ownership. After atomic publication, a losing same-name invocation can handshake with the winner and falsely report success for configuration it did not create; the losing runner can also append `failed` to the winner's name-derived log.
+
 **Required outcome**
 
 - Create target publication is one exclusive atomic outcome: at most one winner.
-- Losing creators cannot alter winner bytes and surface the existing public “agent already exists” contract.
+- Losing creators cannot alter winner bytes. For simultaneous successful same-name create attempts, exactly one parent reports success for its own launched runner/configuration; every loser returns exact `agent already exists: <name>` with exit 1.
+- An expected publication loser does not append `failed` to the winner's shared log, wake/bind the winner as if it owned creation, or otherwise contaminate the winner's terminal state.
 - Readers never observe partial manifest JSON.
 - Rewrite remains atomic replacement.
-- Temp files are removed after success and every failure.
-- Mechanism is not prescribed; it must be proven on Windows. If hard-link or another platform primitive is chosen, portability/fallback behavior must be declared as a material judgment for review.
+- Temp cleanup is ownership-safe: never delete an unacquired collision, never roll back a winner, and never let cleanup failure replace the primary publication/rewrite success or error.
+- Manifest publication remains the approved same-directory hard-link/no-unsafe-fallback mechanism proven on Windows.
+- Startup ownership uses only the ratified simple mechanism: boolean create intent; `launchRunner` returns its child/PID with ignored stdio as baseline; existing handshake returns actual status including additive `pid`; exact PID match succeeds/prints real state, mismatch returns public already-exists. Delete token/randomUUID/private stdout/waiter/timer/parser plumbing.
+- Preserve ordinary wake/start, configuration precedence, truthful crash/timeout behavior, and existing pre-existing-agent errors. Do not add stdout/IPC protocol, new module, log-PID lookup, or early reservation/stale-lock subsystem.
 
-**Risk:** high; sensitive durable-identity invariant.
+**Risk:** high; sensitive durable-identity and create-startup ownership invariant. Serialize the expanded `bin`/runner region before later T2–T5 work.
 
 **Verify**
 
-- Sandboxed N-way concurrent creation: exactly one success, all others fail as existing, winner intact.
+- Sandboxed N-way concurrent manifest creation: exactly one internal winner, all others fail as existing, winner intact.
+- Real-runner N-way create-intent race under isolated HOME/USERPROFILE and empty trusted scratch cwd: exactly one pipe owner; status PID matches exactly one launched child; one spawned log event with that PID; manifest/configuration belong to that winner; losers exit silently with no shared `failed` and each closes with exit code 0; all owned children/sessions/pipes/files cleaned.
+- Override `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` to explicit owned sandbox paths and set `PI_OFFLINE=1`; never inherit a host SDK path outside the scratch root.
+- Every child-wait timeout is cleared when close wins. Child cleanup is best-effort for all owned children, but exact sandbox removal is attempted in a guaranteed final path; preserve/report cleanup errors after attempting both.
+- The real-runner case may import SDK/create sandbox sessions but performs zero model/provider/prompt operations. Do not mirror parent/runner protocol or fabricate public results.
+- Parent PID comparison is small eyes-on production logic and is also covered by the one reserved final smoke's ordinary spawn; do not import user credentials into regression.
+- Cover create intent so a publication loser cannot become a wake runner and falsely satisfy ownership; reason through truthful winner crash-before-listen/timeout behavior without false success.
 - Existing-target create cannot replace bytes.
 - Rewrite replaces complete JSON atomically.
-- Zero temp leftovers.
-- No real user dock/session artifacts.
+- Ownership-safe cleanup; zero normal-path temp leftovers; primary outcome/error preservation reasoned or deterministically tested without adding a production-only mocking architecture.
+- Declare whether loser-side SDK session/extension initialization can still occur; an early reservation/stale-lock subsystem is out of scope absent a new HOLD.
+- No provider or real user dock/session artifacts.
 
 ### T2 — Long-budget correctness and model lookup boundary
 
@@ -452,8 +479,9 @@ node test/smoke.mjs
 - Dedicated committer verifies scope/hygiene and commits only after approval; never re-reviews correctness.
 - Commit each task before the next implementation so diffs stay task-scoped.
 - Shared `bin/pi-dock.mjs` and `test/regression.mjs` edits are strictly serial.
-- Maximum two review-convergence iterations per task; sensitive disagreement escalates to the owner rather than using a tie-break.
+- Maximum two review-convergence iterations per task; sensitive disagreement escalates to the owner rather than using a tie-break. T1 exhausted that cap and escalated; the owner explicitly authorized one pinned Fable-design rework plus one fresh Sol review. Sol approved production and found only harness isolation/cleanup defects; the owner explicitly authorized one final `test/regression.mjs`-only correction plus Sol verification. No production change or further T1 convergence is implicit.
 - Every material deviation travels verbatim into review.
+- Replacement hygiene is mandatory: when a design supersedes an intermediate/rejected design, delete the old path, helpers, imports, state, fixtures, and comments completely. Do not add compatibility shims or parallel implementations unless the owner explicitly ratifies that compatibility. Previously ratified compatibility requirements (notably T2 legacy missing-`model` wake behavior) remain contracts until separately amended; do not silently reinterpret them.
 - Reassess worker context at every IMPLEMENT/REVIEW/COMMIT boundary; compact only at task boundaries, never mid-task.
 - Scratch resources are collision-resistant and exhaustively removed. Never touch unrelated dock agents, sessions, pipes, settings, processes, or link identities.
 

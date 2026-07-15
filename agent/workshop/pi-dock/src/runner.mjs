@@ -9,7 +9,7 @@ import {
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { parseBudget } from './budget.mjs';
-import { readManifest, writeManifest } from './manifest.mjs';
+import { ManifestExistsError, readManifest, writeManifest } from './manifest.mjs';
 import { ensureDockDir, logPath, pipePath } from './paths.mjs';
 import { serve } from './pipe.mjs';
 
@@ -21,6 +21,7 @@ const { values } = parseArgs({
     budget: { type: 'string' },
     thinking: { type: 'string' },
     x: { type: 'string', multiple: true },
+    create: { type: 'boolean' },
   },
 });
 
@@ -284,7 +285,8 @@ async function findModel(modelRegistry, spec) {
 try {
   await ensureDockDir();
 
-  const existing = await readManifest(name).catch((error) => {
+  const createIntent = values.create;
+  const existing = createIntent ? null : await readManifest(name).catch((error) => {
     if (error.code === 'ENOENT') {
       return null;
     }
@@ -330,7 +332,15 @@ try {
     if (thinking) {
       manifest.thinking = thinking;
     }
-    await writeManifest(name, manifest);
+    try {
+      await writeManifest(name, manifest);
+    } catch (error) {
+      if (createIntent && error instanceof ManifestExistsError) {
+        session.dispose();
+        process.exit(0);
+      }
+      throw error;
+    }
   }
 
   subscribeToSession(budget);
@@ -349,7 +359,7 @@ try {
       }
 
       const state = running || session.isStreaming ? 'running' : 'idle';
-      return { ok: true, state, turns };
+      return { ok: true, state, turns, pid: process.pid };
     }
 
     if (msg.cmd === 'prompt') {

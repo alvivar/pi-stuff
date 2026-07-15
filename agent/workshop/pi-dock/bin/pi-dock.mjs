@@ -97,6 +97,9 @@ function launchRunner(name, options = {}) {
   if (options.thinking) {
     argv.push('--thinking', options.thinking);
   }
+  if (options.create) {
+    argv.push('--create');
+  }
   for (const flag of options.flags ?? []) {
     argv.push('--x', flag);
   }
@@ -107,6 +110,7 @@ function launchRunner(name, options = {}) {
     windowsHide: true,
   });
   child.unref();
+  return child;
 }
 
 async function handshake(name, timeoutMs = 20000) {
@@ -290,12 +294,21 @@ async function spawnCommand(argv) {
     fail(`preflight failed: ${error.message}; no agent was created`);
   }
 
-  launchRunner(name, { cwd, model: values.model, budget: formatBudget(budget), thinking: values.thinking, flags: values.x });
-
+  const child = launchRunner(name, {
+    cwd,
+    model: values.model,
+    budget: formatBudget(budget),
+    thinking: values.thinking,
+    flags: values.x,
+    create: true,
+  });
   const result = await handshake(name);
   if (!result) {
     reportHandshakeFailure(name);
     process.exit(1);
+  }
+  if (!Number.isInteger(result.status.pid) || result.status.pid !== child.pid) {
+    fail(`agent already exists: ${name}`);
   }
 
   console.log(`${name} ${result.status.state}`);
