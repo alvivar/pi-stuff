@@ -111,7 +111,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
         ]
       },
       {
@@ -163,12 +163,21 @@
         ]
       },
       {
+        "name": "luna@pi-dock",
+        "icon": "color-mode",
+        "color": "terminal.ansiBrightBlue",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link luna@pi-dock"
+        ]
+      },
+      {
         "name": "committer@.pi",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
         ]
       },
       {
@@ -198,7 +207,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
         ]
       },
       {
@@ -237,7 +246,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
         ]
       },
       {
@@ -276,7 +285,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
         ]
       },
       {
@@ -324,7 +333,7 @@
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --session \"$(pi-link --resolve committer@.pi)\""
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
         ]
       },
       {
