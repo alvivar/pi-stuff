@@ -6,11 +6,11 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
-## Unreleased
+## 0.2.0 — 2026-07-17
 
 ### Added
 
-- **`pi-link --version` prints the installed package version.** It writes the bare semver to stdout and exits successfully, so users can identify the installed build during testing. Like `--help`, it is exclusive and accepts no additional arguments.
+- **`pi-link --version` prints the installed package version.** It writes the bare semver to stdout and exits successfully, so users can identify the installed build during testing.
 
 ### Breaking
 
