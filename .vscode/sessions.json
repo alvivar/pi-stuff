@@ -202,6 +202,16 @@
         ]
       },
       {
+        "name": "docs@pi-bugs",
+        "icon": "book",
+        "color": "terminal.ansiBrightCyan",
+        "focus": true,
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link docs@pi-bugs"
+        ]
+      },
+      {
         "name": "committer@.pi",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
