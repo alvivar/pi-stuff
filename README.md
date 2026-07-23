@@ -18,7 +18,7 @@ Docs next to the code:
 
 ### [claude-subagent](agent/extensions/claude-subagent/)
 
-Registers a `claude_subagent` tool so any model running in Pi can shell out to Claude Code for a subtask. Thread-based session reuse, `/claude <task>` shortcut.
+Registers a `claude_subagent` tool so any model running in Pi can shell out to Claude Code for a subtask. Supports JSON or streaming output, configurable tool allowlists, timeouts, and working directories, plus explicit session reuse or thread-based session reuse. `/claude <task>` is a shortcut for invoking it.
 
 ### [pi-rules](agent/extensions/pi-rules.ts)
 
@@ -28,7 +28,11 @@ Branch-local prompt guidance. `/rules <text>` injects instructions into every LL
 
 Tiny cosmetic extension. Rewrites standalone "pi" → "PI" in the system prompt right before it hits the provider. Runs in `before_provider_request` so it catches everything — built-in prompt, SYSTEM.md, append flags, other extensions. Skips code spans and identifier-like contexts (`pi.on`, `.pi/`, `pi-coding-agent`).
 
-Has its own [test suite](agent/extensions/uppercase-pi/test.mjs) (`node test.mjs`).
+Has its own [test suite](agent/extensions/uppercase-pi/test.mjs):
+
+```sh
+node agent/extensions/uppercase-pi/test.mjs
+```
 
 ## Workshop
 
@@ -57,6 +61,14 @@ Local, private pre-release project (`0.1.0-dev`) for running named Pi agents as 
 Commands: `spawn`, `send`, `start`, `stop`, `ls`, `logs`, `set`, and `compact`.
 
 Not published or ready for installation. See [PLAN.md](agent/workshop/pi-dock/PLAN.md) for the ratified design and [tests](agent/workshop/pi-dock/test/) for the current regression and smoke coverage.
+
+## Skills
+
+### [pi-link-implement-review-commit](agent/skills/pi-link-implement-review-commit/)
+
+Local, plan-driven implement → review → commit orchestration for multi-terminal Pi work. It coordinates separate implementer, reviewer, and committer roles, requires task gates before review and commit, and keeps the orchestrator as the communication relay.
+
+It is a policy skill built on `pi-link-coordination`, the general coordination skill bundled with `pi-link`.
 
 ## Disabled skills
 
