@@ -38,6 +38,14 @@ Published as `npm:pi-link`. Local WebSocket network between Pi terminals — hub
 
 Has a thorough [README](agent/workshop/pi-link/README.md), a bundled `pi-link-coordination` skill, and various design docs (`PLAN-*.md`, `REPORT-*.md`, `STYLE.md`).
 
+### [pi-dock](agent/workshop/pi-dock/)
+
+Local, private pre-release project (`0.1.0-dev`) for running named Pi agents as detached resident processes. An agent keeps its Pi session and memory after `stop`; `start` or `send` wakes it again.
+
+Commands: `spawn`, `send`, `start`, `stop`, `ls`, `logs`, `set`, and `compact`.
+
+Not published or ready for installation. See [PLAN.md](agent/workshop/pi-dock/PLAN.md) for the ratified design and [tests](agent/workshop/pi-dock/test/) for the current regression and smoke coverage.
+
 ## Disabled skills
 
 ### [chrome-cdp-win](agent/skills_disabled/chrome-cdp-win/)
