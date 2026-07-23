@@ -34,9 +34,21 @@ Has its own [test suite](agent/extensions/uppercase-pi/test.mjs) (`node test.mjs
 
 ### [pi-link](agent/workshop/pi-link/)
 
-Published as `npm:pi-link`. Local WebSocket network between Pi terminals — hub-spoke on `localhost:9900`, auto-discovery, `link_send` / `link_prompt` / `link_list` tools, `/link` commands. The evolution of the earlier `pi-mesh` prototype. Lives in `workshop/` because it's an npm package with its own release cycle.
+Published as [`pi-link` on npm](https://www.npmjs.com/package/pi-link) (currently `0.2.0`). A local WebSocket network between Pi terminals: hub-spoke on `127.0.0.1:9900`, auto-discovery, `link_send`, `link_prompt`, `link_list`, and `link_compact` tools, plus `/link` commands. It evolved from the earlier `pi-mesh` prototype.
 
-Has a thorough [README](agent/workshop/pi-link/README.md), a bundled `pi-link-coordination` skill, and various design docs (`PLAN-*.md`, `REPORT-*.md`, `STYLE.md`).
+Install the Pi extension with:
+
+```sh
+pi install npm:pi-link
+```
+
+On Pi 0.75+, install the shell launcher separately if you want to run `pi-link <name>` from a terminal:
+
+```sh
+npm i -g pi-link
+```
+
+The global install is optional; the Pi install enables the extension, slash commands, and LLM tools. See the package [README](agent/workshop/pi-link/README.md), [CHANGELOG](agent/workshop/pi-link/CHANGELOG.md), bundled `pi-link-coordination` skill, and design documents (`PLAN-*.md`, `REPORT-*.md`).
 
 ### [pi-dock](agent/workshop/pi-dock/)
 
@@ -61,4 +73,5 @@ Windows-only fork of `pi-chrome-cdp`, retained here but currently disabled. It u
 ## Setup
 
 - **Claude extensions** — `claude` CLI on PATH (or set `CLAUDE_CLI_PATH`)
-- **pi-link** — `pi install npm:pi-link`
+- **pi-link extension** — `pi install npm:pi-link`
+- **pi-link shell launcher (optional; Pi 0.75+)** — `npm i -g pi-link`
