@@ -1,25 +1,25 @@
 # .pi
 
-My personal [Pi](http://pi.dev) config. Scrappy, opinionated, not meant for anyone else.
+My personal [Pi](https://pi.dev) configuration: scrappy, opinionated, and not intended as a reusable setup. This repository tracks extensions, skills, workshop projects, MCP configuration, and curated notes; credentials, sessions, dependencies, caches, logs, and other runtime state are intentionally ignored.
 
 ## Overview
 
-| Component               | Status            | Purpose                                                     | Location                                        |
-| ----------------------- | ----------------- | ----------------------------------------------------------- | ----------------------------------------------- |
-| Claude Code provider    | Active extension  | Uses the Claude CLI as a Pi model provider.                 | `agent/extensions/claude-code-provider/`        |
-| Claude subagent         | Active extension  | Delegates subtasks to Claude Code.                          | `agent/extensions/claude-subagent/`             |
-| pi-rules                | Active extension  | Adds branch-local prompt guidance.                          | `agent/extensions/pi-rules.ts`                  |
-| uppercase-pi            | Active extension  | Uppercases standalone “pi” in outbound system instructions. | `agent/extensions/uppercase-pi/`                |
-| pi-link                 | Published package | Local multi-terminal Pi coordination.                       | `agent/workshop/pi-link/`                       |
-| pi-dock                 | Local pre-release | Runs named, resident Pi agents.                             | `agent/workshop/pi-dock/`                       |
-| implement-review-commit | Active skill      | Plan-driven multi-terminal delivery workflow.               | `agent/skills/pi-link-implement-review-commit/` |
-| chrome-cdp-win          | Disabled skill    | Windows Chrome CDP tooling retained for reference.          | `agent/skills_disabled/chrome-cdp-win/`         |
+| Component | Status | Purpose |
+| --- | --- | --- |
+| [Claude Code provider](agent/extensions/claude-code-provider/) | Active extension | Uses the Claude CLI as a Pi model provider. |
+| [Claude subagent](agent/extensions/claude-subagent/) | Active extension | Delegates subtasks to Claude Code. |
+| [pi-rules](agent/extensions/pi-rules.ts) | Active extension | Adds branch-local prompt guidance. |
+| [uppercase-pi](agent/extensions/uppercase-pi/) | Active extension | Uppercases standalone “pi” in outbound system instructions. |
+| [pi-link](agent/workshop/pi-link/) | Published package | Coordinates local Pi terminals. |
+| [pi-dock](agent/workshop/pi-dock/) | Local pre-release | Runs named, resident Pi agents. |
+| [implement-review-commit](agent/skills/pi-link-implement-review-commit/) | Active skill | Provides a plan-driven multi-terminal delivery workflow. |
+| [chrome-cdp-win](agent/skills_disabled/chrome-cdp-win/) | Disabled skill | Retains Windows Chrome CDP tooling for reference. |
 
 ## Extensions
 
 ### [claude-code-provider](agent/extensions/claude-code-provider/)
 
-The big one (~2k lines). Wraps the `claude` CLI so I can use Claude Code headless mode as a Pi model. Streams `stream-json` output, keeps Claude sessions alive across turns with `--resume`, renders Claude's internal tool calls as compact inline traces (not Pi toolCalls — wrong semantics here), handles `/compact` by summarizing and restarting the Claude session. Logs to `agent/debug.log`.
+Wraps the `claude` CLI so I can use Claude Code headless mode as a Pi model. It streams responses, resumes Claude sessions across turns, displays Claude's internal tool activity as compact traces, and handles `/compact` by summarizing and restarting the Claude session.
 
 Docs next to the code:
 
@@ -31,7 +31,7 @@ Docs next to the code:
 
 ### [claude-subagent](agent/extensions/claude-subagent/)
 
-Registers a `claude_subagent` tool so any model running in Pi can shell out to Claude Code for a subtask. Supports JSON or streaming output, configurable tool allowlists, timeouts, and working directories, plus explicit session reuse or thread-based session reuse. `/claude <task>` is a shortcut for invoking it.
+Registers a `claude_subagent` tool so any Pi model can delegate a subtask to Claude Code. It supports structured or streaming output, tool allowlists, timeouts, custom working directories, explicit session IDs, and automatic per-thread reuse. `/claude <task>` is a shortcut for invoking it.
 
 ### [pi-rules](agent/extensions/pi-rules.ts)
 
@@ -41,17 +41,13 @@ Branch-local prompt guidance. `/rules <text>` injects instructions into every LL
 
 Tiny cosmetic extension. Rewrites standalone "pi" → "PI" in the system prompt right before it hits the provider. Runs in `before_provider_request` so it catches everything — built-in prompt, SYSTEM.md, append flags, other extensions. Skips code spans and identifier-like contexts (`pi.on`, `.pi/`, `pi-coding-agent`).
 
-Has its own [test suite](agent/extensions/uppercase-pi/test.mjs):
-
-```sh
-node agent/extensions/uppercase-pi/test.mjs
-```
+Test: `node agent/extensions/uppercase-pi/test.mjs` ([suite](agent/extensions/uppercase-pi/test.mjs)).
 
 ## Workshop
 
 ### [pi-link](agent/workshop/pi-link/)
 
-Published as [`pi-link` on npm](https://www.npmjs.com/package/pi-link) (currently `0.2.0`). A local WebSocket network between Pi terminals: hub-spoke on `127.0.0.1:9900`, auto-discovery, `link_send`, `link_prompt`, `link_list`, and `link_compact` tools, plus `/link` commands. It evolved from the earlier `pi-mesh` prototype.
+Published as [`pi-link` on npm](https://www.npmjs.com/package/pi-link) (currently `0.2.0`). A local WebSocket network between Pi terminals: hub-spoke on `127.0.0.1:9900`, auto-discovery, `link_send`, `link_prompt`, `link_list`, and `link_compact` tools, plus `/link` commands. Requires Pi 0.74+.
 
 Install the Pi extension with:
 
@@ -69,11 +65,9 @@ The global install is optional; the Pi install enables the extension, slash comm
 
 ### [pi-dock](agent/workshop/pi-dock/)
 
-Local, private pre-release project (`0.1.0-dev`) for running named Pi agents as detached resident processes. An agent keeps its Pi session and memory after `stop`; `start` or `send` wakes it again.
+Private local pre-release (`0.1.0-dev`) for running named Pi agents as detached resident processes. An agent retains its Pi session and memory after `stop`; `start` or `send` wakes it again.
 
-Commands: `spawn`, `send`, `start`, `stop`, `ls`, `logs`, `set`, and `compact`.
-
-Not published or ready for installation. See [PLAN.md](agent/workshop/pi-dock/PLAN.md) for the ratified design and [tests](agent/workshop/pi-dock/test/) for the current regression and smoke coverage.
+Commands: `spawn`, `send`, `start`, `stop`, `ls`, `logs`, `set`, and `compact`. See [PLAN.md](agent/workshop/pi-dock/PLAN.md) for design history and [tests](agent/workshop/pi-dock/test/) for regression and smoke coverage.
 
 ## Skills
 
@@ -87,9 +81,7 @@ It is a policy skill built on `pi-link-coordination`, the general coordination s
 
 ### [chrome-cdp-win](agent/skills_disabled/chrome-cdp-win/)
 
-Windows-only fork of `pi-chrome-cdp`, retained here but currently disabled. It uses named pipes for daemon IPC, per-daemon marker files in `%TEMP%`, and proper discovery and cleanup.
-
-[SKILL.md](agent/skills_disabled/chrome-cdp-win/SKILL.md) for usage, [README.md](agent/skills_disabled/chrome-cdp-win/README.md) for the backstory.
+Disabled Windows-only fork of `pi-chrome-cdp`, retained for reference. See [SKILL.md](agent/skills_disabled/chrome-cdp-win/SKILL.md) for usage and [README.md](agent/skills_disabled/chrome-cdp-win/README.md) for background.
 
 ## Documentation
 
@@ -103,24 +95,9 @@ Windows-only fork of `pi-chrome-cdp`, retained here but currently disabled. It u
 
 [agent/mcp.json](agent/mcp.json) configures the `chrome-devtools` MCP server via `chrome-devtools-mcp`.
 
-Credentials, MCP cache/onboarding data, sessions, and other local runtime state remain intentionally ignored and are not documented here.
+## Prerequisites
 
-## Scope
-
-This is a personal Pi configuration. The repository tracks extensions, skills, workshop projects, MCP configuration, and curated notes. Credentials, sessions, installed packages, caches, logs, and other runtime state are intentionally ignored.
-
-## Setup
-
-### Pi and integrations
-
-- **Pi** — Pi `0.74+` is required for `pi-link`.
-- **Claude extensions** — install the `claude` CLI and put it on `PATH`, or set `CLAUDE_CLI_PATH`.
-- **pi-link extension** — `pi install npm:pi-link`
-
-### Optional tooling
-
-- **pi-link shell launcher** — on Pi 0.75+, install `npm i -g pi-link` to use `pi-link <name>` from a terminal.
-- **pi-dock** — a local pre-release workshop project; it is not published or installable yet.
+The Claude integrations require the `claude` CLI on `PATH` or configured through `CLAUDE_CLI_PATH`.
 
 ## README maintenance
 
