@@ -22,7 +22,7 @@ Registers a `claude_subagent` tool so any model running in Pi can shell out to C
 
 ### [pi-rules](agent/extensions/pi-rules.ts)
 
-Branch-local prompt guidance. `/rules <text>` injects instructions into every LLM turn on the current branch. Supports loading from files (`/rules @file`), persists across session resume, and shows a footer widget when active. See [pi-rules-review.md](agent/extensions/pi-rules-review.md) for the code review.
+Branch-local prompt guidance. `/rules <text>` injects instructions into every LLM turn on the current branch. Supports loading from files (`/rules @file`), persists across session resume, and shows a footer widget when active.
 
 ### [uppercase-pi](agent/extensions/uppercase-pi/)
 
@@ -38,13 +38,13 @@ Published as `npm:pi-link`. Local WebSocket network between Pi terminals — hub
 
 Has a thorough [README](agent/workshop/pi-link/README.md), a bundled `pi-link-coordination` skill, and various design docs (`PLAN-*.md`, `REPORT-*.md`, `STYLE.md`).
 
-## Skills
+## Disabled skills
 
-### [chrome-cdp-win](agent/skills/chrome-cdp-win/)
+### [chrome-cdp-win](agent/skills_disabled/chrome-cdp-win/)
 
-Windows-only fork of `pi-chrome-cdp`. Same commands, but actually works on Windows — named pipes for daemon IPC, per-daemon marker files in `%TEMP%`, proper discovery and cleanup.
+Windows-only fork of `pi-chrome-cdp`, retained here but currently disabled. It uses named pipes for daemon IPC, per-daemon marker files in `%TEMP%`, and proper discovery and cleanup.
 
-[SKILL.md](agent/skills/chrome-cdp-win/SKILL.md) for usage, [README.md](agent/skills/chrome-cdp-win/README.md) for the backstory.
+[SKILL.md](agent/skills_disabled/chrome-cdp-win/SKILL.md) for usage, [README.md](agent/skills_disabled/chrome-cdp-win/README.md) for the backstory.
 
 ## Other
 
@@ -54,4 +54,3 @@ Windows-only fork of `pi-chrome-cdp`. Same commands, but actually works on Windo
 
 - **Claude extensions** — `claude` CLI on PATH (or set `CLAUDE_CLI_PATH`)
 - **pi-link** — `pi install npm:pi-link`
-- **chrome-cdp-win** — Windows, Node.js 22+, Chrome remote debugging enabled
