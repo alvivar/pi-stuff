@@ -2,6 +2,19 @@
 
 My personal [Pi](http://pi.dev) config. Scrappy, opinionated, not meant for anyone else.
 
+## Overview
+
+| Component               | Status            | Purpose                                                     | Location                                        |
+| ----------------------- | ----------------- | ----------------------------------------------------------- | ----------------------------------------------- |
+| Claude Code provider    | Active extension  | Uses the Claude CLI as a Pi model provider.                 | `agent/extensions/claude-code-provider/`        |
+| Claude subagent         | Active extension  | Delegates subtasks to Claude Code.                          | `agent/extensions/claude-subagent/`             |
+| pi-rules                | Active extension  | Adds branch-local prompt guidance.                          | `agent/extensions/pi-rules.ts`                  |
+| uppercase-pi            | Active extension  | Uppercases standalone “pi” in outbound system instructions. | `agent/extensions/uppercase-pi/`                |
+| pi-link                 | Published package | Local multi-terminal Pi coordination.                       | `agent/workshop/pi-link/`                       |
+| pi-dock                 | Local pre-release | Runs named, resident Pi agents.                             | `agent/workshop/pi-dock/`                       |
+| implement-review-commit | Active skill      | Plan-driven multi-terminal delivery workflow.               | `agent/skills/pi-link-implement-review-commit/` |
+| chrome-cdp-win          | Disabled skill    | Windows Chrome CDP tooling retained for reference.          | `agent/skills_disabled/chrome-cdp-win/`         |
+
 ## Extensions
 
 ### [claude-code-provider](agent/extensions/claude-code-provider/)
@@ -78,12 +91,43 @@ Windows-only fork of `pi-chrome-cdp`, retained here but currently disabled. It u
 
 [SKILL.md](agent/skills_disabled/chrome-cdp-win/SKILL.md) for usage, [README.md](agent/skills_disabled/chrome-cdp-win/README.md) for the backstory.
 
-## Other
+## Documentation
 
-- [docs/dead-key-bug.md](docs/dead-key-bug.md) — a dead key composition bug I hit in VSCode terminal
+| Document                                                  | Purpose                                                                                      |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [dead-key-bug.md](docs/dead-key-bug.md)                   | VSCode terminal dead-key composition fix; also records the related bare-Fn glyph workaround. |
+| [fn-key-glyph-bug.md](docs/fn-key-glyph-bug.md)           | Focused workaround and verification for bare Fn / Private Use Area glyph input.              |
+| [pi-credential-loading.md](docs/pi-credential-loading.md) | Pi credential resolution order and secure credential-loading options.                        |
+
+## MCP
+
+[agent/mcp.json](agent/mcp.json) configures the `chrome-devtools` MCP server via `chrome-devtools-mcp`.
+
+Credentials, MCP cache/onboarding data, sessions, and other local runtime state remain intentionally ignored and are not documented here.
+
+## Scope
+
+This is a personal Pi configuration. The repository tracks extensions, skills, workshop projects, MCP configuration, and curated notes. Credentials, sessions, installed packages, caches, logs, and other runtime state are intentionally ignored.
 
 ## Setup
 
-- **Claude extensions** — `claude` CLI on PATH (or set `CLAUDE_CLI_PATH`)
+### Pi and integrations
+
+- **Pi** — Pi `0.74+` is required for `pi-link`.
+- **Claude extensions** — install the `claude` CLI and put it on `PATH`, or set `CLAUDE_CLI_PATH`.
 - **pi-link extension** — `pi install npm:pi-link`
-- **pi-link shell launcher (optional; Pi 0.75+)** — `npm i -g pi-link`
+
+### Optional tooling
+
+- **pi-link shell launcher** — on Pi 0.75+, install `npm i -g pi-link` to use `pi-link <name>` from a terminal.
+- **pi-dock** — a local pre-release workshop project; it is not published or installable yet.
+
+## README maintenance
+
+Keep this inventory synchronized with the repository:
+
+- Source package versions and publish status from `package.json`.
+- Source commands and behavior from CLI help, tests, and implemented code.
+- Verify repository-relative links after edits.
+- Mark disabled or pre-release components explicitly.
+- Treat plans and proposals as historical/design context, not as the authority for current behavior.
