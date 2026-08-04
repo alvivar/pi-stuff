@@ -1,5 +1,5 @@
 {
-  "active": "pi-bugs",
+  "active": "pi-chrome",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -26,7 +26,7 @@
       },
       {
         "name": "sol@pi-link",
-        "icon": "lightbulb",
+        "icon": "star-full",
         "color": "terminal.ansiBrightYellow",
         "autoExecuteCommands": true,
         "commands": [
@@ -146,7 +146,7 @@
       },
       {
         "name": "sol@pi-dock",
-        "icon": "lightbulb",
+        "icon": "star-full",
         "color": "terminal.ansiBrightYellow",
         "autoExecuteCommands": true,
         "commands": [
@@ -205,10 +205,75 @@
         "name": "docs@pi-bugs",
         "icon": "book",
         "color": "terminal.ansiBrightCyan",
-        "focus": true,
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link docs@pi-bugs"
+        ]
+      },
+      {
+        "name": "committer@.pi",
+        "icon": "git-commit",
+        "color": "terminal.ansiYellow",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
+        ]
+      },
+      {
+        "name": "bash",
+        "icon": "terminal-bash",
+        "color": "terminal.ansiWhite",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
+        ]
+      }
+    ],
+    "pi-chrome": [
+      {
+        "name": "archon@pi-chrome",
+        "icon": "organization",
+        "color": "terminal.ansiBrightYellow",
+        "focus": true,
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-chrome"
+        ]
+      },
+      {
+        "name": "fable@pi-chrome",
+        "icon": "flame",
+        "color": "terminal.ansiBrightRed",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link fable@pi-chrome"
+        ]
+      },
+      {
+        "name": "opus@pi-chrome",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightMagenta",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-chrome"
+        ]
+      },
+      {
+        "name": "sol@pi-chrome",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-chrome"
+        ]
+      },
+      {
+        "name": "terra@pi-chrome",
+        "icon": "globe",
+        "color": "terminal.ansiGreen",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link terra@pi-chrome"
         ]
       },
       {
