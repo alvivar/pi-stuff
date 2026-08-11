@@ -1,0 +1,24 @@
+browser-use skill - local hardening integrity record
+====================================================
+Audited versions : browser-use 0.13.7 (PyPI) / browser-harness 0.1.8
+Recorded         : 2026-08-10 22:50:17 -0600
+Maintainer       : PI agent only.
+
+SCOPE (per user decision): the ONLY restriction is WHO RECEIVES data. Nothing goes to
+the tool vendor (Browser Use / PostHog) - no cloud, no telemetry, no profile-sync, no
+self-update. Sending data to destinations the USER chooses (their own servers, APIs,
+webhooks, third-party services) is explicitly ALLOWED. Browser capability is deliberately
+UNRESTRICTED, including all cookie/session work. Earlier capability-limiting patches were
+removed at the user's request.
+
+sha256 SKILL.md (upstream + vendor-boundary block):
+  76dca15849ee0f68df2fa5895224044affab07cfc80e8120120de62b1b7ffb02
+sha256 upstream-pristine-v0.13.7.txt (unmodified):
+  b0ad134b9b1a9cecc364fe396237889ab565a397322f3e6beacafd854f8f3850
+
+CHECK: sha256sum -c integrity.sha256
+Mismatch on SKILL.md means the vendor boundary was reverted -- most likely by
+'browser-use skill install' or 'browser-use --update'. Re-apply before browser work.
+
+Telemetry verified: telemetry.json disabled=true, install_id never minted,
+env vars persisted at user scope. Upstream is MIT; terms carry to this modified copy.
