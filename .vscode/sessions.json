@@ -25,6 +25,15 @@
         ]
       },
       {
+        "name": "opus@pi-link",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightMagenta",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-link"
+        ]
+      },
+      {
         "name": "sol@pi-link",
         "icon": "star-full",
         "color": "terminal.ansiBrightYellow",
@@ -40,15 +49,6 @@
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link terra@pi-link"
-        ]
-      },
-      {
-        "name": "opus@pi-link",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightMagenta",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-link"
         ]
       },
       {
