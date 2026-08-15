@@ -6,7 +6,7 @@
  * First terminal to connect becomes the hub; others join as clients.
  * Hub loss triggers automatic promotion of a surviving client.
  *
- * Tools: link_send, link_prompt, link_list, link_compact
+ * Tools: link_send, link_list, link_compact
  * Commands: /link, /link-name, /link-broadcast, /link-connect, /link-disconnect
  */
 
@@ -24,11 +24,8 @@ import { WebSocket, WebSocketServer } from "ws";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_PORT = 9900;
-const PROMPT_INACTIVITY_MS = 90_000;
-const PROMPT_HARD_CEILING_MS = 1_800_000;
 const COMPACT_TIMEOUT_MS = 180_000;
 const RECONNECT_DELAY_MS = 2000;
-const KEEPALIVE_INTERVAL_MS = 30_000;
 const FLUSH_DELAY_MS = 200;
 const IDLE_RETRY_MS = 500;
 const BATCH_MAX_ITEMS = 20;
@@ -68,21 +65,6 @@ interface ChatMsg {
   to: string;
   content: string;
   triggerTurn: boolean;
-}
-interface PromptRequestMsg {
-  type: "prompt_request";
-  id: string;
-  from: string;
-  to: string;
-  prompt: string;
-}
-interface PromptResponseMsg {
-  type: "prompt_response";
-  id: string;
-  from: string;
-  to: string;
-  response: string;
-  error?: string;
 }
 interface StatusUpdateMsg {
   type: "status_update";
@@ -125,8 +107,6 @@ type LinkMessage =
   | TerminalJoinedMsg
   | TerminalLeftMsg
   | ChatMsg
-  | PromptRequestMsg
-  | PromptResponseMsg
   | StatusUpdateMsg
   | ErrorMsg
   | CompactRequestMsg
@@ -184,20 +164,6 @@ export default function (pi: ExtensionAPI) {
   // Client state
   let ws: WebSocket | null = null;
 
-  // Pending prompt responses (sender waiting for remote answer)
-  const pendingPromptResponses = new Map<
-    string,
-    {
-      resolve: (result: {
-        content: { type: "text"; text: string }[];
-        details: Record<string, unknown>;
-      }) => void;
-      targetName: string;
-      inactivityTimeout: ReturnType<typeof setTimeout>;
-      ceilingTimeout: ReturnType<typeof setTimeout>;
-    }
-  >();
-
   // Pending compact responses (sender waiting for remote compaction to finish)
   const pendingCompactResponses = new Map<
     string,
@@ -210,10 +176,6 @@ export default function (pi: ExtensionAPI) {
       timeout: ReturnType<typeof setTimeout>;
     }
   >();
-
-  // Pending remote prompt (this terminal is executing a prompt for someone else)
-  let pendingRemotePrompt: { id: string; from: string } | null = null;
-  let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
   // Inbox: idle-gated batched delivery for triggerTurn:true messages
   const inbox: { from: string; content: string }[] = [];
@@ -441,16 +403,7 @@ export default function (pi: ExtensionAPI) {
     return pi.getFlag("link") === true;
   }
 
-  // ── Pending prompt helpers ───────────────────────────────────────────────
-
-  function cleanupPending(requestId: string) {
-    const pending = pendingPromptResponses.get(requestId);
-    if (!pending) return null;
-    clearTimeout(pending.inactivityTimeout);
-    clearTimeout(pending.ceilingTimeout);
-    pendingPromptResponses.delete(requestId);
-    return pending;
-  }
+  // ── Pending compact helpers ──────────────────────────────────────────────
 
   function cleanupPendingCompact(requestId: string) {
     const pending = pendingCompactResponses.get(requestId);
@@ -458,29 +411,6 @@ export default function (pi: ExtensionAPI) {
     clearTimeout(pending.timeout);
     pendingCompactResponses.delete(requestId);
     return pending;
-  }
-
-  function makeInactivityTimeout(requestId: string, targetName: string) {
-    return setTimeout(() => {
-      const pending = cleanupPending(requestId);
-      if (pending) {
-        pending.resolve(
-          textResult(
-            `Prompt to "${targetName}" timed out (no activity for ${PROMPT_INACTIVITY_MS / 1000}s)`,
-            { to: targetName, error: "timeout" },
-          ),
-        );
-      }
-    }, PROMPT_INACTIVITY_MS);
-  }
-
-  function resetInactivityFor(targetName: string) {
-    for (const [id, pending] of pendingPromptResponses) {
-      if (pending.targetName === targetName) {
-        clearTimeout(pending.inactivityTimeout);
-        pending.inactivityTimeout = makeInactivityTimeout(id, targetName);
-      }
-    }
   }
 
   function allTerminalNames(): Set<string> {
@@ -537,12 +467,7 @@ export default function (pi: ExtensionAPI) {
    * still reject via protocol-level error responses).
    */
   function routeMessage(
-    msg:
-      | ChatMsg
-      | PromptRequestMsg
-      | PromptResponseMsg
-      | CompactRequestMsg
-      | CompactResponseMsg,
+    msg: ChatMsg | CompactRequestMsg | CompactResponseMsg,
   ): boolean {
     if (role === "hub") {
       if (msg.to === "*") {
@@ -561,35 +486,22 @@ export default function (pi: ExtensionAPI) {
       // Target not found — send error back to sender
       const errText = `Terminal "${msg.to}" not found`;
       const errorMsg: LinkMessage =
-        msg.type === "prompt_request"
+        msg.type === "compact_request"
           ? {
-              type: "prompt_response",
+              type: "compact_response",
               id: msg.id,
               from: terminalName,
               to: msg.from,
-              response: "",
-              error: errText,
+              ok: false,
+              reason: "not_found",
             }
-          : msg.type === "compact_request"
-            ? {
-                type: "compact_response",
-                id: msg.id,
-                from: terminalName,
-                to: msg.from,
-                ok: false,
-                reason: "not_found",
-              }
-            : { type: "error", message: errText };
+          : { type: "error", message: errText };
 
       if (msg.from === terminalName) {
-        // For prompt_request/compact_request, deliver the error response
-        // locally so the matching pending map resolves. For chat, skip — the
-        // tool result (via return false) is sufficient; no extra UI toast.
-        if (
-          errorMsg.type === "prompt_response" ||
-          errorMsg.type === "compact_response"
-        )
-          handleIncoming(errorMsg);
+        // For compact_request, deliver the error response locally so the
+        // matching pending map resolves. For chat, skip — the tool result
+        // (via return false) is sufficient; no extra UI toast.
+        if (errorMsg.type === "compact_response") handleIncoming(errorMsg);
       } else {
         hubClientByName(msg.from)?.send(JSON.stringify(errorMsg));
       }
@@ -654,20 +566,7 @@ export default function (pi: ExtensionAPI) {
           terminalCwds.delete(msg.name);
           terminalContexts.delete(msg.name);
         }
-        // Fail any pending prompts/compacts to the departed terminal
-        for (const [id, pending] of pendingPromptResponses) {
-          if (pending.targetName === msg.name) {
-            const p = cleanupPending(id);
-            if (p) {
-              p.resolve(
-                textResult(`Terminal "${msg.name}" disconnected`, {
-                  to: msg.name,
-                  error: "disconnected",
-                }),
-              );
-            }
-          }
-        }
+        // Fail any pending compact request to the departed terminal
         for (const [id, pending] of pendingCompactResponses) {
           if (pending.targetName === msg.name) {
             const p = cleanupPendingCompact(id);
@@ -690,7 +589,6 @@ export default function (pi: ExtensionAPI) {
         terminalStatuses.set(msg.name, msg.status);
         if (msg.context) terminalContexts.set(msg.name, msg.context);
         else if (msg.context === null) terminalContexts.delete(msg.name);
-        resetInactivityFor(msg.name);
         break;
 
       // ── Chat message ──
@@ -713,7 +611,7 @@ export default function (pi: ExtensionAPI) {
 
       // ── Another terminal asks us to compact our context ──
       case "compact_request": {
-        if (agentRunning || pendingRemotePrompt || compactRunning) {
+        if (agentRunning || compactRunning) {
           routeMessage({
             type: "compact_response",
             id: msg.id,
@@ -758,52 +656,6 @@ export default function (pi: ExtensionAPI) {
           });
         } catch (e) {
           finish(false, e instanceof Error ? e.message : String(e));
-        }
-        break;
-      }
-
-      // ── Another terminal asks us to run a prompt ──
-      case "prompt_request":
-        if (agentRunning || pendingRemotePrompt || compactRunning) {
-          routeMessage({
-            type: "prompt_response",
-            id: msg.id,
-            from: terminalName,
-            to: msg.from,
-            response: "",
-            error: "Terminal is busy",
-          });
-        } else {
-          pendingRemotePrompt = { id: msg.id, from: msg.from };
-          // Keepalive: periodic status push so sender knows we're alive.
-          // Keepalive presumes sendUserMessage() starts a run (platform contract);
-          // if it ever doesn't, the sender's 30 min hard ceiling is the backstop.
-          if (keepaliveTimer) clearInterval(keepaliveTimer);
-          keepaliveTimer = setInterval(
-            () => pushStatus(true),
-            KEEPALIVE_INTERVAL_MS,
-          );
-          notify(`Running remote prompt from "${msg.from}"`, "info");
-          pi.sendUserMessage(
-            `[Remote prompt from "${msg.from}"]\n\n${msg.prompt}`,
-          );
-        }
-        break;
-
-      // ── Response to a prompt we sent ──
-      case "prompt_response": {
-        const pending = cleanupPending(msg.id);
-        if (pending) {
-          if (msg.error) {
-            pending.resolve(
-              textResult(`Error from "${msg.from}": ${msg.error}`, {
-                from: msg.from,
-                error: msg.error,
-              }),
-            );
-          } else {
-            pending.resolve(textResult(msg.response, { from: msg.from }));
-          }
         }
         break;
       }
@@ -907,7 +759,6 @@ export default function (pi: ExtensionAPI) {
         hubTerminalStatuses.set(clientName, msg.status);
         if (msg.context) hubTerminalContexts.set(clientName, msg.context);
         else if (msg.context === null) hubTerminalContexts.delete(clientName);
-        resetInactivityFor(clientName);
         const normalized: StatusUpdateMsg = {
           type: "status_update",
           name: clientName,
@@ -921,13 +772,11 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      // Route chat / prompt messages.
+      // Route chat and compact messages.
       // Normalize `from` to the hub's authoritative socket→name mapping,
       // mirroring the status_update path above. Don't trust the client.
       if (
         msg.type === "chat" ||
-        msg.type === "prompt_request" ||
-        msg.type === "prompt_response" ||
         msg.type === "compact_request" ||
         msg.type === "compact_response"
       ) {
@@ -1102,23 +951,8 @@ export default function (pi: ExtensionAPI) {
       reconnectTimer = null;
     }
 
-    // Clean up target-side remote prompt state
-    if (keepaliveTimer) {
-      clearInterval(keepaliveTimer);
-      keepaliveTimer = null;
-    }
-    pendingRemotePrompt = null;
+    // Clean up compact state
     compactRunning = false;
-
-    // Clean up pending prompts and compacts
-    for (const id of [...pendingPromptResponses.keys()]) {
-      const pending = cleanupPending(id);
-      if (pending) {
-        pending.resolve(
-          textResult("Link disconnected", { error: "disconnected" }),
-        );
-      }
-    }
     for (const id of [...pendingCompactResponses.keys()]) {
       const pending = cleanupPendingCompact(id);
       if (pending) {
@@ -1273,7 +1107,7 @@ export default function (pi: ExtensionAPI) {
     pushStatus();
   });
 
-  pi.on("agent_end", async (event) => {
+  pi.on("agent_end", async () => {
     agentRunning = false;
     activeToolName = null;
     stateSince = Date.now();
@@ -1282,37 +1116,6 @@ export default function (pi: ExtensionAPI) {
     // Wake up inbox flush — agent_end fires before finishRun(), so ctx.isIdle()
     // is still false here. scheduleFlush(0) defers to next macrotask when idle.
     if (inbox.length > 0) scheduleFlush(0);
-
-    // If we were running a remote prompt, send the response back
-    if (pendingRemotePrompt) {
-      const { id, from } = pendingRemotePrompt;
-      if (keepaliveTimer) {
-        clearInterval(keepaliveTimer);
-        keepaliveTimer = null;
-      }
-      pendingRemotePrompt = null;
-
-      // Find the last assistant text in this run
-      let responseText = "";
-      for (let i = event.messages.length - 1; i >= 0; i--) {
-        const msg = event.messages[i];
-        if (msg.role === "assistant") {
-          responseText = msg.content
-            .filter((c: { type: string }) => c.type === "text")
-            .map((c: { type: string; text?: string }) => c.text ?? "")
-            .join("\n");
-          break;
-        }
-      }
-
-      routeMessage({
-        type: "prompt_response",
-        id,
-        from: terminalName,
-        to: from,
-        response: responseText || "(no response)",
-      });
-    }
   });
 
   // ── Tool helpers ──────────────────────────────────────────────────────────
@@ -1329,7 +1132,7 @@ export default function (pi: ExtensionAPI) {
     return text.length > max ? text.slice(0, max) + "..." : text;
   }
 
-  // Shared "target not found" result for the send/prompt/compact tools.
+  // Shared "target not found" result for the send/compact tools.
   // Returns null when the target is present, so callers can `if (miss) return miss;`.
   function targetNotFound(to: string) {
     return connectedTerminals.includes(to)
@@ -1359,8 +1162,9 @@ export default function (pi: ExtensionAPI) {
     name: "link_send",
     label: "Link Send",
     description: [
-      "Send a message to another Pi terminal on the link.",
-      'Use to:"*" for broadcast. Set triggerTurn:true to make the receiving terminal\'s LLM respond.',
+      "Send a message to another Pi terminal on the link; omitting triggerTurn starts a receiver turn when idle.",
+      "Set triggerTurn:false only for intentional non-waking steering or FYI delivery.",
+      'With to:"*", omitted/true wakes every other terminal; use false for an announcement.',
     ].join(" "),
     promptSnippet:
       "Send a message to another Pi terminal on the local link network",
@@ -1372,7 +1176,7 @@ export default function (pi: ExtensionAPI) {
       triggerTurn: Type.Optional(
         Type.Boolean({
           description:
-            "Whether to trigger an LLM turn on the receiver (default: false)",
+            "Whether to trigger an LLM turn on the receiver (default: true); set false for immediate non-waking steer delivery",
         }),
       ),
     }),
@@ -1392,12 +1196,13 @@ export default function (pi: ExtensionAPI) {
         if (miss) return miss;
       }
 
+      const triggerTurn = params.triggerTurn ?? true;
       const delivered = routeMessage({
         type: "chat",
         from: terminalName,
         to: params.to,
         content: params.message,
-        triggerTurn: params.triggerTurn ?? false,
+        triggerTurn,
       });
 
       const target = params.to === "*" ? "all terminals" : `"${params.to}"`;
@@ -1411,7 +1216,7 @@ export default function (pi: ExtensionAPI) {
       const verb = role === "hub" ? "Sent to" : "Sent to hub for delivery to";
       return textResult(`${verb} ${target}`, {
         to: params.to,
-        triggerTurn: params.triggerTurn ?? false,
+        triggerTurn,
       });
     },
 
@@ -1423,7 +1228,10 @@ export default function (pi: ExtensionAPI) {
           : "...";
       let text = theme.fg("toolTitle", theme.bold("link_send "));
       text += theme.fg("accent", target);
-      if (args.triggerTurn) text += theme.fg("warning", " (trigger)");
+      if (args.triggerTurn === false)
+        text += theme.fg("dim", " (no turn)");
+      else if (args.to === "*")
+        text += theme.fg("warning", " (trigger all)");
       text += "\n  " + theme.fg("dim", preview);
       return new Text(text, 0, 0);
     },
@@ -1537,136 +1345,6 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderResult: (result, _options, theme) => renderIconResult(result, theme),
-  });
-
-  pi.registerTool({
-    name: "link_prompt",
-    label: "Link Prompt",
-    description: [
-      "Send a prompt to another Pi terminal and wait for its LLM to respond.",
-      "The remote terminal processes the prompt as if a user typed it,",
-      "then returns the assistant's response. Times out after 90s of inactivity.",
-    ].join(" "),
-    promptSnippet:
-      "Send a prompt to another Pi terminal and receive its LLM response",
-    parameters: Type.Object({
-      to: Type.String({ description: "Target terminal name" }),
-      prompt: Type.String({ description: "Prompt to send" }),
-    }),
-
-    async execute(_toolCallId, params, signal) {
-      if (signal?.aborted) {
-        return textResult("Prompt request aborted", {
-          to: params.to,
-          error: "aborted",
-        });
-      }
-
-      if (role === "disconnected") return notConnectedResult();
-
-      if (params.to === terminalName) {
-        return textResult("Cannot prompt yourself", {
-          to: params.to,
-          error: "self_target",
-        });
-      }
-
-      const miss = targetNotFound(params.to);
-      if (miss) return miss;
-
-      const requestId = crypto.randomUUID();
-
-      return new Promise((resolve) => {
-        const inactivityTimeout = makeInactivityTimeout(requestId, params.to);
-
-        const ceilingTimeout = setTimeout(() => {
-          const pending = cleanupPending(requestId);
-          if (pending) {
-            pending.resolve(
-              textResult(
-                `Prompt to "${params.to}" hit hard ceiling (${PROMPT_HARD_CEILING_MS / 60_000}min)`,
-                { to: params.to, error: "timeout" },
-              ),
-            );
-          }
-        }, PROMPT_HARD_CEILING_MS);
-
-        pendingPromptResponses.set(requestId, {
-          resolve,
-          targetName: params.to,
-          inactivityTimeout,
-          ceilingTimeout,
-        });
-
-        // Abort handling
-        signal?.addEventListener(
-          "abort",
-          () => {
-            const pending = cleanupPending(requestId);
-            if (pending) {
-              pending.resolve(
-                textResult("Prompt request aborted", {
-                  to: params.to,
-                  error: "aborted",
-                }),
-              );
-            }
-          },
-          { once: true },
-        );
-
-        const delivered = routeMessage({
-          type: "prompt_request",
-          id: requestId,
-          from: terminalName,
-          to: params.to,
-          prompt: params.prompt,
-        });
-
-        if (!delivered) {
-          const pending = cleanupPending(requestId);
-          if (pending) {
-            pending.resolve(
-              textResult(`Failed to send prompt to "${params.to}"`, {
-                to: params.to,
-                error: "not_delivered",
-              }),
-            );
-          }
-        }
-      });
-    },
-
-    renderCall(args, theme) {
-      const preview =
-        typeof args.prompt === "string" ? truncatePreview(args.prompt) : "...";
-      let text = theme.fg("toolTitle", theme.bold("link_prompt "));
-      text += theme.fg("accent", args.to ?? "...");
-      text += "\n  " + theme.fg("dim", preview);
-      return new Text(text, 0, 0);
-    },
-
-    renderResult(result, _options, theme) {
-      const txt = result.content[0];
-      const details = result.details as Record<string, unknown> | undefined;
-      if (details?.error) {
-        return new Text(
-          theme.fg("error", "✗ ") + (txt?.type === "text" ? txt.text : ""),
-          0,
-          0,
-        );
-      }
-      const from = details?.from ?? "unknown";
-      const response = txt?.type === "text" ? txt.text : "";
-      const preview = truncatePreview(response, 200);
-      return new Text(
-        theme.fg("success", "✓ ") +
-          theme.fg("accent", `[${from}] `) +
-          theme.fg("text", preview),
-        0,
-        0,
-      );
-    },
   });
 
   pi.registerTool({
@@ -1860,7 +1538,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("link-broadcast", {
-    description: "Broadcast a message to all connected terminals",
+    description:
+      'Send a non-waking announcement to all terminals (no replies); use link_send to:"*" to wake them',
     handler: async (args, _ctx) => {
       const message = args.trim();
       if (!message) {

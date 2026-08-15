@@ -1,114 +1,101 @@
 ---
 name: pi-link-coordination
-description: Guidance for coordinating work across Pi terminals using pi-link. Use when delegating tasks, choosing between link_prompt and link_send, planning async vs sync work, batching parallel jobs, managing a remote terminal's context with link_compact, or avoiding busy/conflict patterns.
+description: Guidance for coordinating work across Pi terminals using link_send, tracking asynchronous callbacks, batching parallel jobs, managing a remote terminal's context with link_compact, and avoiding message loops.
 ---
 
 # Pi-Link Coordination
 
 How to coordinate work across Pi terminals via pi-link.
 
-Each terminal is an independent agent: they share no memory or conversation history — link only passes messages and prompts between them. Anything a remote terminal needs — file paths, task state, expected output, where to send its callback — must be in the message itself.
+Each terminal is an independent agent: terminals share no memory or conversation history. Anything a remote terminal needs — task state, file paths, expected output, and where to send its callback — must be in the message itself.
 
 ---
 
-## Tool Selection Rule
-
-- Need the answer back now? → `link_prompt`
-- Need autonomous work done? → `link_send(triggerTurn: true)`
-- Need to notify only? → `link_send(triggerTurn: false)`
-- Need to free a terminal's context? → `link_compact`
-
----
-
-## The Golden Rule
-
-> After `link_send(triggerTurn: true)` to terminal X, do not `link_prompt` X until X sends a completion callback.
-
-The `DONE` / `BLOCKED` callback arrives as a normal later user message; treat that callback as the signal that it is safe to send a follow-up `link_prompt`.
-
-Pick one mode per terminal per task. Mixing sync and async on the same terminal is a common coordination failure.
-
----
-
-## The Tools
+## Tools
 
 ### `link_list`
 
-Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), and working directory (cwd). Some terminals also report context usage as `45K/272K (17%)` — how full that window is: high usage means less room remaining, though a loaded terminal may also be the one already holding the relevant task state. Your own entry is marked `(you)` — use this to discover your link name when replying to broadcast tasks.
+Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), cwd, and (when available) context usage such as `45K/272K (17%)`. Your own entry is marked `(you)`.
 
-Only currently connected terminals are visible. If a target is missing, it is offline; messages to offline terminals are not queued.
-
-### `link_prompt`
-
-Synchronous RPC. Send a prompt, wait for the response.
-
-- Fails fast if the target is yourself, not connected, or busy (local work, another remote prompt, or compaction); a mid-wait disconnect resolves as an error
-- 90s inactivity timeout, 30min hard ceiling
-- Remote agent doesn't share your context — include enough detail to complete the task
+Only connected terminals are visible. If a target is missing, it is offline; messages to offline terminals are not queued. Use `link_list` before dispatch, when selecting among workers, and when an expected callback is missing.
 
 ### `link_send`
 
-Fire-and-forget. Send to one terminal or `to: "*"` to broadcast to every other connected terminal; there is no exclusion filter. Sending to yourself is rejected. A send to a name that isn't connected fails with an error listing who _is_ connected — delivery failure is visible to the sender, not silent.
+The agent messaging tool. It returns send/delivery status immediately; it does **not** return the receiver's eventual work result.
 
-Set `triggerTurn: true` to queue async work on the receiver. The sender does **not** get an automatic response back.
+Ordinary dispatch omits `triggerTurn` because it defaults to true:
 
-Delivery shape depends on the message's `triggerTurn`:
+```text
+link_send({ to: "worker", message: "... Report DONE or BLOCKED to orchestrator." })
+```
 
-- **`triggerTurn: true`** messages go through the receiver's idle-gated inbox and surface at a turn boundary wrapped as `[Link: N message(s) received]` followed by one `From "name":` block per message. Multiple pending messages are batched into one turn.
-- **`triggerTurn: false`** messages bypass the inbox and surface directly as raw content — no wrapper, no `From` block. The receiver sees only the message text, so the sender must include their own identity, task tag, or artifact paths in the body.
+Passing `triggerTurn:true` is equivalent. Omitted/true messages enter the receiver's idle-gated inbox and start a turn once the receiver is idle. Nearby messages may be batched into one turn. Delivery is wrapped as `[Link: N message(s) received]` with one `From "name":` block per message.
 
-**Callback convention for `triggerTurn: true`:** the sender gets no automatic response, so ask the receiver to report back via `link_send(..., triggerTurn: true)` (which lands at a proper turn boundary with the wrapper intact). A useful convention:
+Use explicit `triggerTurn:false` only for an FYI/status message or intentional live steering that must not start a turn. False delivery bypasses the inbox and arrives immediately as raw content, without the wrapper or sender block. Include sender identity, task tag, and relevant artifact paths in the message body.
 
-- `DONE` / `BLOCKED`
-- Output paths / artifacts created
-- Result summary or next question
+Sending to `to:"*"` broadcasts to every other connected terminal. Omitted/true wakes every recipient and can fan out many model turns; use explicit false for an announcement. The human `/link-broadcast` command is always a non-waking announcement and does not request replies.
 
-Use `triggerTurn: false` for fire-and-forget status notifications only — when you don't need to act on the reply.
-
-**Receiver rule:** If your turn opens with `[Link: N message(s) received]`, treat each `From "name":` block as assigned work. When done, send the sender a `DONE` / `BLOCKED` callback via `link_send(..., triggerTurn: true)` — unless the task says otherwise.
+Sending to yourself is rejected. A definitely absent target fails against the local terminal list; client delivery through the hub remains optimistic.
 
 ### `link_compact`
 
-Blocks until the target finishes compacting, then returns (3 min ceiling — the call then errors for you, though the target may still finish compacting on its own; check it before assuming failure). Ask another terminal to compact its context window into a summary, freeing space. `link_list` exposes context usage; `link_compact` is the lever when you decide a terminal should free context — and because the call only returns once compaction is done, you can immediately hand it more work with `link_send`/`link_prompt` (no sleep, no busy-bounce). Busy targets (mid-turn or already compacting) decline; retry when `link_list` shows them idle. You decide the threshold; pi-link just runs the compaction you ask for. Its optional `instructions` add an extra focus to that summary.
+Asks another terminal to compact its context and blocks until completion, with a three-minute ceiling. Busy targets (mid-turn or already compacting) decline rather than being interrupted. Compact a worker predictively while it is idle, before assigning more context-heavy work; after success, dispatch immediately with `link_send`. Optional `instructions` focus the summary.
+
+Use `/compact` rather than `link_compact` for yourself. To compact several idle workers, issue independent calls in parallel.
 
 ---
 
-## Operating Constraints
+## Dispatch and callback convention
 
-- **One remote prompt at a time per target.** Concurrent requests rejected as busy.
-- **Messages are ephemeral.** Offline terminals lose messages.
-- **Localhost only.** Same machine.
-- **Cwd is a hint, not proof.** Same cwd ≠ same workspace/branch/access. Use explicit paths; absolute when cwds differ or shared-root assumptions are unclear.
-- **Naming:** Link names are user-defined identities (often `role@domain`, e.g. `builder@pi-link`); the hub keeps them unique, suffixing collisions (`builder@pi-link-2`). Use `link_list` to confirm a target's exact name, and its cwd to tell similar-named terminals apart.
+When completion matters, request a tagged callback in the assignment:
 
----
+- `DONE` or `BLOCKED`
+- task/worker identifier
+- result summary and artifact paths
+- next question or blocker, if any
 
-## Parallel batch
+The callback is another `link_send` message, normally with omitted `triggerTurn` (or explicit true), so it starts a later orchestrator turn at a clean boundary. Callbacks are conventional and uncorrelated: there is no request ID, automatic response, delivery receipt for completed work, or protocol timeout. Track outstanding workers yourself. If a callback is missing, use `link_list` to inspect whether the worker is connected and busy, then follow up explicitly when appropriate.
 
-`link_send(triggerTurn: true)` can dispatch independent tasks to several terminals at once. Their callbacks may arrive separately or batched into one turn when you next become idle — track which workers are still outstanding. Each task must be self-contained (explicit paths, absolute if cwds differ). Don't `link_prompt` a dispatched terminal until its callback arrives (Golden Rule).
-
----
-
-## Anti-Patterns
-
-**❌ Mixing async and sync on the same terminal**
-Dispatched with `link_send(triggerTurn: true)` then sent a `link_prompt` → rejected as busy. See Golden Rule.
-
-**❌ No completion callback on async work**
-`triggerTurn: true` returns no result to the sender — without an agreed callback you never learn the outcome.
-
-**❌ Circular delegation**
-A → B → C → A won't complete — the cycle-closing `link_prompt` hits a busy target (rejected), and an async `link_send` cycle just loops. Keep delegation acyclic.
+A receiver should process every `From "name":` block in a batched link message. Send the requested `DONE` / `BLOCKED` callback when work finishes. If a message requires no action, send no reply. Do not acknowledge an acknowledgement unless the sender explicitly asks for one.
 
 ---
 
-## Quick Reference
+## Parallel batches
 
-| I need to...                     | Tool                            | Mode             |
-| -------------------------------- | ------------------------------- | ---------------- |
-| See who's available              | `link_list`                     | —                |
-| Get an answer from another agent | `link_prompt`                   | Synchronous      |
-| Delegate autonomous work         | `link_send(triggerTurn: true)`  | Asynchronous     |
-| Notify without activating        | `link_send(triggerTurn: false)` | Fire-and-forget  |
-| Broadcast to all                 | `link_send(to: "*")`            | Broadcast        |
-| Free a loaded worker's context   | `link_compact`                  | Await-completion |
+Dispatch independent tasks to several terminals without waiting between sends. Their callbacks may arrive separately or be batched into one orchestrator turn, so maintain an outstanding-worker/task list.
+
+Each assignment must be self-contained:
+
+- identify the task and desired result;
+- give explicit paths (absolute when cwd or shared-root assumptions differ);
+- state edit/commit constraints;
+- state validation commands;
+- name the callback recipient and expected `DONE` / `BLOCKED` format.
+
+For dependent work, wait for the prerequisite callback before dispatching its successor. Keep delegation acyclic: asynchronous A → B → C → A chains can loop indefinitely even though no individual send blocks.
+
+---
+
+## Operating constraints
+
+- **Messages are ephemeral.** Offline terminals do not receive queued work.
+- **Callbacks are not guaranteed.** They depend on the receiver following the assignment.
+- **Localhost only.** All terminals run on the same machine.
+- **Cwd is a hint, not proof.** Same cwd does not prove the same workspace, branch, or access. Include explicit paths.
+- **Names are identities.** The hub suffixes collisions; use `link_list` to confirm exact names and cwd.
+- **Avoid compact races.** Prefer compacting before dispatch or after the worker's callback, not while work is outstanding.
+- **Avoid response loops.** Status/FYI messages and acknowledgements that require no action get no reply.
+
+---
+
+## Quick reference
+
+| Need | Use | Behavior |
+| --- | --- | --- |
+| See connected workers/status/context | `link_list` | Immediate snapshot |
+| Delegate work | `link_send({ to, message })` | Async; wakes when idle |
+| Delegate with explicit activation | `link_send({ to, message, triggerTurn:true })` | Same as omission |
+| Notify or live-steer without waking | `link_send({ to, message, triggerTurn:false })` | Immediate raw steer |
+| Wake every other terminal | `link_send({ to:"*", message })` | Async fan-out |
+| Announce without waking | `link_send({ to:"*", message, triggerTurn:false })` or `/link-broadcast` | Non-waking fan-out |
+| Free an idle worker's context | `link_compact` | Bounded await-completion |
