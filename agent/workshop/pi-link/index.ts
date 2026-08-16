@@ -351,8 +351,8 @@ export default function (pi: ExtensionAPI) {
     if (inbox.length === 0) return;
     if (!ctx) return;
 
-    // Only deliver when idle so triggerTurn takes the prompt-start path
-    // instead of mid-run steering, avoiding async delivery loss.
+    // Only deliver when idle so triggerTurn takes the turn-start path
+    // (sendUserMessage) instead of mid-run steering, avoiding async delivery loss.
     let idle: boolean;
     try {
       idle = ctx.isIdle();
@@ -1128,8 +1128,8 @@ export default function (pi: ExtensionAPI) {
     return textResult("Not connected to link", { error: "not_connected" });
   }
 
-  function truncatePreview(text: string, max = 60) {
-    return text.length > max ? text.slice(0, max) + "..." : text;
+  function truncatePreview(text: string) {
+    return text.length > 60 ? text.slice(0, 60) + "..." : text;
   }
 
   // Shared "target not found" result for the send/compact tools.

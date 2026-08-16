@@ -84,7 +84,6 @@ For dependent work, wait for the prerequisite callback before dispatching its su
 - **Cwd is a hint, not proof.** Same cwd does not prove the same workspace, branch, or access. Include explicit paths.
 - **Names are identities.** The hub suffixes collisions; use `link_list` to confirm exact names and cwd.
 - **Avoid compact races.** Prefer compacting before dispatch or after the worker's callback, not while work is outstanding.
-- **Avoid response loops.** Status/FYI messages and acknowledgements that require no action get no reply.
 
 ---
 
