@@ -1,7 +1,7 @@
 # PLAN — pi-link roadmap (triage index)
 
 > **Status:** Index / source of truth
-> **Last aligned:** 2026-07-14
+> **Last aligned:** 2026-07-17
 
 Single entry point for pi-link's plan backlog. Lists what shipped, what's open
 (priority-ranked), what's stale, and what's parked — so a future agent or the
@@ -39,11 +39,33 @@ commits versions.**
   displayPath separator cosmetics, the eight cut fixture cases, T4 polish
   items — do not re-propose without new evidence.
 
+- **Async-only agent messaging** (2026-07-17) — `link_send` is the sole
+  agent-to-agent messaging tool; omitting `triggerTurn` now defaults to **true**;
+  explicit `false` still delivers immediate non-waking steer; `link_prompt`
+  removed end to end with no tombstones (`0338ee5`), plus a residue cleanup pass
+  (`f7b4ff9`). Net −527 lines. Suite 49/49. Triple-reviewed (plan: fable + opus +
+  sol; code: opus for correctness, fable for simplicity). Live-validated on an
+  11-terminal mesh: default-true wake, raw mid-turn steer without aborting an
+  in-flight tool call, queued delivery at the next turn boundary, broadcast
+  wake-all vs wake-none, non-waking `/link-broadcast`, and compact idle-succeeds /
+  busy-declines. Plan file retired (was `PLAN-link-send-only.md`, archived in git
+  history at `0338ee5`).
+  **Release handoff still owed:** the release notes must state that all linked
+  terminals must be **upgraded and restarted together**, because mixed-version
+  prompt RPC is unsupported — an un-restarted peer keeps the old extension and its
+  `link_prompt` calls hang until the 90s inactivity timeout. Observed live: two
+  terminals lost `link_prompt` mid-session when the reload landed under them.
+  Explicitly dropped along the way — do not re-propose without new evidence:
+  compatibility tombstones / dormant wire handlers, a permanent README migration
+  section, a standalone extension test harness, and an asymmetric broadcast
+  default (rejected because it would reintroduce the unwoken-receiver bug on the
+  fan-out path).
+
 ## Open work (priority-ranked)
 
 | # | Work item | File | Status | Readiness | Next action |
 |---|-----------|------|--------|-----------|-------------|
-| P0 | Compact-race guard (Defect 2) | `REPORT-compact-race.md` | Report → needs plan | Not executable until event surface verified | Verify `session_before_compact` / `session_compact` fire on manual/remote/auto/error paths; then write `PLAN-compact-race-guard.md` |
+| P0 | Compact-race guard (Defect 2) | `REPORT-compact-race.md` | Report → needs plan | Not executable until event surface verified | Verify `session_before_compact` / `session_compact` fire on manual/remote/auto/error paths; then write `PLAN-compact-race-guard.md`. **Exposure increased 2026-07-17:** the default-true flip routes ordinary traffic through the inbox instead of the steer path, so `flushInbox`'s `ctx.isIdle()` gate (which does not consult `isCompacting`) is hit far more often. One live probe — an omitted-trigger message sent mid-compaction — did **not** reproduce it; timing-dependent, so treat as unproven, not closed |
 | P1 | Link status endpoint + `--status` | `PLAN-cli-status.md` | Executable | Ready (owner-approved, no open decisions; parser cleaned by CLI closeout, no remaining blocker) | Implement; re-check its parser line references against the post-closeout 5-phase parser before building |
 
 ## Stale / historical
@@ -76,6 +98,18 @@ script-orchestration, wrong for pi-link's peer-LLM coordination model:
 - Concurrency caps (human-scale, ~handful of terminals)
 - Approval-before-launch UX (each terminal already has a user)
 - `ultracode`-style keyword/effort trigger (no global-mode concept)
+
+## Deferred design work
+
+- **Sender attribution on raw delivery** — explicit-`false` sends and
+  `/link-broadcast` arrive as raw text with no `From "name":` header, so the
+  receiver cannot identify the sender unless the body says so. Evidenced live
+  (2026-07-17): one terminal could name the sender only because the message text
+  did; another could not identify the origin of a human broadcast at all. Current
+  mitigation is convention — the coordination skill requires senders to include
+  their identity. A structural fix (wrapping false delivery, and/or attributing
+  `/link-broadcast`) is a separate semantic change; it was deliberately kept out
+  of the async-only work to avoid inflating that diff. No plan file; tracked here.
 
 ## Deferred doc work
 
