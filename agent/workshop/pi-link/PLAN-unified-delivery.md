@@ -1,0 +1,305 @@
+# PLAN — Unified link delivery
+
+> **Status:** Executable — awaiting three plan reviews, then owner approval
+> **Last aligned:** 2026-07-17
+> **Build from this?** Not yet. Reviews first, then explicit owner go.
+> **Design source of truth:** `PLAN-delivery-gaps.md` (closed). This file changes
+> nothing about the design; it turns it into ordered, verifiable tasks.
+> **Summary:** One message shape, one delivery path. `link_send({to, message})`
+> always acts: Pi steers a running receiver at its next safe boundary, or starts a
+> turn on an idle one. Removes `triggerTurn`, the plain-append path, and
+> `/link-broadcast`. Adds a compaction gate. Net subtraction.
+
+## Ground rules
+
+- **Extension-only.** Do not modify Pi. Where Pi is defective, report upstream.
+- **No new abstractions.** One boolean for compaction; no state machine, no
+  receipts, no durable queue, no acknowledgement protocol.
+- **Atomic.** Code, README, both skills, and all templates land together. No
+  intermediate state may advertise a tool shape that no longer exists.
+- **No metadata.** No version, CHANGELOG, package, lockfile, publish, or release
+  changes without a separate owner instruction.
+- **Verify line numbers before editing.** All references are from `index.ts` at
+  `f1b1042` and Pi 0.84.2; re-check each site rather than trusting the number.
+
+## Baseline to establish before Task 1
+
+Record the result of each; do not start if any fails.
+
+```sh
+cd agent/workshop/pi-link
+git status --short                       # only untracked plan files expected
+npx --yes esbuild index.ts --bundle --platform=node --format=esm \
+  --external:@earendil-works/* --external:ws --external:typebox \
+  --external:node:* --outfile=/tmp/pi-link-check.mjs
+node --check bin/pi-link.mjs
+node test/cli-flags-test.mjs             # expect 49/49
+```
+
+---
+
+## Task 1 — Remove `triggerTurn` and unify ingress
+
+**File:** `index.ts`
+
+**Delete:**
+
+- `ChatMsg.triggerTurn` (`:67`) and every read/write of it on the wire.
+- The `triggerTurn` schema property and its description (`:1176-1182`).
+- `const triggerTurn = params.triggerTurn ?? true` and the outgoing field
+  (`:1199-1205`).
+- `triggerTurn` from the tool result details (`:1219`).
+- Both mode badges in `renderCall` (`:1231-1235`): `(no turn)` and
+  `(trigger all)`.
+- The `else` branch of the `chat` case that plain-appends with
+  `{ triggerTurn:false, deliverAs:"steer" }` (`:596-609`). **No linked traffic may
+  ever reach Pi's plain-append arm again.**
+- `IDLE_RETRY_MS` (`:30`) and the `ctx.isIdle()` deferral in `flushInbox`
+  (`:354-365`), including both `scheduleFlush(IDLE_RETRY_MS)` retries
+  (`:363`, `:392`).
+- The `agent_end` inbox kick (`:1116-1118`) — it exists only to wait for idleness.
+  Removing it is required, not optional: leaving it would re-flush at a boundary
+  the design no longer cares about.
+
+**Keep unchanged:** `FLUSH_DELAY_MS` 200, `BATCH_MAX_ITEMS` 20,
+`BATCH_MAX_CHARS` 16_000, arrival ordering, the
+`[Link: N message(s) received]` + `From "name":` wrapper, disconnect cleanup, and
+the `link_send` self-target and `targetNotFound` guards.
+
+**Result:** every inbound `chat` — direct or `to:"*"` — enters the inbox, is
+batched, wrapped, and delivered with one call:
+
+```ts
+pi.sendMessage({ customType: "link", content: wrapped, display: true, details }, { triggerTurn: true });
+```
+
+Pi then decides atomically: running receiver → `agent.steer()`; idle receiver →
+new turn. Do not inspect receiver state in pi-link; that check has a lost
+interleaving and Pi's does not.
+
+**Update the tool description** to state the single behavior: the message always
+acts, steering a busy receiver at its next safe boundary or starting a turn on an
+idle one.
+
+**Acceptance:**
+
+| Receiver state | Required result |
+| --- | --- |
+| idle | exactly one new turn for the batch |
+| assistant streaming | delivered after that response, before the next LLM call |
+| tool running | tool completes; delivered before the next LLM call |
+| core loop ending | Pi's post-run continuation delivers it |
+| ≥2 messages within 200 ms | one attributed batch, one iteration |
+| messages > 200 ms apart | ordered separate batches |
+
+---
+
+## Task 2 — Remove `/link-broadcast`
+
+**File:** `index.ts`
+
+Delete the command registration and handler (`:1540-1562`) and the reference in
+the header comment (`:10`). Do not replace it with `ctx.ui.notify()` or any other
+human announcement surface.
+
+`link_send({ to:"*" })` remains and is now honestly active: it steers busy peers
+and starts idle ones.
+
+**Acceptance:** `/link-broadcast` is absent from the command list and from all
+documentation; no code path sends chat with a non-waking flag, because no such
+flag exists.
+
+---
+
+## Task 3 — Defer delivery during compaction
+
+**File:** `index.ts`
+
+Add one module-scoped boolean beside `compactRunning` (`:147`), e.g.
+`localCompacting`, with exactly these transitions:
+
+```ts
+pi.on("session_before_compact", (event) => {         // manual | threshold | overflow
+  setCompacting(true);
+  event.signal.addEventListener("abort", () => setCompacting(false), { once: true });
+});
+pi.on("session_compact",  () => setCompacting(false));
+pi.on("agent_start",      () => setCompacting(false));  // Pi resumed normal operation
+// plus a safety deadline inside setCompacting(true)
+```
+
+The deadline is required. A failed compaction emits `compaction_end` only to
+session listeners, never to extensions, so success and abort are the only positive
+endings we can observe; without the timer a failure strands the flag and holds
+messages forever. Reuse `COMPACT_TIMEOUT_MS` rather than adding a constant.
+
+**Apply it in two places:**
+
+1. `flushInbox` — if `localCompacting || compactRunning`, reschedule and return.
+   This is the only remaining reason the inbox defers.
+2. The `compact_request` guard (`:614`) — add `localCompacting` so a second
+   compaction is declined as `busy` rather than started concurrently.
+
+Do **not** handle auto-compaction specially: it runs inside the agent run, so
+messages already queue as steering and Pi drains them via
+`hasQueuedMessages()` afterwards.
+
+**Comment the accepted gap at the guard**, briefly: `compact()` aborts and prepares
+before emitting `session_before_compact`, so a flush in that window can start a
+turn against context about to be rebuilt. The message survives — it is persisted
+and restored by `buildSessionContext()` — only the turn is wasted. No heuristics.
+
+**Acceptance:** while compacting, nothing is delivered and no turn starts; when
+compaction ends, the batch is delivered normally; a remote compact request during
+any compaction is declined `busy`; a failed compaction releases the flag within the
+deadline.
+
+---
+
+## Task 4 — Correct the compact-timeout result
+
+**File:** `index.ts` (`:1288`)
+
+Replace the flat timeout error with the honest one:
+
+> Timed out after 180s; the target may still be compacting. Re-check with
+> `link_list` before retrying.
+
+No cancellation machinery, no wire change.
+
+---
+
+## Task 5 — Report broadcast reach (drop if review objects)
+
+**File:** `index.ts`
+
+`link_send({to:"*"})` currently returns "Sent to all terminals" even when nobody is
+connected. The hub knows the count from `hubBroadcast` (`:446-453`).
+
+- **Hub role:** return the actual number, including zero.
+- **Client role:** keep it explicitly optimistic — the hub performs the fan-out and
+  the count is not knowable at send time. Do not add a response message to learn it.
+
+This is the smallest honest improvement. If a reviewer argues it is not worth the
+lines, drop the task; it is independent of everything else.
+
+---
+
+## Task 6 — Rewrite the documentation around one model
+
+**Files:** `README.md`, `skills/pi-link-coordination/SKILL.md`,
+`../../skills/pi-link-implement-review-commit/SKILL.md` and its
+`templates/dispatch-brief.md`, `templates/review-brief.md`,
+`templates/commit-brief.md`.
+
+**Teach exactly one mental model:**
+
+> A linked message always demands attention. It steers a running receiver at Pi's
+> next safe boundary — current tool calls finish first — or starts a turn on an idle
+> one. The sender controls intent through clear content and responsible timing, not
+> a transport flag.
+
+**Add the coordination ethic**, since the transport no longer encodes intent:
+
+> Sending to a busy agent means steering its current work. Do it when the message
+> should enter that run — a correction, a blocker, a stop, a needed callback. If it
+> must not influence the run, wait until the agent is idle.
+
+**Also state:** messages are batched for ~200 ms and attributed by sender; a
+terminal that is compacting receives nothing until it finishes; a message needing no
+action gets no reply; broadcast is active fan-out and costs a turn on every peer.
+
+**Fold in the still-valid rules from `PLAN-doc-accuracy.md`** — that plan is
+superseded as a whole, but three of its items survive and must not be lost:
+
+- execution authority travels inside every executable dispatch;
+- `BLOCKED` is sent immediately, naming the missing input or approval, rather than
+  waiting silently;
+- a client's send success means the hub accepted the message, not that it arrived —
+  treat a missing callback, not a send error, as the failure signal.
+
+**Remove all templates' `triggerTurn` arguments** (`dispatch-brief.md:3,34,54`,
+`review-brief.md:3,29`, `commit-brief.md:3,51`, and the skill's own examples). This
+is not cosmetic: if TypeBox rejects the now-unknown property, every dispatch fails.
+
+**Pay for the additions by deleting:** the true/false mode tables, non-waking FYI
+guidance, `/link-broadcast` instructions, explicit-`triggerTurn:true` examples, and
+the "callbacks always arrive as clean new turns" claim, which is no longer true.
+
+---
+
+## Gates
+
+Run all of these before handing to review.
+
+```sh
+npx --yes esbuild index.ts --bundle --platform=node --format=esm \
+  --external:@earendil-works/* --external:ws --external:typebox \
+  --external:node:* --outfile=/tmp/pi-link-check.mjs
+node --check bin/pi-link.mjs
+node test/cli-flags-test.mjs             # 49/49
+git diff --check
+
+# Public mode vocabulary and the removed command must be gone from guidance:
+! rg -n 'triggerTurn|no turn|non-waking|link-broadcast' \
+  README.md skills/pi-link-coordination/SKILL.md \
+  ../../skills/pi-link-implement-review-commit
+
+# Removed schema/wire/plain-append paths must not survive under another name:
+! rg -n 'params\.triggerTurn|msg\.triggerTurn|triggerTurn:\s*false|deliverAs|link-broadcast|IDLE_RETRY_MS' index.ts
+
+# Exactly one internal activation should remain; read every match:
+rg -n 'triggerTurn:\s*true' index.ts
+```
+
+`CHANGELOG.md` and archived plans are deliberately outside the absence gates —
+their references are historical.
+
+## Live gates (whole mesh restarted on the same build)
+
+Require an observable read-back for every one; a subject's self-report is not
+evidence.
+
+1. idle receiver → exactly one turn;
+2. send during a long tool call → tool completes, message read at the next
+   boundary, run not aborted;
+3. send as a run ends → delivered by continuation, not stranded;
+4. three sends inside 200 ms → one wrapped batch, one iteration;
+5. sends 1 s apart → ordered separate batches;
+6. sender attribution present on direct and broadcast delivery;
+7. `to:"*"` activates every peer; result reports reach per Task 5;
+8. `/link-broadcast` is gone;
+9. during `/compact` on the target: nothing delivered, no turn starts, batch
+   arrives after compaction ends;
+10. `link_compact` against a compacting target declines `busy`;
+11. all updated templates dispatch successfully.
+
+## Sequencing
+
+1. Three independent plan reviews, each against source, not prose:
+   **opus** (correctness), **fable** (simplicity/value), **sol** (practitioner and
+   migration).
+2. Owner approves the reviewed plan.
+3. Baseline check, then implement Tasks 1–6 as one change.
+4. Independent implementation review by a terminal that did not implement.
+5. One commit — code, README, both skills, and templates together:
+   `feat(pi-link): deliver every linked message on receiver state`
+   with a `BREAKING CHANGE:` note that `triggerTurn` and `/link-broadcast` are
+   removed and that all linked terminals must be upgraded and restarted together.
+6. Owner restarts the whole mesh; run the live gates.
+7. Retire `PLAN-doc-accuracy.md` (superseded) and update `PLAN-roadmap.md`:
+   close D1/D5/D6 and the P0 compact-race item, and record the accepted residual
+   window.
+8. File the upstream Pi report: `compact()` assigns `_compactionAbortController`
+   after `await this.abort()` and has no reentrancy guard
+   (`agent-session.js:1368-1369`), so overlapping compactions clobber the shared
+   field. Evidence and line numbers are in `REPORT-compact-race.md`.
+
+## Out of scope
+
+- Q3, surfacing hub routing failure to the sending model — still an open design
+  question in `PLAN-delivery-gaps.md`; documented, not built.
+- Crash/restart durability for in-memory steering.
+- Any change to Pi.
+- Delivery receipts, acknowledgements, mandatory keywords, or a replacement human
+  broadcast command.

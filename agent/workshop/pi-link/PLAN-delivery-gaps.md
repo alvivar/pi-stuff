@@ -1,10 +1,11 @@
 # PLAN — Delivery quality consolidation
 
-> **Status:** Design consolidated — NOT executable yet
+> **Status:** Design closed — source of truth for the unified delivery model
 > **Last aligned:** 2026-07-17
-> **Build from this?** No. The unified delivery direction is owner-approved as a
-> design, but the compact-safety section is deliberately unresolved and the
-> resulting executable task plan has not been reviewed or approved.
+> **Build from this?** No — build from `PLAN-unified-delivery.md`, which turns
+> these decisions into ordered tasks. This file records *why* the design is what
+> it is; that plan records *what to change*. All design questions, including
+> compaction, are now decided.
 > **Summary:** Replace pi-link's two sender-selected delivery modes with one
 > attributed, batched message path. Pi atomically steers a running receiver or
 > starts an idle one. Remove the unsafe plain-append path and the human
@@ -129,6 +130,14 @@ These are no longer options:
    inspection, fallback turns, context-event injection, pending IDs, or duplicate
    suppression. Native Pi steering already supplies the required normal-operation
    guarantee more safely.
+10. **Compaction defers delivery.** A terminal that is compacting receives
+    nothing. Messages stay in the existing inbox and are delivered when it ends.
+11. **One compaction at a time.** pi-link never starts a compaction while it
+    believes one is running; a second request is declined as `busy`. It does not
+    wait, queue, or replace the first.
+12. **Extension-only.** No change to Pi is required or permitted for this work.
+    Where Pi's own behavior is defective, report it upstream instead of patching
+    around it.
 
 ## Coordination policy — the sender's responsibility
 
@@ -227,53 +236,72 @@ message semantics. Validate that this cannot recursively route or trigger itself
 callback + `link_list` as the failure signal. Prefer code only if the notice is a
 small reuse of existing paths.
 
-### Q4 — Resolve compact safety
+### Q4 — Compact safety (decided, extension-only)
 
-This is the next design discussion and remains the only blocker to turning this
-consolidation into an executable plan.
+Pi already applies this exact policy to human input: `interactive-mode.js:2478-2489`
+checks `session.isCompacting` and queues typed text instead of submitting it. We
+extend the same rule to linked messages. Coverage differs by compaction path.
 
-The prior P0 report (`REPORT-compact-race.md`) was written against Pi 0.79.1 and
-must be re-audited against Pi 0.84.2 before adopting its mitigation. The old plan
-assumed compaction was invisible to extensions and that `ctx.isIdle()` alone
-controlled delivery; both the Pi lifecycle and the proposed delivery path have
-changed.
+**Automatic (threshold and overflow) — already correct, no code.** Auto-compaction
+runs inside `_runAgentPrompt`, so `_isAgentRunActive` stays true. Inbound messages
+reach the steering arm, and `_runAutoCompaction` ends with
+`return this.agent.hasQueuedMessages()` under the comment *“Auto-compaction can
+complete while follow-up/steering/custom messages are waiting. Continue once so
+queued messages are delivered.”* Delivery after compaction is Pi's behavior, not
+ours.
 
-Investigate all four paths independently:
+**Remote `link_compact` — already tracked.** `compactRunning` (`index.ts:147`) is
+set before `ctx.compact()` and cleared exactly once by `finish()`. Only the inbox
+needs to consult it.
 
-1. manual/user compaction;
-2. remote `link_compact`;
-3. automatic compaction after an agent run;
-4. failed, aborted, or timed-out compaction.
+**Manual `/compact` — the only new work.** It is intercepted by the TUI at
+`interactive-mode.js:2425` and never reaches `AgentSession.prompt()`, so it cannot
+be shadowed by an extension command and raises no `input` event.
+`session_before_compact` is the earliest extension-visible signal and fires for all
+three reasons (`manual`, `threshold`, `overflow`).
 
-For each, establish from current source and a minimal live probe:
+**State machine.** One boolean, one source, four independent releases:
 
-- when `_isAgentRunActive` / `ctx.isIdle()` changes;
-- whether inbound `{triggerTurn:true}` steers, starts, waits, rejects, or races;
-- which extension events fire at start, completion, abort, and error;
-- whether `session_before_compact`, `session_compact`, and `agent_settled` form a
-  complete usable state machine;
-- whether current Pi already prevents overlapping compact calls;
-- whether a message queued during auto-compaction is rescued by
-  `_handlePostAgentRun()`;
-- what local state, if any, pi-link must retain;
-- how remote compact timeout interacts with subsequent sends and retries.
+| Transition | Source |
+| --- | --- |
+| set true | `session_before_compact` |
+| clear on success | `session_compact` |
+| clear on abort | `abort` listener on `event.signal` |
+| clear on resumed activity | `agent_start` |
+| clear on safety deadline | timer |
 
-Do not add a `compactRunning` abstraction for paths Pi already serializes. The
-best outcome is deletion or no change; a guard is justified only for a reproduced
-current-version race.
+The deadline is mandatory, not defensive padding: on a failed compaction Pi emits
+`compaction_end` only to session listeners, never to extensions, so success and
+abort are the only positive endings an extension can observe. Without a deadline a
+failure would strand the flag and hold messages forever.
 
-### Q5 — Clarify compact timeout
+**Applies to.** `flushInbox` defers while compacting; the `compact_request` guard
+declines while compacting.
 
-The old D6 gap remains unless current Pi changed it: pi-link's three-minute timeout
-ends the caller's wait but does not necessarily abort target compaction.
+**Accepted residual gap — documented, not engineered around.** `compact()` runs
+`await this.abort()` plus auth and preparation *before* emitting
+`session_before_compact`. A flush inside that window starts a turn against context
+about to be rebuilt. The message itself is safe: it is persisted as a session entry
+and `buildSessionContext()` restores it, so nothing is lost — the cost is a wasted
+turn. Do not add heuristics to guess at this window.
 
-After Q4 source validation, choose the smallest honest result:
+**Upstream, not ours.** `AgentSession.compact()` assigns
+`_compactionAbortController` *after* `await this.abort()`
+(`agent-session.js:1368-1369`) and has no reentrancy guard, so two overlapping
+compactions can clobber the shared field — the `reading 'signal'` crash in
+`REPORT-compact-race.md`. Our guard removes pi-link as one of the two participants;
+it cannot fix Pi. File it upstream with evidence and line numbers. Do not patch Pi.
 
-- if target work continues, say “timed out; target may still be compacting”;
-- if Pi 0.84.2 now aborts or exposes settled state, describe that actual behavior;
-- tell the caller when retrying is safe.
+### Q5 — Compact timeout (decided)
 
-A wording correction is preferred over new cancellation machinery.
+`COMPACT_TIMEOUT_MS` (`index.ts:27`) bounds the caller's wait only; nothing aborts
+the target, which usually finishes. Correct the wording, not the mechanism:
+
+> Timed out after 180s; the target may still be compacting. Re-check with
+> `link_list` before retrying.
+
+No cancellation machinery. A retry that arrives while the target is still working
+now declines as `busy` through the Q4 guard, which is the honest answer.
 
 ### Q6 — Rewrite documentation from the new semantics
 
@@ -339,10 +367,10 @@ release note:
 | D1: false to idle may never be read | **Closed structurally:** false removed; every message triggers or steers |
 | Mid-tool plain append ordering | **Closed structurally:** pi-link never uses plain append for linked traffic |
 | D2: optimistic client send can reach nobody | **Open:** Q3 |
-| D3: message/compaction race | **Open and blocking:** Q4, revalidate on Pi 0.84.2 |
+| D3: message/compaction race | **Decided:** Q4 — one flag, four releases, extension-only; narrow pre-emit window documented |
 | D4: broadcast success with zero recipients | **Open for agent broadcast:** Q2; human command removed |
 | D5: raw delivery has no sender identity | **Closed structurally:** every batch uses the sender wrapper |
-| D6: compact timeout is ambiguous | **Open:** Q5 |
+| D6: compact timeout is ambiguous | **Decided:** Q5 — wording only |
 | Late steer after final drain | **Closed by Pi 0.84.2:** post-run continuation; no pi-link-visible residual window |
 | Crash before steer persistence | **Explicitly out of scope** |
 
@@ -399,19 +427,11 @@ Use disposable terminals and read back the resulting behavior:
 10. compact cases defined by Q4 pass across manual, remote, automatic, timeout,
     and error paths.
 
-## Sequencing after compact design is resolved
+## Sequencing
 
-1. Finish Q4/Q5 decisions and update this document.
-2. Reconcile or retire `PLAN-doc-accuracy.md` and update `PLAN-roadmap.md` so no
-   stale source advertises the old modes.
-3. Convert Q1–Q7 into small executable tasks with exact paths, ownership, gates,
-   and commit boundaries.
-4. Independent source-truth plan review (Opus lens).
-5. Independent simplicity/value plan review (Fable lens).
-6. Independent practitioner/migration plan review (Sol lens).
-7. Owner approves the reviewed executable plan.
-8. Execute implementation → review → commit under the orchestration pipeline.
-9. Restart the entire mesh together and run the live gates.
+Design is closed. Execution is sequenced in `PLAN-unified-delivery.md`:
+three independent plan reviews, owner approval, then implement → review → commit,
+then a whole-mesh restart and the live gates.
 
 ## Explicit non-goals
 
