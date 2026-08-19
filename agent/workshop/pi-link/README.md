@@ -132,7 +132,7 @@ Terminal 1 calls `link_send` and returns immediately. The message enters Termina
 
 ## Configuration
 
-Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, the extension is completely silent — no status bar, no connections, no warnings.
+Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, a fresh session is completely silent — no status bar, no connections, no warnings.
 
 **Naming concepts**
 
@@ -248,13 +248,16 @@ Each terminal reports its current working directory on connect. `link_list` show
 
 Each terminal also reports its current LLM context usage, rendered as `45K/272K (17%)` — tokens used over the context window, with percent. Briefly after compaction it shows as `?/272K` until the next live token count arrives.
 
-Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Three states:
+Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Four states:
 
-| Status            | Meaning                 |
-| ----------------- | ----------------------- |
-| `idle (2m)`       | Waiting for user input  |
-| `thinking (3s)`   | LLM is generating       |
-| `tool:bash (12s)` | Running a specific tool |
+| Status            | Meaning                                     |
+| ----------------- | ------------------------------------------- |
+| `idle (2m)`       | Waiting for user input                      |
+| `thinking (3s)`   | LLM is generating                           |
+| `tool:bash (12s)` | Running a specific tool                     |
+| `compacting (8s)` | Manual compaction running; messages held    |
+
+Only a manual compaction shows `compacting`. Automatic (threshold or overflow) compaction runs inside an agent run, so a terminal doing one reads as `thinking` or `tool:<name>`.
 
 Durations are computed at render time from a `since` timestamp - no timer traffic over the wire. Terminals that just joined with no status data yet render as blank, not fake idle.
 
@@ -411,7 +414,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | 4   | **No message persistence**                | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                    |
 | 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.              |
 | 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                         |
-| 7   | **Callbacks are conventional**            | Async work results are uncorrelated messages, not protocol responses. Coordinators must track outstanding workers and request explicit callbacks.    |
+| 7   | **Callbacks are conventional**            | Async work results are uncorrelated messages, not protocol responses. A send carries no request identifier, nothing correlates a reply to it, and a callback exists only because the receiver chose to send one. |
 
 ---
 
@@ -521,7 +524,7 @@ The hub enforces unique terminal names via a `uniqueName()` function. If `"build
 
 Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 
-**Persistence:** `/link-name` saves the preferred name to the session via `pi.appendEntry("link-name", { name })`. On session resume, the saved name is restored and requested from the hub. Only explicit `/link-name` calls persist - hub-assigned variants like `"builder-2"` are not saved. On reconnect, the terminal always requests the preferred name, not the last runtime name.
+**Persistence:** `/link-name` saves the preferred name to the session via `pi.appendEntry("link-name", { name })`. On session resume, the saved name is restored and requested from the hub. Startup naming (`pi-link <name>`, `pi --link-name <name>`) persists the same way - hub-assigned variants like `"builder-2"` are not saved. On reconnect, the terminal always requests the preferred name, not the last runtime name.
 
 **Rename guards:**
 
@@ -578,7 +581,7 @@ The `manuallyDisconnected` flag distinguishes user-initiated disconnects (`/link
 
 The extension hooks into Pi's agent lifecycle events:
 
-- **`agent_start`** → Sets `agentRunning = true`, which drives status and prevents remote compaction from interrupting active work. Clears the local compaction gate, since a resumed run means any compaction has ended. Broadcasts `status_update` (`thinking`).
+- **`agent_start`** → Sets `agentRunning = true`, which drives status and prevents remote compaction from interrupting active work. Clears the local compaction gate - safe only under the current deployment, not by Pi alone: Pi refuses to start an ordinary prompt during a manual compaction, and pi-link holds back the one delivery path that refusal does not cover, so nothing can start a run mid-compaction. Another extension starting a turn during one would void that. Broadcasts `status_update` (`thinking`).
 - **`agent_end`** → Broadcasts `status_update` (`idle`).
 - **`tool_execution_start`** → Broadcasts `status_update` (`tool:<name>`).
 - **`tool_execution_end`** → Clears tool status; broadcasts `status_update` (`thinking`) while the agent run continues.
