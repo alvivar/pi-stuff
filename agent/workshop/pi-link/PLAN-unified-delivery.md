@@ -96,19 +96,29 @@ provider-ordering defect.
 
 ### Batching must survive
 
-Pi drains steering **one message per loop iteration**, so N queued messages cost N
-LLM calls. The 200 ms debounce is what keeps a burst to one iteration.
+Under Pi's **default** `one-at-a-time` steering mode, `PendingMessageQueue.drain()`
+returns only the first message (`agent.js:63-75`), so N queued messages cost N LLM
+calls and the 200 ms debounce keeps a burst to one iteration. The user can set
+`all` (`agent-session.js:1340`), which drains the whole queue — then the cost
+argument disappears but batching still earns its place, because one attributed
+wrapper reads as one event instead of N fragments.
 
 ### Compaction facts
 
 - Pi already applies the target policy to human input:
   `interactive-mode.js:2478-2489` checks `session.isCompacting` and queues typed
   text instead of submitting it. We extend the same rule to linked messages.
-- **Automatic (threshold/overflow) is already correct.** It runs inside
-  `_runAgentPrompt`, so messages queue as steering, and `_runAutoCompaction` ends
-  with `return this.agent.hasQueuedMessages()` under the comment *"Auto-compaction
-  can complete while follow-up/steering/custom messages are waiting. Continue once
-  so queued messages are delivered."*
+- **Automatic (threshold/overflow) is already correct, and Task 3 must stay out of
+  its way.** It runs inside `_runAgentPrompt`, so `_isAgentRunActive` — and
+  therefore `isStreaming` (`agent-session.js:588-590`) — stays true: a delivered
+  message takes the steering arm, and `_runAutoCompaction` ends with
+  `return this.agent.hasQueuedMessages()` under the comment *"Auto-compaction can
+  complete while follow-up/steering/custom messages are waiting. Continue once so
+  queued messages are delivered."* This is Pi's own design working correctly;
+  holding those messages in our inbox instead would replace a working path with
+  ours.
+- **`session_before_compact` fires for all three reasons**, so Task 3 must filter
+  on `reason` rather than gate every compaction.
 - **Remote `link_compact` is already tracked** by `compactRunning`
   (`index.ts:147`), set before `ctx.compact()` and cleared exactly once by
   `finish()`.
@@ -149,8 +159,9 @@ reopen the choice.
    Fan-out to a mesh where every message demands attention is not worth its cost;
    a sender who must reach several peers addresses them deliberately. Presence,
    rename, and status keep the hub's internal broadcast — only chat loses it.
-8. **Intent belongs in the message, policy in the skill.** The transport carries no
-   second intent bit.
+8. **Intent belongs in the message; the skill documents mechanics only.** The
+   transport carries no second intent bit, and the guidance prescribes no conduct —
+   it states how delivery behaves and lets the model reason from that.
 9. **No custom steering mechanism.** No append tracking, session inspection,
    fallback turns, context-event injection, pending IDs, or duplicate suppression.
 10. **Compaction defers delivery.** A compacting terminal receives nothing;
@@ -188,7 +199,9 @@ node test/cli-flags-test.mjs             # expect 49/49
 - `const triggerTurn = params.triggerTurn ?? true` and the outgoing field
   (`:1199-1205`).
 - `triggerTurn` from the tool result details (`:1219`).
-- Both mode badges in `renderCall` (`:1231-1235`): `(no turn)` and `(trigger all)`.
+- Both mode badges in `renderCall` (`:1231-1234`): `(no turn)` and `(trigger all)`.
+  **`:1235` is the message preview and must survive** — deleting through it removes
+  the preview from every render.
 - The `else` branch of the `chat` case that plain-appends with
   `{ triggerTurn:false, deliverAs:"steer" }` (`:596-609`). **No linked traffic may
   ever reach Pi's plain-append arm again.**
@@ -245,25 +258,36 @@ batching retained. A change that grows this file needs an explanation.
 Delete the `/link-broadcast` command registration and handler (`:1540-1562`) and
 the reference in the header comment (`:10`). Do not replace it.
 
-Also remove chat fan-out: `link_send` no longer accepts `"*"`.
+Also remove chat fan-out at **both** ends — the tool and the router:
 
-- Drop the `if (params.to !== "*")` wrapper (`:1194-1197`) so the self-target and
+- Drop the `if (params.to !== "*")` wrapper (`:1188-1197`) so the self-target and
   `targetNotFound` guards apply to every send. `"*"` then fails as an unknown
   terminal name, with no special case to write.
-- Simplify the result text: there is no longer an "all terminals" target.
+- **Delete the hub's wildcard routing arm** in `routeMessage`
+  (`:473-476`: `if (msg.to === "*") { hubBroadcast(msg, msg.from); return true; }`).
+  Removing it only from the tool leaves the protocol intact: an old or malformed
+  client can still put `to:"*"` on the wire and a new hub will fan it out — which
+  is precisely the un-upgraded-sender case the migration section anticipates.
+  `routeMessage` accepts only `ChatMsg | CompactRequestMsg | CompactResponseMsg`,
+  and neither compact type ever targets `"*"`, so this arm exists solely for chat.
+- Remove both `"*"` ternaries: the result text (`:1207`) and
+  `renderCall`'s `const target = args.to === "*" ? "broadcast" : args.to` (`:1224`),
+  which reduces to `args.to`.
 - Update the tool and `to` parameter descriptions to say the target is one
   terminal name.
 
 **Keep the hub's internal broadcast.** `hubBroadcast` still carries presence
-(`joined` at `:750`, `left` at `:803`), rename (`:1505-1509`), and status updates.
+(`joined` at `:750`, `left` at `:803`), rename (`:1505-1509`), and status updates,
+which the hub mirrors directly (`:758-777`) rather than through `routeMessage`.
 Only `chat` loses fan-out; `ChatMsg.to` becomes always a single name.
 
-This closes the old "broadcast reports success to nobody" gap outright: the
-situation is no longer expressible, so no recipient count is needed.
+With the routing arm gone, the old "broadcast reports success to nobody" gap is
+closed at the protocol, not merely hidden behind the tool.
 
 **Acceptance:** `/link-broadcast` is gone from the command list and all docs;
-`link_send({to:"*"})` is rejected like any unknown name; presence and status still
-reach every terminal.
+`link_send({to:"*"})` is rejected like any unknown name; a `chat` frame carrying
+`to:"*"` is not fanned out by a hub; presence and status still reach every
+terminal.
 
 ---
 
@@ -272,54 +296,86 @@ reach every terminal.
 **File:** `index.ts`
 
 Add one module-scoped boolean beside `compactRunning` (`:147`), e.g.
-`localCompacting`, with exactly these transitions:
+`localCompacting`, plus one nullable timer handle. **Gate manual compaction only:**
 
 ```ts
-pi.on("session_before_compact", (event) => {         // manual | threshold | overflow
-  setCompacting(true);
-  event.signal.addEventListener("abort", () => setCompacting(false), { once: true });
+let localCompacting = false;
+let compactDeadline: ReturnType<typeof setTimeout> | undefined;
+
+function setCompacting(on: boolean) {
+  localCompacting = on;
+  clearTimeout(compactDeadline);                       // never leave a stale deadline
+  compactDeadline = on ? setTimeout(() => setCompacting(false), COMPACT_TIMEOUT_MS) : undefined;
+  if (!on && inbox.length) scheduleFlush(FLUSH_DELAY_MS);   // release drains; no polling
+}
+
+pi.on("session_before_compact", (event) => {
+  if (event.reason === "manual") setCompacting(true);   // threshold/overflow are Pi's job
 });
-pi.on("session_compact",  () => setCompacting(false));  // success
-pi.on("agent_start",      () => setCompacting(false));  // Pi resumed normal operation
-pi.on("agent_settled",    () => setCompacting(false));  // run finished, nothing pending
-// plus a safety deadline inside setCompacting(true)
+// inside the EXISTING handlers, do not register second listeners:
+//   pi.on("session_compact", …) at :1093  → setCompacting(false)   // success
+//   pi.on("agent_start", …)   at :1086    → setCompacting(false)   // Pi resumed work
 ```
 
-`agent_settled` is not redundant. A **failed auto-compaction** emits neither
-`session_compact` nor an abort: `_runAutoCompaction` returns false and the run
-simply ends. Without this release the flag would hold messages for the full
-deadline for no reason. It cannot clear the flag early, because manual compaction
-begins with `await this.abort()`, so `agent_settled` fires *before*
-`session_before_compact` sets the flag, and no run can start while the flag holds
-the inbox.
+**Why manual only.** Automatic compaction runs inside the agent run, so a delivered
+message takes Pi's steering arm and `_runAutoCompaction` returns
+`hasQueuedMessages()` to drain it afterwards. Holding those messages in our inbox
+would replace a working Pi path with our own. Filtering on `reason` costs one
+clause and removes the need for an `agent_settled` release, whose only purpose was
+rescuing a failed auto-compaction we now never gate.
 
-The deadline is still required as a last resort: a failed **manual** compaction
-emits `compaction_end` only to session listeners, never to extensions, so success
-and abort are the only positive endings an extension can observe. Reuse
-`COMPACT_TIMEOUT_MS` rather than adding a constant, and keep it generous —
-clearing too early means delivering into a compaction, the exact failure this task
-prevents.
+**Why no abort listener.** `event.signal` firing is not an ending: Pi passes that
+signal into the summarizer (`agent-session.js:1422`) and
+`_compactionAbortController` — the source of `isCompacting` (`:647-651`) — stays set
+until the catch/finally (`:1470-1482`). Releasing on abort re-opens delivery while
+the aborted compaction is still unwinding. After a cancelled compaction the flag is
+released by the user's next run (`agent_start`) or the deadline.
+
+**Why the deadline needs a handle.** A bare `setTimeout` survives its own
+compaction: a second compaction starting within `COMPACT_TIMEOUT_MS` would be
+released early by the previous deadline. One nullable handle, cleared on every
+transition, is essential state, not ceremony. The deadline itself is required
+because a failed manual compaction emits `compaction_end` only to session
+listeners, never to extensions — and Pi never `.abort()`s the controller on
+failure, it only clears it (`:1457`, `:1470`, `:1482`), so success is the sole
+positive ending an extension can observe. `COMPACT_TIMEOUT_MS` is reused to avoid a
+new constant; note at the use site that the value is shared by coincidence, not by
+meaning, since Task 4 rewords the other user of it.
 
 **Apply it in two places:**
 
-1. `flushInbox` — if `localCompacting || compactRunning`, reschedule and return.
-   This is the only remaining reason the inbox defers.
+1. `flushInbox` — if `localCompacting || compactRunning`, **return without
+   rescheduling**. Polling every 200 ms against a compaction that may run to the
+   180 s ceiling is ~900 wakeups for no information; the release path above drains
+   the inbox instead. This is the only remaining reason the inbox defers.
 2. The `compact_request` guard (`:614`) — add `localCompacting` so a second
    compaction is declined `busy` rather than started concurrently.
 
-Do **not** handle auto-compaction specially: it runs inside the agent run, so
-messages already queue as steering and Pi drains them afterwards.
+**Two comments the code must carry**, because both look like redundancy and will
+otherwise be "simplified" away:
 
-**Comment the accepted gap at the guard**, briefly: `compact()` aborts and prepares
-*before* emitting `session_before_compact`, so a flush in that window can start a
-turn against context about to be rebuilt. The message survives — it is persisted
-and restored by `buildSessionContext()` — only the turn is wasted. No heuristics to
-guess at this window.
+- `localCompacting || compactRunning` is not duplication. `compactRunning` is set
+  synchronously before `ctx.compact()` (`:644-651`), covering the window before
+  `session_before_compact` arrives; `localCompacting` covers human `/compact`,
+  which pi-link never initiates.
+- The flag is load-bearing because Pi will not save us: `AgentSession.prompt()`
+  refuses to run during compaction (`agent-session.js:807-809`), but
+  `sendCustomMessage` reaches `_runAgentPrompt` directly at `:1090` and is not
+  covered by that guard.
 
-**Acceptance:** while compacting, nothing is delivered and no turn starts; when
-compaction ends the batch is delivered normally; a remote compact request during
-any compaction is declined `busy`; a failed compaction releases the flag within the
-deadline.
+**Comment the accepted gap beside the `session_before_compact` handler** — it is a
+manual-compaction limitation, not a remote one, since remote compaction is already
+gated by `compactRunning`: `compact()` runs `await this.abort()`, auth, and
+preparation *before* emitting the event (`agent-session.js:1367-1397`), so a flush
+in that window can start a turn against context about to be rebuilt. The message
+survives — persisted and restored by `buildSessionContext()` — only the turn is
+wasted. No heuristics to guess at this window.
+
+**Acceptance:** during manual `/compact` nothing is delivered and no turn starts;
+the batch arrives once compaction ends, without polling in between; a remote
+compact request during any compaction is declined `busy`; a cancelled compaction
+does not release the gate early; a second compaction is never released by the first
+compaction's deadline; automatic compaction is untouched.
 
 ---
 
@@ -330,80 +386,91 @@ deadline.
 `COMPACT_TIMEOUT_MS` bounds the caller's wait only; nothing aborts the target,
 which usually finishes. Correct the wording, not the mechanism:
 
-> Timed out after 180s; the target may still be compacting. Re-check with
-> `link_list` before retrying.
+> Timed out after ${COMPACT_TIMEOUT_MS / 1000}s; the target may still be
+> compacting. Re-check with `link_list` before retrying.
 
-No cancellation machinery, no wire change. A retry arriving while the target still
+**Keep the interpolation** the current message already uses — hardcoding "180s"
+lets the text drift from the constant. No cancellation machinery, no wire change. A retry arriving while the target still
 works now declines `busy` through Task 3, which is the honest answer.
 
 ---
 
-## Task 5 — Rewrite the documentation around one model
+## Task 5 — Document the mechanics, not the etiquette
 
 **Files:** `README.md`, `skills/pi-link-coordination/SKILL.md`,
 `../../skills/pi-link-implement-review-commit/SKILL.md` and its
 `templates/dispatch-brief.md`, `templates/review-brief.md`,
 `templates/commit-brief.md`.
 
-**Teach exactly one mental model:**
+**Owner's standard for this task:** the skill states how the transport behaves and
+nothing else. No prescribed etiquette, no keyword protocols, no lists of what is
+worth interrupting. A capable model derives conduct from accurate mechanics, and
+will keep deriving better conduct as models improve; prescriptions freeze today's
+judgment into a file that is loaded into every context window forever.
 
-> A linked message always demands attention. It steers a running receiver at Pi's
-> next safe boundary — current tool calls finish first — or starts a turn on an idle
-> one. The sender controls intent through clear content and responsible timing, not
-> a transport flag.
+**Test for every sentence:** is this a fact about the system that the reader cannot
+observe from inside their own turn? If yes, state it. If it is advice that follows
+from such a fact, delete it and make sure the fact is present.
 
-**Add the coordination ethic**, since the transport no longer encodes intent:
+**The mechanics to state** — this is the whole content:
 
-> Sending to a busy agent means steering its current work. Do it when the message
-> should enter that run — a correction, a blocker, a stop, a needed callback. If it
-> must not influence the run, wait until the agent is idle.
+- A message is delivered to the receiver's model. If the receiver is running, it is
+  steered in at Pi's next safe boundary — current tool calls finish first, before
+  the next LLM call. If the receiver is idle, it starts a turn. There is no way to
+  send without entering the receiver's reasoning.
+- Messages arriving within ~200 ms are delivered as one batch, in arrival order,
+  each labelled with its sender.
+- Each send has exactly one recipient. There is no fan-out.
+- **Terminals share no conversation.** Nothing in the sender's context — including
+  an approval it received — is visible to the receiver. The message is the entire
+  shared state.
+- A receiver's activity is not observable except through `link_list`; a busy
+  terminal's queued messages are invisible to the sender, and silence is
+  indistinguishable from work in progress.
+- A terminal that is compacting receives nothing until it finishes; the messages
+  wait and are delivered afterwards.
+- For a client, a successful send means the hub accepted the message, not that it
+  arrived. If the target has vanished, the routing failure is shown to the human as
+  a notification and never reaches the sending model.
+- `link_compact`'s timeout bounds the caller's wait only; the target may still be
+  compacting.
+- Mixed-version meshes are unsupported: all linked terminals must run the same
+  build.
 
-Corrections, blockers, stop instructions, relevant constraints, and actionable
-callbacks are valid steering. Unrelated tasks, courtesy acknowledgements, and
-no-effect FYIs should wait. Use ordinary language; do not introduce a mandatory
-keyword vocabulary.
-
-**Also state:**
-
-- messages are batched for ~200 ms and attributed by sender;
-- a terminal that is compacting receives nothing until it finishes;
-- a message needing no action gets no reply — never build acknowledgement loops;
-- there is no broadcast: address each peer deliberately, and let that cost
-  discipline what you send;
-- mixed-version meshes are unsupported during this migration.
-
-**Carry over these rules from the retired doc-accuracy pass.** They were verified
-against source and must not be lost:
-
-- **Execution authority travels in the message.** Say plainly what the receiver may
-  do — read only, edit these paths, commit — and include the approval itself when
-  work depends on one. Never rely on permission that exists only in your own
-  conversation.
-- **`BLOCKED` is immediate.** A receiver facing unclear authority, a missing input,
-  or a failing command replies `BLOCKED` at once, naming what it needs, rather than
-  guessing or waiting silently. Material deviations and judgment calls beyond the
-  brief are reported with rationale.
-- **Send success is not arrival.** For a client, success means the hub accepted the
-  message; if the target has vanished, that failure is shown to the human as a
-  notification and never reaches the sending model. Treat a missing callback, not a
-  send error, as the failure signal, and re-check with `link_list`.
-- **Never wait in-turn for a callback.** Replies arrive only as new turns after you
-  go idle. Dispatch, finish your turn, let the callback wake you.
-- **A busy worker's queue is invisible — do not resend.** If `link_list` shows the
-  worker busy, your dispatch is waiting, not lost.
+These four facts — delivery always enters the receiver's reasoning, terminals share
+no conversation, silence is unreadable, and send success is not arrival — are the
+ones every deleted rule was standing in for. State them plainly and the rules are
+unnecessary.
 
 **Remove all templates' `triggerTurn` arguments** (`dispatch-brief.md:3,34,54`,
 `review-brief.md:3,29`, `commit-brief.md:3,51`, and the skill's own examples). This
 is not cosmetic: if TypeBox rejects the now-unknown property, every dispatch fails.
 
+**Delete the orchestrator skill's `link_prompt` and Golden Rule content.** The tool
+was removed two releases ago and the policy skill still teaches it at
+`pi-link-implement-review-commit/SKILL.md:13-14, 80, 148, 174-177, 193-194` —
+including a "sanctioned Golden Rule exception" that instructs the orchestrator to
+call a tool that no longer exists. The WAIT state and the no-callback diagnosis
+table must be rewritten around `link_send`. The Golden Rule is itself the clearest
+example of what this task removes: a prescription that outlived the mechanism that
+justified it, and kept being taught. This is the largest single deletion in Task 5.
+
 **Pay for the additions by deleting:**
 
 - the true/false mode tables and all non-waking FYI guidance;
+- prescriptive coordination etiquette wherever it appears: what deserves to
+  interrupt a busy agent, when to acknowledge, when to stay silent, how quickly to
+  report being blocked, and any mandated keyword. Keep the mechanics that make the
+  right answer obvious;
 - all broadcast instructions (`/link-broadcast` and `to:"*"` alike);
 - explicit-`triggerTurn:true` examples — the tool has no such argument;
 - the "callbacks always arrive as clean new turns" claim, no longer true;
 - the old compact-race warning telling senders to avoid messaging a compacting
   terminal — Task 3 makes that safe, and the guidance would now be false;
+
+When writing the compaction prose, avoid the literal phrase "no turn" — the static
+gate below searches for it as a mode term and will trip on innocent sentences like
+"no turn starts while compacting." Say "starts nothing" or "waits" instead;
 - the duplicated "messages are ephemeral / offline terminals do not receive queued
   work" bullet, already stated under `link_list`;
 - "use `/compact` rather than `link_compact` for yourself" — the tool already
@@ -428,11 +495,12 @@ git diff --check
   README.md skills/pi-link-coordination/SKILL.md \
   ../../skills/pi-link-implement-review-commit
 
-# Retired concepts must not reappear:
-! rg -n 'link_prompt|Golden Rule' README.md skills/pi-link-coordination/SKILL.md
+# Retired concepts must not reappear — the orchestrator skill is in scope now:
+! rg -n 'link_prompt|Golden Rule' README.md skills/pi-link-coordination/SKILL.md \
+  ../../skills/pi-link-implement-review-commit
 
 # Removed schema/wire/plain-append/fan-out paths must not survive under another name:
-! rg -n 'params\.triggerTurn|msg\.triggerTurn|triggerTurn:\s*false|deliverAs|link-broadcast|IDLE_RETRY_MS' index.ts
+! rg -n 'params\.triggerTurn|msg\.triggerTurn|triggerTurn:\s*false|deliverAs|link-broadcast|IDLE_RETRY_MS|msg\.to === "\*"' index.ts
 
 # hubBroadcast must remain, for presence/status only; read every match:
 rg -n 'hubBroadcast' index.ts
@@ -456,17 +524,26 @@ self-report is not evidence.**
 1. idle receiver → exactly one turn;
 2. send during a long tool call → tool completes, message read at the next
    boundary, run not aborted;
-3. send as a run ends → delivered by continuation, not stranded;
+3. send as a run ends → delivered by continuation, not stranded. Method: send
+   immediately after the target's last tool result, while its final assistant
+   message is still streaming. This interleaving is hard to hit deliberately — if
+   three attempts miss the window, record it as best-effort rather than inventing
+   instrumentation;
 4. three sends inside 200 ms → one wrapped batch, one iteration;
 5. sends 1 s apart → ordered separate batches;
 6. sender attribution present on every delivery;
 7. `link_send({to:"*"})` is rejected as an unknown target, while presence and
    status updates still reach all terminals;
 8. `/link-broadcast` is gone;
-9. during `/compact` on the target: nothing delivered, no turn starts, batch
-   arrives after compaction ends;
+9. during `/compact` on the target: nothing delivered, nothing starts, batch
+   arrives after compaction ends — and no repeated flush attempts in between;
 10. `link_compact` against a compacting target declines `busy`;
-11. all updated skills and templates dispatch successfully.
+11. cancel a manual compaction while a message is held: nothing is delivered while
+    it unwinds, and the message arrives afterwards;
+12. run two compactions inside `COMPACT_TIMEOUT_MS`: the first deadline must not
+    release the second;
+13. automatic compaction still delivers held messages by Pi's own path;
+14. all updated skills and templates dispatch successfully.
 
 ## Sequencing
 
