@@ -19,8 +19,9 @@ commits versions.**
   wire; `/link` and `link_list` render `45K/272K (17%)`. Validated live. (No
   standalone CHANGELOG entry — shipped folded into the 0.1.16 cycle; treat as
   version-agnostic.)
-- **Coordination recipes** (README `### Coordination recipes`) — adversarial
-  review + independent cross-check, stated as value; SKILL keeps the mechanics.
+- **Coordination recipes** (README) — shipped 2026-07, then **deleted** by the
+  unified-delivery documentation pass (`b5825b7`): they prescribed conduct, which
+  the owner's documentation principle rules out. Do not re-propose.
 - **Review hardening** (0.1.17, atop an earlier refinements pass) —
   disconnected-result error contract, pre-abort fail-fast, hub duplicate-register
   guard, `link_send` self-target guard. Maintenance; all live-verified.
@@ -61,11 +62,45 @@ commits versions.**
   default (rejected because it would reintroduce the unwoken-receiver bug on the
   fan-out path).
 
+- **Unified delivery** (2026-07-18) — `link_send({to, message})` lost its delivery-mode
+  parameter; every message passes `triggerTurn: true` internally and Pi decides from
+  the receiver's state. Removed the plain-append path, the idle gate
+  (`ctx.isIdle()` deferral, `IDLE_RETRY_MS`, the `agent_end` kick), `/link-broadcast`,
+  the `to:"*"` path and the hub's wildcard arm (`ed713c5`, −78). Delivery is held
+  while a **manual-reason** compaction runs, released by three transitions with an
+  explicit deadline and no polling (`e4e2c97`, +14 executable). Documentation rewritten
+  as mechanics only (`b5825b7`, −23). Follow-ups from fable's value review: the
+  `agent_start` comment corrected (`366cd85`), `compacting` made visible in
+  `link_list` (`cd6ef77`), the planning lesson folded into the plan schema
+  (`93dfad9`). Compaction mechanics found while testing, documented (`a33c24c`,
+  `ad24423`).
+  Reviewed independently at every step — the run surfaced **22 defects, not one of
+  which any static gate could catch**, including a liveness race that would have
+  stranded the inbox mesh-wide, and the deleted Golden Rule reappearing in fresh
+  words inside the very file that deleted it, past two clean greps.
+  **All sixteen live gates passed** on the restarted mesh, including the cancelled
+  compaction releasing at the 180s deadline and automatic compaction delivering
+  through Pi's own queue. Plan and ledgers retired with this entry.
+  **Release handoff still owed:** the notes must state that all linked terminals are
+  **upgraded and restarted together**. Observed live during the gates: a new sender
+  against an old receiver delivers **unattributed** — the text reaches the model, the
+  `[Link: …]` header and `From "name":` line are lost, and nothing anywhere reports a
+  fault. Both builds report the same `0.2.0`, so nothing announces the mismatch.
+
+- **Compact-race guard (former P0, Defect 2)** — closed at the extension level by
+  `e4e2c97`. `flushInbox` holds while `localCompacting || compactRunning`, and
+  `releaseInbox()` centralises the "drain only when no gate remains" invariant.
+  **Still owed to Pi upstream, not to this repo:** `compact()` assigns
+  `_compactionAbortController` *after* `await this.abort()` with no reentrancy guard,
+  so overlapping compactions clobber the shared field. Evidence and reproduction in
+  `REPORT-compact-race.md`; the owner files it. A second, weaker upstream ask
+  surfaced during the gates: a failed or cancelled compaction is reported to the user
+  but never to extensions, which is why the deadline has to exist at all.
+
 ## Open work (priority-ranked)
 
 | # | Work item | File | Status | Readiness | Next action |
 |---|-----------|------|--------|-----------|-------------|
-| P0 | Compact-race guard (Defect 2) | `REPORT-compact-race.md` | Report → needs plan | Not executable until event surface verified | Verify `session_before_compact` / `session_compact` fire on manual/remote/auto/error paths; then write `PLAN-compact-race-guard.md`. **Exposure increased 2026-07-17:** the default-true flip routes ordinary traffic through the inbox instead of the steer path, so `flushInbox`'s `ctx.isIdle()` gate (which does not consult `isCompacting`) is hit far more often. One live probe — an omitted-trigger message sent mid-compaction — did **not** reproduce it; timing-dependent, so treat as unproven, not closed |
 | P1 | Link status endpoint + `--status` | `PLAN-cli-status.md` | Executable | Ready (owner-approved, no open decisions; parser cleaned by CLI closeout, no remaining blocker) | Implement; re-check its parser line references against the post-closeout 5-phase parser before building |
 
 ## Stale / historical
@@ -101,15 +136,23 @@ script-orchestration, wrong for pi-link's peer-LLM coordination model:
 
 ## Deferred design work
 
-- **Sender attribution on raw delivery** — explicit-`false` sends and
-  `/link-broadcast` arrive as raw text with no `From "name":` header, so the
-  receiver cannot identify the sender unless the body says so. Evidenced live
-  (2026-07-17): one terminal could name the sender only because the message text
-  did; another could not identify the origin of a human broadcast at all. Current
-  mitigation is convention — the coordination skill requires senders to include
-  their identity. A structural fix (wrapping false delivery, and/or attributing
-  `/link-broadcast`) is a separate semantic change; it was deliberately kept out
-  of the async-only work to avoid inflating that diff. No plan file; tracked here.
+- **Sender attribution on raw delivery** — **CLOSED by unified delivery.** The two
+  unattributed paths were explicit-`false` sends and `/link-broadcast`; both were
+  deleted in `ed713c5`. Every delivery now carries the batch header and a
+  `From "name":` line per message, confirmed live including inside a batch of three.
+
+- **Status is absent from `RegisterMsg`** — a terminal that reconnects mid-compaction
+  reports nothing until its next `pushStatus()`. Pre-existing, affects every status
+  kind equally rather than just `compacting`, and surfaced by the implementer during
+  the `compacting`-status work rather than caused by it. Declared and deliberately
+  not fixed there. No plan file; tracked here.
+
+- **Hub routing failure is invisible to the sender** — a send can report success
+  against a stale roster, the hub fails to route, and the failure surfaces only as a
+  human-facing notification. Documented as a mechanic; no code. If revisited, the
+  candidate direction is returning the hub's routing error to the sender as an
+  ordinary attributed message through the unified path, with proof it cannot route to
+  itself or loop — never receipts, correlation, or blocking RPC.
 
 ## Deferred doc work
 
