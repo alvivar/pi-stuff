@@ -10,9 +10,9 @@ not commit, except the §1 committer fold-in with explicit user permission. You
 route self-contained tasks between worker terminals, enforce gates, manage their
 context, and keep the pipeline acyclic and serialized.
 
-This skill is **policy**. For link tool mechanics (link_send / link_prompt /
-link_compact / link_list, the Golden Rule, delivery shapes, anti-patterns) load the
-`pi-link-coordination` skill (listed in your available skills) and read it first.
+This skill is **policy**. For link tool mechanics (link_send / link_compact /
+link_list, delivery, batching, callbacks) load the `pi-link-coordination` skill
+(listed in your available skills) and read it first.
 
 Worked examples (briefs from runs that went well) and the expected plan schema
 live next to this file — examples, not forms (§4):
@@ -76,24 +76,26 @@ for each task in plan (sequence order):
               link_list → if the worker's window may not fit the coming task,
               link_compact it (idle only; "?" = just compacted = fresh window).
               Never mid-task — §3.4.
-  IMPLEMENT   link_send(implementer, triggerTurn:true) + full dispatch brief (§4)
-  WAIT        hold for DONE/BLOCKED  (Golden Rule — do NOT link_prompt before callback)
+  IMPLEMENT   link_send(implementer) + full dispatch brief (§4)
+  WAIT        hold for DONE/BLOCKED
   GATE        worker self-ran build+tests; a red/missing gate == BLOCKED → relay
               failure details, re-IMPLEMENT (bounded: same cap as CONVERGE, then
               escalate to the user)
-  REVIEW      link_send(reviewer, triggerTurn:true) + review brief (§4)
+  REVIEW      link_send(reviewer) + review brief (§4)
   WAIT        hold for APPROVE / CHANGES-NEEDED
   CONVERGE    CHANGES-NEEDED → relay to implementer, loop; cap 2 iterations;
               tie-break = implementer, except sensitive tasks → user (§3.7)
   HOLD        gate-per-task autonomy only: present diff summary + review verdict
               to the user; wait for their go before committing
-  COMMIT      link_send(committer, triggerTurn:true) + commit brief
+  COMMIT      link_send(committer) + commit brief
               (templates/commit-brief.md); wait for DONE + hash
   ADVANCE     record commit/hash/gate in ledger; next task
 ```
 
-**WAIT means end your turn.** The callback _is_ your next turn — do not poll,
-sleep, or busy-loop `link_list` waiting for it.
+**WAIT means end your turn.** The callback _is_ your next turn. A message's effect
+is decided by the worker's state when the message is delivered, not when you send
+it: if the worker is still running then, your message is steered into the run you
+are waiting on, alongside the brief that started it.
 
 **Commit before the next IMPLEMENT.** Review reads the _uncommitted_ diff
 (`git diff -- <file>`), so committing each task is what keeps the next review
@@ -113,7 +115,7 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
 2. **Self-contained dispatch.** Every task message includes: task id, plan path,
    scope (which findings/sections), the go-signal, gate commands, constraints
    (no-commit / no-version-bump unless that IS the task), and the callback contract
-   (report DONE/BLOCKED to `<you>` via `link_send(triggerTurn:true)` with a diff
+   (report DONE/BLOCKED to `<you>` via `link_send` with a diff
    summary + gate results — **declaring any MATERIAL judgment call beyond the
    brief's letter** (contract, data shape, error semantics, scope, test
    strategy — anything a reviewer would evaluate differently if told), with its
@@ -145,8 +147,8 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
    invariants spelled out in both the implement and review briefs; sequence it
    where risk dictates (often last — but the critical path may say otherwise).
 6. **Acyclic, hub-routed delegation.** You are always the relay. Workers never
-   message each other to close a loop: a cycle-closing `link_prompt` is rejected
-   as busy, and an async cycle loops with no exit.
+   message each other to close a loop: an accepted send does not wait for a reply,
+   so the protocol supplies no exit condition for a cycle.
 7. **Convergence has a backstop.** Cap review iterations at 2; if implementer and
    reviewer can't agree, the implementer's final decision wins — record the
    dissent in the ledger and move on. The pipeline must never deadlock on opinion.
@@ -170,11 +172,9 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
 
 ## 4. Dispatching
 
-- **Implement / review / commit are async** → `link_send(triggerTurn:true)`. They are
-  real work; `link_prompt` (90s inactivity) would block you and risk timeout.
-- **Quick pre-start question** (not active work) → `link_prompt` is fine.
-- After triggering a worker, **WAIT** for its callback before any follow-up to it
-  (Golden Rule).
+- **Implement / review / commit are dispatched with `link_send`** and answered by a
+  callback, which is another `link_send`. Nothing correlates the two but their text,
+  so the brief must name you as the recipient and state the DONE/BLOCKED contract.
 - **Untracked files are invisible to `git diff`.** A reviewer following the diff
   command silently covers only modified files — route every new in-scope file
   to the reviewer explicitly, by path.
@@ -190,11 +190,11 @@ prompting a worker before its callback skips WAIT). Walk the states in order.
 
 | Symptom                                                        | Likely cause                                                          | Recovery                                                                                                                                                                                                   |
 | -------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No callback, worker **idle**, context grew                     | Worker ran a turn but withheld callback (often: waiting for approval) | A single status `link_prompt` — the ONLY sanctioned Golden Rule exception, allowed only after `link_list` confirms the worker idle with no callback received; then re-dispatch with the go-signal included |
-| No callback, worker **busy**                                   | Still working                                                         | Keep waiting; do not link_prompt (busy = rejected)                                                                                                                                                         |
-| No callback, worker **absent** from list                       | Offline; messages were dropped (not queued)                           | Wait for reconnect or rebind the role; re-dispatch                                                                                                                                                         |
+| No callback, worker **idle**, context grew                     | Worker ran a turn but withheld callback (often: waiting for approval) | `link_list` shows idle with a grown window — it ran and stopped. An approval you hold is not visible to it (§3.1)                                                                                          |
+| No callback, worker **busy**                                   | Still working                                                         | Its queued messages are invisible to you, and silence is indistinguishable from progress                                                                                                                   |
+| No callback, worker **absent** from list                       | Offline; messages were dropped (not queued)                           | Nothing is queued for it; a role bound to that name has no delivery until it reconnects                                                                                                                    |
 | Committer BLOCKED (staged junk / wrong branch / hook mutation) | Dirty shared worktree                                                 | Relay the exact `git status` to the user — worktree hygiene is the user's to fix, not a worker's                                                                                                           |
-| `link_compact` errors at its 3-min ceiling                     | Compaction outlived the call — not necessarily failed                 | `link_list` before assuming failure: a "?" or shrunken context means it finished on its own; only retry if still idle and full                                                                             |
+| `link_compact` errors at its 3-min ceiling                     | The timeout bounds your wait only; nothing aborted the target          | The target may still be compacting. `link_list` shows a "?" or shrunken context once it finished                                                                                                            |
 
 Idle + grown context is a logic hold, not a crash.
 

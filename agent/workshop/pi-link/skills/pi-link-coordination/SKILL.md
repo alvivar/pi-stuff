@@ -1,13 +1,16 @@
 ---
 name: pi-link-coordination
-description: Guidance for coordinating work across Pi terminals using link_send, tracking asynchronous callbacks, batching parallel jobs, managing a remote terminal's context with link_compact, and avoiding message loops.
+description: Mechanics of coordinating work across Pi terminals with link_send, link_list, and link_compact — how delivery, batching, callbacks, and remote compaction actually behave.
 ---
 
 # Pi-Link Coordination
 
-How to coordinate work across Pi terminals via pi-link.
+How the pi-link transport behaves between Pi terminals.
 
-Each terminal is an independent agent: terminals share no memory or conversation history. Anything a remote terminal needs — task state, file paths, expected output, and where to send its callback — must be in the message itself.
+**Terminals share no conversation.** Each is an independent agent with its own
+context. Nothing you hold — task state, file paths, an approval you were given,
+what you decided a moment ago — is visible to a terminal you message. The message
+is the entire shared state.
 
 ---
 
@@ -15,86 +18,79 @@ Each terminal is an independent agent: terminals share no memory or conversation
 
 ### `link_list`
 
-Returns connected terminals with names, live status (`idle`, `thinking`, `tool:<name>`), cwd, and (when available) context usage such as `45K/272K (17%)`. Your own entry is marked `(you)`.
+Returns connected terminals with names, live status (`idle`, `thinking`,
+`tool:<name>`), cwd, and (when available) context usage such as `45K/272K (17%)`.
+Your own entry is marked `(you)`.
 
-Only connected terminals are visible. If a target is missing, it is offline; messages to offline terminals are not queued. Use `link_list` before dispatch, when selecting among workers, and when an expected callback is missing.
+Only connected terminals are visible. Messages to a terminal that is not connected
+are not queued anywhere; they are dropped.
+
+A terminal's activity is not observable by any other means. Its queued messages
+are invisible to you, and silence is indistinguishable from work in progress.
 
 ### `link_send`
 
-The agent messaging tool. It returns send/delivery status immediately; it does **not** return the receiver's eventual work result.
-
-Ordinary dispatch omits `triggerTurn` because it defaults to true:
-
 ```text
-link_send({ to: "worker", message: "... Report DONE or BLOCKED to orchestrator." })
+link_send({ to: "worker", message: "..." })
 ```
 
-Passing `triggerTurn:true` is equivalent. Omitted/true messages enter the receiver's idle-gated inbox and start a turn once the receiver is idle. Nearby messages may be batched into one turn. Delivery is wrapped as `[Link: N message(s) received]` with one `From "name":` block per message.
+The message is delivered to the receiver's model. Messages arriving within ~200ms
+are held and delivered as one batch, in arrival order, each labelled with its
+sender: a `[Link: N message(s) received]` block containing one `From "name":` block
+per message.
 
-Use explicit `triggerTurn:false` only for an FYI/status message or intentional live steering that must not start a turn. False delivery bypasses the inbox and arrives immediately as raw content, without the wrapper or sender block. Include sender identity, task tag, and relevant artifact paths in the message body.
+The receiver's state is read when that batch is delivered, not when you send and
+not when you last ran `link_list`. If the receiver is still running then, the batch
+is steered into that run at Pi's next safe boundary — current tool calls finish
+first, before the next LLM call. Otherwise it starts a turn. A receiver can settle
+within the delay, so a message sent to a busy terminal may still arrive as a new
+turn. There is no way to send without entering the receiver's reasoning.
 
-Sending to `to:"*"` broadcasts to every other connected terminal. Omitted/true wakes every recipient and can fan out many model turns; use explicit false for an announcement. The human `/link-broadcast` command is always a non-waking announcement and does not request replies.
+Each send has exactly one recipient. There is no fan-out.
 
-Sending to yourself is rejected. A definitely absent target fails against the local terminal list; client delivery through the hub remains optimistic.
+The call returns send status, not the receiver's eventual work result. Sending to
+yourself is rejected. A definitely absent target fails against the local terminal
+list; beyond that, for a client a successful send means the hub accepted the
+message, not that it arrived. If the target has vanished, the routing failure is
+shown to the human as a notification and never reaches the sending model.
+
+A terminal that is compacting receives nothing until it finishes. The messages wait
+and are delivered afterwards.
 
 ### `link_compact`
 
-Asks another terminal to compact its context and blocks until completion, with a three-minute ceiling. Busy targets (mid-turn or already compacting) decline rather than being interrupted. Compact a worker predictively while it is idle, before assigning more context-heavy work; after success, dispatch immediately with `link_send`. Optional `instructions` focus the summary.
+Asks another terminal to compact its context and blocks until it completes, with a
+three-minute ceiling. Targets that are mid-turn or already compacting decline
+rather than being interrupted. Optional `instructions` focus the summary.
 
-Use `/compact` rather than `link_compact` for yourself. To compact several idle workers, issue independent calls in parallel.
+The timeout bounds your wait only. Nothing aborts the target, so a timed-out call
+may mean the compaction is still running.
 
----
-
-## Dispatch and callback convention
-
-When completion matters, request a tagged callback in the assignment:
-
-- `DONE` or `BLOCKED`
-- task/worker identifier
-- result summary and artifact paths
-- next question or blocker, if any
-
-The callback is another `link_send` message, normally with omitted `triggerTurn` (or explicit true), so it starts a later orchestrator turn at a clean boundary. Callbacks are conventional and uncorrelated: there is no request ID, automatic response, delivery receipt for completed work, or protocol timeout. Track outstanding workers yourself. If a callback is missing, use `link_list` to inspect whether the worker is connected and busy, then follow up explicitly when appropriate.
-
-A receiver should process every `From "name":` block in a batched link message. Send the requested `DONE` / `BLOCKED` callback when work finishes. If a message requires no action, send no reply. Do not acknowledge an acknowledgement unless the sender explicitly asks for one.
+Compaction discards detail. What survives is whatever the summary keeps, so
+anything the target learned but has not written down or reported can be lost.
 
 ---
 
-## Parallel batches
+## Callbacks
 
-Dispatch independent tasks to several terminals without waiting between sends. Their callbacks may arrive separately or be batched into one orchestrator turn, so maintain an outstanding-worker/task list.
+A callback is an ordinary `link_send` from the worker back to you. There is no
+request ID, no automatic response, no delivery receipt, and no protocol timeout —
+nothing correlates a callback with the dispatch that asked for it except the text
+of both, and nothing produces one except the receiver choosing to send it.
 
-Each assignment must be self-contained:
-
-- identify the task and desired result;
-- give explicit paths (absolute when cwd or shared-root assumptions differ);
-- state edit/commit constraints;
-- state validation commands;
-- name the callback recipient and expected `DONE` / `BLOCKED` format.
-
-For dependent work, wait for the prerequisite callback before dispatching its successor. Keep delegation acyclic: asynchronous A → B → C → A chains can loop indefinitely even though no individual send blocks.
+An accepted send does not wait for a reply, so several tasks can be dispatched
+before any callback arrives, and callbacks may arrive separately or batched into
+one of your turns. For the same reason the protocol supplies no exit condition for
+an A → B → C → A delegation chain.
 
 ---
 
-## Operating constraints
+## Constraints
 
-- **Messages are ephemeral.** Offline terminals do not receive queued work.
-- **Callbacks are not guaranteed.** They depend on the receiver following the assignment.
 - **Localhost only.** All terminals run on the same machine.
-- **Cwd is a hint, not proof.** Same cwd does not prove the same workspace, branch, or access. Include explicit paths.
-- **Names are identities.** The hub suffixes collisions; use `link_list` to confirm exact names and cwd.
-- **Avoid compact races.** Prefer compacting before dispatch or after the worker's callback, not while work is outstanding.
-
----
-
-## Quick reference
-
-| Need | Use | Behavior |
-| --- | --- | --- |
-| See connected workers/status/context | `link_list` | Immediate snapshot |
-| Delegate work | `link_send({ to, message })` | Async; wakes when idle |
-| Delegate with explicit activation | `link_send({ to, message, triggerTurn:true })` | Same as omission |
-| Notify or live-steer without waking | `link_send({ to, message, triggerTurn:false })` | Immediate raw steer |
-| Wake every other terminal | `link_send({ to:"*", message })` | Async fan-out |
-| Announce without waking | `link_send({ to:"*", message, triggerTurn:false })` or `/link-broadcast` | Non-waking fan-out |
-| Free an idle worker's context | `link_compact` | Bounded await-completion |
+- **Cwd is a hint, not proof.** Same cwd does not prove the same workspace, branch,
+  or access.
+- **Names are identities.** The hub suffixes collisions, so the name you remember
+  may not be the name that is connected; `link_list` shows the current one.
+- **Mixed-version meshes are unsupported.** All linked terminals must run the same
+  build.

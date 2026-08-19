@@ -1,6 +1,6 @@
 # Commit brief — worked example (committer)
 
-Send via `link_send(to: <committer>, triggerTurn: true)`. This is the most
+Send via `link_send(to: <committer>, message: ...)`. This is the most
 dangerous dispatch in the pipeline: the committer commits **another terminal's**
 uncommitted work in a worktree that routinely carries unrelated dirty/untracked
 files from other agents and the user. The committer checks scope and hygiene,
@@ -48,7 +48,7 @@ Operating rules:
     missing or renamed · hooks mutating files (say whether the commit
     landed) · broad line-ending churn beyond the listed paths.
 
-Report DONE to <orchestrator> via link_send(triggerTurn:true) with:
+Report DONE to <orchestrator> via link_send with:
   - commit hash
   - paths actually committed (must equal the list above)
   - post-commit `git status --short` (leftover dirty state)
