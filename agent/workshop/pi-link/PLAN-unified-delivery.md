@@ -5,10 +5,11 @@
 > **Build from this?** Not yet. Reviews first, then explicit owner go.
 > **Design source of truth:** `PLAN-delivery-gaps.md` (closed). This file changes
 > nothing about the design; it turns it into ordered, verifiable tasks.
-> **Summary:** One message shape, one delivery path. `link_send({to, message})`
-> always acts: Pi steers a running receiver at its next safe boundary, or starts a
-> turn on an idle one. Removes `triggerTurn`, the plain-append path, and
-> `/link-broadcast`. Adds a compaction gate. Net subtraction.
+> **Summary:** One message shape, one delivery path, one recipient.
+> `link_send({to, message})` always acts: Pi steers a running receiver at its next
+> safe boundary, or starts a turn on an idle one. Removes `triggerTurn`, the
+> plain-append path, `/link-broadcast`, and chat fan-out. Adds a compaction gate.
+> Net subtraction.
 
 ## Ground rules
 
@@ -66,8 +67,12 @@ node test/cli-flags-test.mjs             # expect 49/49
 `[Link: N message(s) received]` + `From "name":` wrapper, disconnect cleanup, and
 the `link_send` self-target and `targetNotFound` guards.
 
-**Result:** every inbound `chat` — direct or `to:"*"` — enters the inbox, is
-batched, wrapped, and delivered with one call:
+**Reschedule delay:** when the batch caps leave items behind, reschedule with
+`FLUSH_DELAY_MS`, not a new constant. `IDLE_RETRY_MS` existed only to poll for
+idleness; with the gate gone there is nothing left to poll for.
+
+**Result:** every inbound `chat` enters the inbox, is batched, wrapped, and
+delivered with one call:
 
 ```ts
 pi.sendMessage({ customType: "link", content: wrapped, display: true, details }, { triggerTurn: true });
@@ -94,20 +99,30 @@ idle one.
 
 ---
 
-## Task 2 — Remove `/link-broadcast`
+## Task 2 — Remove broadcast messaging
 
 **File:** `index.ts`
 
-Delete the command registration and handler (`:1540-1562`) and the reference in
-the header comment (`:10`). Do not replace it with `ctx.ui.notify()` or any other
-human announcement surface.
+Delete the `/link-broadcast` command registration and handler (`:1540-1562`) and
+the reference in the header comment (`:10`). Do not replace it with
+`ctx.ui.notify()` or any other human announcement surface.
 
-`link_send({ to:"*" })` remains and is now honestly active: it steers busy peers
-and starts idle ones.
+Also remove chat fan-out: `link_send` no longer accepts `"*"`.
 
-**Acceptance:** `/link-broadcast` is absent from the command list and from all
-documentation; no code path sends chat with a non-waking flag, because no such
-flag exists.
+- Drop the `if (params.to !== "*")` wrapper (`:1194-1197`) so the self-target and
+  `targetNotFound` guards apply to every send. `"*"` then fails as an unknown
+  terminal name, with no special case to write.
+- Simplify the result text: there is no longer an "all terminals" target.
+- Update the tool and `to` parameter descriptions to say the target is one
+  terminal name.
+
+**Keep the hub's internal broadcast.** `hubBroadcast` still carries presence
+(`joined` at `:750`, `left` at `:803`), rename (`:1505-1509`), and status updates.
+Only `chat` loses fan-out; `ChatMsg.to` becomes always a single name.
+
+**Acceptance:** `/link-broadcast` is gone from the command list and all docs;
+`link_send({to:"*"})` is rejected like any unknown name; presence and status still
+reach every terminal.
 
 ---
 
@@ -123,15 +138,25 @@ pi.on("session_before_compact", (event) => {         // manual | threshold | ove
   setCompacting(true);
   event.signal.addEventListener("abort", () => setCompacting(false), { once: true });
 });
-pi.on("session_compact",  () => setCompacting(false));
+pi.on("session_compact",  () => setCompacting(false));  // success
 pi.on("agent_start",      () => setCompacting(false));  // Pi resumed normal operation
+pi.on("agent_settled",    () => setCompacting(false));  // run finished, nothing pending
 // plus a safety deadline inside setCompacting(true)
 ```
 
-The deadline is required. A failed compaction emits `compaction_end` only to
-session listeners, never to extensions, so success and abort are the only positive
-endings we can observe; without the timer a failure strands the flag and holds
-messages forever. Reuse `COMPACT_TIMEOUT_MS` rather than adding a constant.
+`agent_settled` is not redundant. A **failed auto-compaction** emits neither
+`session_compact` nor an abort: `_runAutoCompaction` returns false, the run simply
+ends. Without this release the flag would hold messages for the full deadline for no
+reason. It cannot clear the flag early: manual compaction begins with
+`await this.abort()`, so `agent_settled` fires *before* `session_before_compact`
+sets the flag, and no run can start while the flag is holding the inbox.
+
+The deadline is still required as the last resort. A failed **manual** compaction
+emits `compaction_end` only to session listeners, never to extensions, so success and
+abort are the only positive endings an extension can observe. Reuse
+`COMPACT_TIMEOUT_MS` rather than adding a constant, and keep it generous: clearing
+too early means delivering into a compaction, which is the failure this task exists
+to prevent.
 
 **Apply it in two places:**
 
@@ -169,23 +194,7 @@ No cancellation machinery, no wire change.
 
 ---
 
-## Task 5 — Report broadcast reach (drop if review objects)
-
-**File:** `index.ts`
-
-`link_send({to:"*"})` currently returns "Sent to all terminals" even when nobody is
-connected. The hub knows the count from `hubBroadcast` (`:446-453`).
-
-- **Hub role:** return the actual number, including zero.
-- **Client role:** keep it explicitly optimistic — the hub performs the fan-out and
-  the count is not knowable at send time. Do not add a response message to learn it.
-
-This is the smallest honest improvement. If a reviewer argues it is not worth the
-lines, drop the task; it is independent of everything else.
-
----
-
-## Task 6 — Rewrite the documentation around one model
+## Task 5 — Rewrite the documentation around one model
 
 **Files:** `README.md`, `skills/pi-link-coordination/SKILL.md`,
 `../../skills/pi-link-implement-review-commit/SKILL.md` and its
@@ -207,7 +216,7 @@ lines, drop the task; it is independent of everything else.
 
 **Also state:** messages are batched for ~200 ms and attributed by sender; a
 terminal that is compacting receives nothing until it finishes; a message needing no
-action gets no reply; broadcast is active fan-out and costs a turn on every peer.
+action gets no reply; there is no broadcast — address each peer deliberately.
 
 **Fold in the still-valid rules from `PLAN-doc-accuracy.md`** — that plan is
 superseded as a whole, but three of its items survive and must not be lost:
@@ -223,8 +232,9 @@ superseded as a whole, but three of its items survive and must not be lost:
 is not cosmetic: if TypeBox rejects the now-unknown property, every dispatch fails.
 
 **Pay for the additions by deleting:** the true/false mode tables, non-waking FYI
-guidance, `/link-broadcast` instructions, explicit-`triggerTurn:true` examples, and
-the "callbacks always arrive as clean new turns" claim, which is no longer true.
+guidance, all broadcast instructions (`/link-broadcast` and `to:"*"` alike),
+explicit-`triggerTurn:true` examples, and the "callbacks always arrive as clean new
+turns" claim, which is no longer true.
 
 ---
 
@@ -240,13 +250,16 @@ node --check bin/pi-link.mjs
 node test/cli-flags-test.mjs             # 49/49
 git diff --check
 
-# Public mode vocabulary and the removed command must be gone from guidance:
-! rg -n 'triggerTurn|no turn|non-waking|link-broadcast' \
+# Public mode vocabulary, broadcast, and the removed command must be gone:
+! rg -n 'triggerTurn|no turn|non-waking|link-broadcast|to: ?"\*"' \
   README.md skills/pi-link-coordination/SKILL.md \
   ../../skills/pi-link-implement-review-commit
 
-# Removed schema/wire/plain-append paths must not survive under another name:
+# Removed schema/wire/plain-append/fan-out paths must not survive under another name:
 ! rg -n 'params\.triggerTurn|msg\.triggerTurn|triggerTurn:\s*false|deliverAs|link-broadcast|IDLE_RETRY_MS' index.ts
+
+# hubBroadcast must remain for presence/status only; read every match:
+rg -n 'hubBroadcast' index.ts
 
 # Exactly one internal activation should remain; read every match:
 rg -n 'triggerTurn:\s*true' index.ts
@@ -266,8 +279,9 @@ evidence.
 3. send as a run ends → delivered by continuation, not stranded;
 4. three sends inside 200 ms → one wrapped batch, one iteration;
 5. sends 1 s apart → ordered separate batches;
-6. sender attribution present on direct and broadcast delivery;
-7. `to:"*"` activates every peer; result reports reach per Task 5;
+6. sender attribution present on every delivery;
+7. `link_send({to:"*"})` is rejected as an unknown target, while presence and
+   status updates still reach all terminals;
 8. `/link-broadcast` is gone;
 9. during `/compact` on the target: nothing delivered, no turn starts, batch
    arrives after compaction ends;
@@ -280,12 +294,13 @@ evidence.
    **opus** (correctness), **fable** (simplicity/value), **sol** (practitioner and
    migration).
 2. Owner approves the reviewed plan.
-3. Baseline check, then implement Tasks 1–6 as one change.
+3. Baseline check, then implement Tasks 1–5 as one change.
 4. Independent implementation review by a terminal that did not implement.
 5. One commit — code, README, both skills, and templates together:
    `feat(pi-link): deliver every linked message on receiver state`
-   with a `BREAKING CHANGE:` note that `triggerTurn` and `/link-broadcast` are
-   removed and that all linked terminals must be upgraded and restarted together.
+   with a `BREAKING CHANGE:` note that `triggerTurn`, `/link-broadcast`, and
+   `to:"*"` fan-out are removed, and that all linked terminals must be upgraded and
+   restarted together.
 6. Owner restarts the whole mesh; run the live gates.
 7. Retire `PLAN-doc-accuracy.md` (superseded) and update `PLAN-roadmap.md`:
    close D1/D5/D6 and the P0 compact-race item, and record the accepted residual
@@ -297,8 +312,8 @@ evidence.
 
 ## Out of scope
 
-- Q3, surfacing hub routing failure to the sending model — still an open design
-  question in `PLAN-delivery-gaps.md`; documented, not built.
+- Q3, surfacing hub routing failure to the sending model — deferred by owner
+  decision. Task 5 documents the optimistic boundary; no code.
 - Crash/restart durability for in-memory steering.
 - Any change to Pi.
 - Delivery receipts, acknowledgements, mandatory keywords, or a replacement human

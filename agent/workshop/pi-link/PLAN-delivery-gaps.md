@@ -121,9 +121,11 @@ These are no longer options:
    `From "name":` wrapper for both triggered and steered batches.
 6. **Remove the human `/link-broadcast` command.** Do not replace it with a UI
    notification or another human announcement surface.
-7. **Keep agent broadcast through `link_send({to:"*", ...})` unless a later
-   decision explicitly removes it.** It is an active fan-out: it steers busy
-   receivers and starts idle ones.
+7. **Remove broadcast messaging entirely.** `link_send` no longer accepts `"*"`.
+   Every message has exactly one named recipient. Fan-out to a mesh where every
+   message demands attention is not worth its cost, and a sender who genuinely
+   needs to reach several peers can address them deliberately. Presence and status
+   messages keep using the hub's internal broadcast; only chat loses it.
 8. **Intent belongs in the message and policy belongs in the skill.** The
    transport does not carry a second intent bit.
 9. **No custom steering mechanism.** Do not build append tracking, session
@@ -156,15 +158,15 @@ The coordination skill must teach:
   whether current work should continue;
 - execution authority still travels inside every executable dispatch;
 - a message requiring no reply gets no reply; never create acknowledgement loops;
-- broadcasting is active fan-out and must be used with the same discipline,
-  multiplied by every receiver.
+- there is no fan-out: address each peer deliberately, and let that cost discipline
+  what you send.
 
 Examples should use ordinary language, not introduce a mandatory keyword
 vocabulary.
 
 ## Quality workstreams
 
-### Q1 — Unify direct and broadcast delivery
+### Q1 — Unify delivery
 
 **Goal:** one receiver ingress and one Pi delivery call.
 
@@ -173,8 +175,7 @@ Required changes:
 - remove `ChatMsg.triggerTurn` and all sender/default plumbing;
 - remove `triggerTurn` from the `link_send` TypeBox schema and tool result text;
 - remove `(no turn)` / `(trigger all)` mode badges that describe the deleted bit;
-- make every incoming direct or agent-broadcast chat enter the same attributed
-  inbox;
+- make every incoming chat enter the same attributed inbox;
 - keep debounce, caps, ordering, disconnect cleanup, and wrapper construction;
 - remove `IDLE_RETRY_MS`, the `ctx.isIdle()` deferral/retry, and the `agent_end`
   kick whose only purpose is waiting for idleness;
@@ -195,46 +196,42 @@ Expected shape: a net deletion. Sol estimated roughly 45–60 lines removed from
 | several messages within 200 ms | one attributed batch and one LLM iteration |
 | several messages outside the window | one iteration per flushed batch |
 
-### Q2 — Remove `/link-broadcast`; make agent broadcast truthful
+### Q2 — Remove broadcast messaging (decided)
 
-Delete the human command end to end:
+Delete the human command end to end: registration, handler, help text, README and
+skill references, and any example that advertises it. Do not replace it.
 
-- command registration/handler and help/README/skill references;
-- any hardcoded non-waking send;
-- tests or examples that advertise it.
+Also remove agent fan-out: `link_send` no longer accepts `"*"`. This is a
+subtraction, not a substitution — with one universal delivery mode, a broadcast
+would force a turn on every connected peer, which is precisely the cost the design
+asks senders to weigh.
 
-Agent `to:"*"` remains. Its result must not claim success to an unspecified
-fleet. Resolve the old D4 gap by returning the number of recipients accepted by
-the hub, including zero, if that count can be propagated without request/response
-machinery. If client architecture cannot know the hub's count synchronously,
-document the exact optimistic boundary rather than invent a receipt protocol.
+Consequences worth noting while implementing:
 
-**Decision still needed:** whether recipient count is available cheaply for both
-hub-local and client-originated broadcasts. Investigate before assigning a code
-task.
+- the self-target and `targetNotFound` guards stop being conditional and apply to
+  every send;
+- `ChatMsg.to` is always a single terminal name;
+- the hub's internal broadcast stays — presence (`joined` / `left`), rename, and
+  status updates still use it. Only chat loses fan-out.
 
-### Q3 — Surface routing failure to the sending model
+This also closes D4 outright: a send that reports success to nobody is no longer
+expressible, so no recipient count is needed.
 
-The old D2 gap remains: a client can report “sent to hub” after a stale local
-roster entry, then the hub finds no target. Today the returned hub error becomes a
-human-only toast; the sending model never learns.
+### Q3 — Routing failure visibility (deferred, documented)
 
-Required design qualities:
+The old D2 gap stands: a client's send can report “sent to hub” from a stale local
+roster, the hub then fails to route, and the failure surfaces only as a human
+notification. The sending model never learns.
 
-- preserve asynchronous-only messaging;
-- do not reintroduce send/response correlation, waiting, delivery receipts, or
-  prompt RPC;
-- make a hub routing failure model-visible and attributed to the failed target;
-- avoid acknowledgement or error loops;
-- explain that initial client success means hub acceptance, not final delivery.
+**Decision: document now, build later.** The coordination guidance must state that
+a client's success means the hub accepted the message, not that it arrived, and
+that a missing callback — not a send error — is the failure signal.
 
-Candidate minimal direction: convert the existing returned hub error into an
-attributed asynchronous custom message to the sender, using the same active
-message semantics. Validate that this cannot recursively route or trigger itself.
-
-**Decision still needed:** build the async failure notice or document missing
-callback + `link_list` as the failure signal. Prefer code only if the notice is a
-small reuse of existing paths.
+Deferred for a separate decision, not abandoned. If it is revisited, the candidate
+direction is to deliver the hub's existing routing error back to the sender as an
+ordinary attributed message through the unified path, which would need proof that
+it cannot route to itself or start an error loop. Do not build receipts,
+correlation, or any blocking RPC.
 
 ### Q4 — Compact safety (decided, extension-only)
 
@@ -366,9 +363,9 @@ release note:
 | --- | --- |
 | D1: false to idle may never be read | **Closed structurally:** false removed; every message triggers or steers |
 | Mid-tool plain append ordering | **Closed structurally:** pi-link never uses plain append for linked traffic |
-| D2: optimistic client send can reach nobody | **Open:** Q3 |
+| D2: optimistic client send can reach nobody | **Deferred, documented:** Q3 |
 | D3: message/compaction race | **Decided:** Q4 — one flag, four releases, extension-only; narrow pre-emit window documented |
-| D4: broadcast success with zero recipients | **Open for agent broadcast:** Q2; human command removed |
+| D4: broadcast success with zero recipients | **Closed structurally:** Q2 — broadcast removed entirely |
 | D5: raw delivery has no sender identity | **Closed structurally:** every batch uses the sender wrapper |
 | D6: compact timeout is ambiguous | **Decided:** Q5 — wording only |
 | Late steer after final drain | **Closed by Pi 0.84.2:** post-run continuation; no pi-link-visible residual window |
@@ -418,9 +415,8 @@ Use disposable terminals and read back the resulting behavior:
 3. send at run completion is consumed by Pi's continuation, not stranded;
 4. several sends inside 200 ms become one attributed batch;
 5. sends outside the window create ordered separate batches;
-6. sender attribution is present on every direct and agent-broadcast delivery;
-7. agent broadcast activates every connected peer and reports/communicates the
-   actual recipient boundary decided in Q2;
+6. sender attribution is present on every delivery;
+7. `link_send` rejects `"*"` like any other unknown terminal name;
 8. `/link-broadcast` is absent;
 9. old explicit-`triggerTurn` calls fail in the expected migration environment,
    while all updated skills/templates dispatch successfully;
