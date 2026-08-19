@@ -95,6 +95,7 @@ interface CompactResponseMsg {
 type LinkStatus =
   | { kind: "idle"; since: number }
   | { kind: "thinking"; since: number }
+  | { kind: "compacting"; since: number }
   | { kind: "tool"; toolName: string; since: number };
 
 type ContextSnapshot = { tokens: number | null; contextWindow: number };
@@ -145,6 +146,7 @@ export default function (pi: ExtensionAPI) {
   let compactRunning = false; // true while compacting for a remote request
   let localCompacting = false; // true while compacting for a human /compact
   let compactDeadline: ReturnType<typeof setTimeout> | undefined;
+  let wasCompactionGated = false; // gate state syncCompactionStatus() last acted on
   let activeToolName: string | null = null;
   let stateSince = Date.now();
   let lastPushedKind: string | null = null;
@@ -213,6 +215,12 @@ export default function (pi: ExtensionAPI) {
   }
 
   function deriveStatus(): LinkStatus {
+    // Highest precedence, so that reporting "compacting" and deferring delivery are
+    // the same condition rather than two that can disagree. In reachable states it
+    // competes only with "idle" — a compaction runs with no tool and no agent run —
+    // but where it could overlap, the gate is the more actionable fact: work sent
+    // here waits, and link_compact declines.
+    if (compactionGated()) return { kind: "compacting", since: stateSince };
     if (activeToolName)
       return { kind: "tool", toolName: activeToolName, since: stateSince };
     if (agentRunning) return { kind: "thinking", since: stateSince };
@@ -354,16 +362,7 @@ export default function (pi: ExtensionAPI) {
     // Compacting: hold everything and return WITHOUT rescheduling. setCompacting()
     // drains on release, so polling a compaction that may run to the 180s ceiling
     // would be ~900 wakeups for no information.
-    //
-    // The two flags are not duplication. compactRunning is set synchronously by the
-    // compact_request handler before it calls ctx.compact(), covering the window
-    // before session_before_compact arrives; localCompacting covers a human
-    // /compact, which pi-link never initiates.
-    //
-    // Both are load-bearing because Pi will not save us here: AgentSession.prompt()
-    // refuses to run during compaction, but sendCustomMessage reaches
-    // _runAgentPrompt directly and is not covered by that guard.
-    if (localCompacting || compactRunning) return;
+    if (compactionGated()) return;
 
     // Select batch: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS total (soft cap —
     // first item always included even if oversized, others deferred to next flush)
@@ -392,6 +391,43 @@ export default function (pi: ExtensionAPI) {
     if (inbox.length > 0) {
       scheduleFlush(FLUSH_DELAY_MS);
     }
+  }
+
+  /**
+   * True exactly while delivery is deferred. Also what the terminal reports as its
+   * status, so availability and delivery cannot disagree.
+   *
+   * The two flags are not duplication. compactRunning is set synchronously by the
+   * compact_request handler before it calls ctx.compact(), covering the window
+   * before session_before_compact arrives; localCompacting covers a human /compact,
+   * which pi-link never initiates.
+   *
+   * Both are load-bearing because Pi will not save us here: AgentSession.prompt()
+   * refuses to run during compaction, but sendCustomMessage reaches _runAgentPrompt
+   * directly and is not covered by that guard.
+   */
+  function compactionGated() {
+    return localCompacting || compactRunning;
+  }
+
+  /**
+   * Record a compaction gate transition. Call after any change to either flag.
+   *
+   * wasCompactionGated tracks the gate itself, deliberately NOT lastPushedKind: the
+   * two diverge exactly while disconnected, when pushStatus() returns before
+   * recording anything, and a gate that opened and closed unseen would then leave
+   * stateSince stranded at the moment compaction began. Entering and leaving are one
+   * transition each, so the two flag moves of a remote compaction report once.
+   *
+   * The local record is updated whether or not publication is possible; pushStatus()
+   * decides that separately.
+   */
+  function syncCompactionStatus() {
+    const gated = compactionGated();
+    if (gated === wasCompactionGated) return;
+    wasCompactionGated = gated;
+    stateSince = Date.now(); // the duration shown is of the compaction, not what preceded it
+    pushStatus();
   }
 
   /**
@@ -431,6 +467,7 @@ export default function (pi: ExtensionAPI) {
       : undefined;
     // Release drains; it never polls. Nothing else wakes a waiting inbox.
     if (!on) releaseInbox();
+    syncCompactionStatus();
   }
 
   // ── Connection intent ──────────────────────────────────────────────────
@@ -653,6 +690,10 @@ export default function (pi: ExtensionAPI) {
           finished = true;
           compactRunning = false;
           releaseInbox(); // last gate may clear here, after session_compact already fired
+          // Only reverts status if localCompacting is also clear. A failure after
+          // session_before_compact leaves it standing, so the terminal truthfully
+          // keeps reporting compacting until the deadline or agent_start.
+          syncCompactionStatus();
           routeMessage({
             type: "compact_response",
             id,
@@ -667,6 +708,7 @@ export default function (pi: ExtensionAPI) {
           break;
         }
         compactRunning = true;
+        syncCompactionStatus();
         notify(`"${from}" requested compact`, "info");
         // compact() aborts the current turn first, so the busy guard above
         // keeps us from interrupting active work. The runtime guarantees
@@ -978,6 +1020,9 @@ export default function (pi: ExtensionAPI) {
 
     // Clear link-owned remote compaction state; a local /compact survives disconnect.
     compactRunning = false;
+    // Runs before role is cleared, so peers still get a final status; more to the
+    // point, the local gate record stays honest for the reconnect.
+    syncCompactionStatus();
     for (const id of [...pendingCompactResponses.keys()]) {
       const pending = cleanupPendingCompact(id);
       if (pending) {
