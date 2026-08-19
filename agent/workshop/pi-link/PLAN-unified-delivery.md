@@ -551,14 +551,27 @@ self-report is not evidence.**
    **opus** (correctness), **fable** (simplicity/value), **sol** (practitioner and
    migration).
 2. Owner approves the reviewed plan.
-3. Baseline check, then implement Tasks 1–5 as one change.
-4. Independent implementation review by a terminal that did not implement.
-5. One commit — code, README, both skills, and templates together:
-   `feat(pi-link): deliver every linked message on receiver state`
-   with a `BREAKING CHANGE:` note that `triggerTurn`, `/link-broadcast`, and
-   `to:"*"` fan-out are removed, and that all linked terminals must be upgraded and
-   restarted together.
-6. Owner restarts the whole mesh; run the live gates.
+3. Baseline check, then implement in three reviewable units, each gated,
+   independently reviewed, and committed before the next begins:
+   - **T-A** = Tasks 1 + 2 — the `index.ts` deletion (trigger modes and broadcast).
+     They edit the same functions and adjacent lines; splitting them means two
+     passes over one block with line drift in between. Carries the
+     `BREAKING CHANGE:` note, since this is where the break occurs:
+     `feat(pi-link)!: deliver every linked message on receiver state`
+   - **T-B** = Tasks 3 + 4 — the compaction gate and the timeout wording, one
+     domain. **Sensitive and serialized**: it enters a freshly compacted window,
+     its invariants are restated in both the implement and review briefs, and a
+     review deadlock escalates to the owner rather than being tie-broken.
+   - **T-C** = Task 5 — documentation, reviewed against the mechanics-only
+     standard rather than against code.
+4. Independent implementation review of each unit by a terminal that did not
+   implement it, reading the uncommitted diff.
+5. Per-unit gate is build + tests. The **absence gates over documentation are
+   end-state** and run at T-C: between T-A and T-C the docs describe features that
+   no longer exist, which is correct, because nothing is deployed until the branch
+   is complete.
+6. Owner restarts the whole mesh — **one restart, after all three commits** — then
+   runs the live gates.
 7. Update `PLAN-roadmap.md`: close the delivery gaps and the P0 compact-race item,
    and record the accepted residual window and the deferred item below.
    (`PLAN-delivery-gaps.md` and `PLAN-doc-accuracy.md` were already deleted when
@@ -584,7 +597,11 @@ Removing the schema property is a coordinated breaking change:
   plain-append branch and delivers silently;
 - the orchestration skill and all three templates pass the field today.
 
-Hence one atomic commit, and a whole-mesh restart on the same build.
+Hence **one restart boundary**: no terminal may restart until every unit has
+landed, and then the whole mesh restarts together on the same build. The atomicity
+requirement is on deployment, not on commit count — the branch is the unit that
+ships, so it can be built from several reviewable commits without any terminal ever
+running a mixed state.
 
 ## Deferred — not abandoned
 

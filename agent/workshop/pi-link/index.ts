@@ -7,7 +7,7 @@
  * Hub loss triggers automatic promotion of a surviving client.
  *
  * Tools: link_send, link_list, link_compact
- * Commands: /link, /link-name, /link-broadcast, /link-connect, /link-disconnect
+ * Commands: /link, /link-name, /link-connect, /link-disconnect
  */
 
 import type {
@@ -27,7 +27,6 @@ const DEFAULT_PORT = 9900;
 const COMPACT_TIMEOUT_MS = 180_000;
 const RECONNECT_DELAY_MS = 2000;
 const FLUSH_DELAY_MS = 200;
-const IDLE_RETRY_MS = 500;
 const BATCH_MAX_ITEMS = 20;
 const BATCH_MAX_CHARS = 16_000;
 
@@ -64,7 +63,6 @@ interface ChatMsg {
   from: string;
   to: string;
   content: string;
-  triggerTurn: boolean;
 }
 interface StatusUpdateMsg {
   type: "status_update";
@@ -177,7 +175,7 @@ export default function (pi: ExtensionAPI) {
     }
   >();
 
-  // Inbox: idle-gated batched delivery for triggerTurn:true messages
+  // Inbox: debounced batching; every batch is delivered to the receiver's model
   const inbox: { from: string; content: string }[] = [];
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -339,7 +337,7 @@ export default function (pi: ExtensionAPI) {
     }, 0);
   }
 
-  // ── Inbox: idle-gated batched delivery ───────────────────────────────────
+  // ── Inbox: batched delivery ──────────────────────────────────────────────
 
   function scheduleFlush(delay: number) {
     if (flushTimer) clearTimeout(flushTimer);
@@ -350,19 +348,6 @@ export default function (pi: ExtensionAPI) {
     flushTimer = null;
     if (inbox.length === 0) return;
     if (!ctx) return;
-
-    // Only deliver when idle so triggerTurn takes the turn-start path
-    // (sendUserMessage) instead of mid-run steering, avoiding async delivery loss.
-    let idle: boolean;
-    try {
-      idle = ctx.isIdle();
-    } catch {
-      return; // stale context — bail without retry
-    }
-    if (!idle) {
-      scheduleFlush(IDLE_RETRY_MS);
-      return;
-    }
 
     // Select batch: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS total (soft cap —
     // first item always included even if oversized, others deferred to next flush)
@@ -387,9 +372,9 @@ export default function (pi: ExtensionAPI) {
     );
     inbox.splice(0, batch.length);
 
-    // Reschedule if inbox still has items; agent_end wakeup will usually beat this
+    // Items held back by the batch caps go out on the next debounce tick
     if (inbox.length > 0) {
-      scheduleFlush(IDLE_RETRY_MS);
+      scheduleFlush(FLUSH_DELAY_MS);
     }
   }
 
@@ -470,10 +455,6 @@ export default function (pi: ExtensionAPI) {
     msg: ChatMsg | CompactRequestMsg | CompactResponseMsg,
   ): boolean {
     if (role === "hub") {
-      if (msg.to === "*") {
-        hubBroadcast(msg, msg.from);
-        return true;
-      }
       if (msg.to === terminalName) {
         handleIncoming(msg);
         return true;
@@ -593,20 +574,8 @@ export default function (pi: ExtensionAPI) {
 
       // ── Chat message ──
       case "chat":
-        if (msg.triggerTurn) {
-          inbox.push({ from: msg.from, content: msg.content });
-          scheduleFlush(FLUSH_DELAY_MS);
-        } else {
-          pi.sendMessage(
-            {
-              customType: "link",
-              content: msg.content,
-              display: true,
-              details: { from: msg.from },
-            },
-            { triggerTurn: false, deliverAs: "steer" },
-          );
-        }
+        inbox.push({ from: msg.from, content: msg.content });
+        scheduleFlush(FLUSH_DELAY_MS);
         break;
 
       // ── Another terminal asks us to compact our context ──
@@ -1112,10 +1081,6 @@ export default function (pi: ExtensionAPI) {
     activeToolName = null;
     stateSince = Date.now();
     pushStatus();
-
-    // Wake up inbox flush — agent_end fires before finishRun(), so ctx.isIdle()
-    // is still false here. scheduleFlush(0) defers to next macrotask when idle.
-    if (inbox.length > 0) scheduleFlush(0);
   });
 
   // ── Tool helpers ──────────────────────────────────────────────────────────
@@ -1162,50 +1127,37 @@ export default function (pi: ExtensionAPI) {
     name: "link_send",
     label: "Link Send",
     description: [
-      "Send a message to another Pi terminal on the link; omitting triggerTurn starts a receiver turn when idle.",
-      "Set triggerTurn:false only for intentional non-waking steering or FYI delivery.",
-      'With to:"*", omitted/true wakes every other terminal; use false for an announcement.',
+      "Send a message to one other Pi terminal on the link.",
+      "The message always acts: it steers a busy receiver at its next safe boundary, or starts a turn on an idle one.",
     ].join(" "),
     promptSnippet:
       "Send a message to another Pi terminal on the local link network",
     parameters: Type.Object({
-      to: Type.String({
-        description: 'Target terminal name, or "*" for broadcast',
-      }),
+      to: Type.String({ description: "Target terminal name" }),
       message: Type.String({ description: "Message content" }),
-      triggerTurn: Type.Optional(
-        Type.Boolean({
-          description:
-            "Whether to trigger an LLM turn on the receiver (default: true); set false for immediate non-waking steer delivery",
-        }),
-      ),
     }),
 
     async execute(_toolCallId, params) {
       if (role === "disconnected") return notConnectedResult();
 
       // Pre-validate target exists locally (best-effort, catches typos and definitely-absent names)
-      if (params.to !== "*") {
-        if (params.to === terminalName) {
-          return textResult("Cannot send to yourself", {
-            to: params.to,
-            error: "self_target",
-          });
-        }
-        const miss = targetNotFound(params.to);
-        if (miss) return miss;
+      if (params.to === terminalName) {
+        return textResult("Cannot send to yourself", {
+          to: params.to,
+          error: "self_target",
+        });
       }
+      const miss = targetNotFound(params.to);
+      if (miss) return miss;
 
-      const triggerTurn = params.triggerTurn ?? true;
       const delivered = routeMessage({
         type: "chat",
         from: terminalName,
         to: params.to,
         content: params.message,
-        triggerTurn,
       });
 
-      const target = params.to === "*" ? "all terminals" : `"${params.to}"`;
+      const target = `"${params.to}"`;
       if (!delivered) {
         return textResult(`Failed to send to ${target}`, {
           to: params.to,
@@ -1214,25 +1166,19 @@ export default function (pi: ExtensionAPI) {
       }
       // Hub delivery is authoritative; client delivery is optimistic (hub routes)
       const verb = role === "hub" ? "Sent to" : "Sent to hub for delivery to";
-      return textResult(`${verb} ${target}`, {
-        to: params.to,
-        triggerTurn,
-      });
+      return textResult(`${verb} ${target}`, { to: params.to });
     },
 
     renderCall(args, theme) {
-      const target = args.to === "*" ? "broadcast" : args.to;
       const preview =
         typeof args.message === "string"
           ? truncatePreview(args.message)
           : "...";
-      let text = theme.fg("toolTitle", theme.bold("link_send "));
-      text += theme.fg("accent", target);
-      if (args.triggerTurn === false)
-        text += theme.fg("dim", " (no turn)");
-      else if (args.to === "*")
-        text += theme.fg("warning", " (trigger all)");
-      text += "\n  " + theme.fg("dim", preview);
+      const text =
+        theme.fg("toolTitle", theme.bold("link_send ")) +
+        theme.fg("accent", args.to) +
+        "\n  " +
+        theme.fg("dim", preview);
       return new Text(text, 0, 0);
     },
 
@@ -1534,30 +1480,6 @@ export default function (pi: ExtensionAPI) {
         terminalName = newName;
         _ctx.ui.notify(`Name set to "${newName}" (not connected)`, "info");
       }
-    },
-  });
-
-  pi.registerCommand("link-broadcast", {
-    description:
-      'Send a non-waking announcement to all terminals (no replies); use link_send to:"*" to wake them',
-    handler: async (args, _ctx) => {
-      const message = args.trim();
-      if (!message) {
-        _ctx.ui.notify("Usage: /link-broadcast <message>", "warning");
-        return;
-      }
-      if (role === "disconnected") {
-        _ctx.ui.notify("Not connected to link", "warning");
-        return;
-      }
-      routeMessage({
-        type: "chat",
-        from: terminalName,
-        to: "*",
-        content: message,
-        triggerTurn: false,
-      });
-      _ctx.ui.notify("Broadcast sent", "info");
     },
   });
 
