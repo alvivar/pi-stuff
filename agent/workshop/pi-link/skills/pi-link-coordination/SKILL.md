@@ -55,7 +55,9 @@ message, not that it arrived. If the target has vanished, the routing failure is
 shown to the human as a notification and never reaches the sending model.
 
 A terminal that is compacting receives nothing until it finishes. The messages wait
-and are delivered afterwards.
+and are delivered afterwards. A cancelled compaction has no ending pi-link can see,
+so they wait for the terminal's next agent run, a later successful compaction, or a
+three-minute deadline — whichever comes first. The sender is told nothing meanwhile.
 
 ### `link_compact`
 

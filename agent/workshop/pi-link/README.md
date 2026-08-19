@@ -284,8 +284,11 @@ Ask another terminal to compact its context window and **wait up to 180 seconds*
 - The remote terminal runs `ctx.compact()` — the same code path as `/compact`. The call returns once the runtime reports completion.
 - **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
 - **Busy decline** — if the target is mid-turn or already compacting, it declines immediately with `reason: "busy"`. It does not interrupt active work.
+- **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`. A freshly started terminal cannot be compacted at all; the refusal was seen at 16K tokens and compaction succeeded at 35K on a 272K window, so the threshold sits between.
+- **Already-compacted decline** — a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`. Two compactions back to back require work in between.
 - **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
 - **Flat 180-second timeout** — compaction typically takes 5–60s. The timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
+- **A cancelled compaction does not reopen delivery by itself** — Pi emits no ending an extension can observe when a compaction is cancelled. The gate is cleared by the terminal's next agent run, by a later successful compaction, or failing both by the `COMPACT_TIMEOUT_MS` deadline. Observed live with nothing touching the terminal in between: it reported `compacting` for nearly three minutes with its context unchanged, and the message held for it arrived when the deadline fired. A message sent into that window is held, not refused, and the sender is told nothing.
 - Supports abort signals.
 - Each call targets one terminal; independent calls can run concurrently.
 - Any connected terminal can request compaction on another; link participants are cooperating peers.
