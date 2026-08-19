@@ -16,6 +16,11 @@ Each with:
 - **Where** — function/anchor + approximate line.
 - **Problem** — why it needs changing.
 - **Fix** — the precise change, ideally with before/after code.
+  - Where the change wires into **another system's internals** (its events, lifecycle,
+    guards), pin the **invariant** and how to verify it instead of the wiring. A plan
+    cannot verify internals it is not reading as it writes, so that is where its
+    confident errors concentrate — and the implementer, who is reading that source, is
+    positioned to get the wiring right.
 - **Risk** — none / low / medium / high (drives sequencing + compaction).
 - **Verify** — how to confirm (tests + any manual/reasoned check).
 
