@@ -1109,7 +1109,14 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_start", async () => {
     agentRunning = true;
-    setCompacting(false); // Pi resumed work, so any compaction has ended
+    // Safe only under the current deployment, not by Pi's guarantees:
+    // AgentSession.prompt() refuses to run during compaction, and the only caller
+    // of pi.sendMessage here — flushInbox() — is itself gated, so nothing can start
+    // a run mid-compaction. Another extension calling pi.sendMessage with
+    // triggerTurn: true would void that: its message starts a run during a
+    // compaction, agent_start clears this flag, and delivery reopens into a
+    // compaction that is still rebuilding context.
+    setCompacting(false);
     activeToolName = null;
     stateSince = Date.now();
     pushStatus();
