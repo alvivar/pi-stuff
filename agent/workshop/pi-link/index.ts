@@ -143,6 +143,8 @@ export default function (pi: ExtensionAPI) {
   // Status tracking (local truth)
   let agentRunning = false;
   let compactRunning = false; // true while compacting for a remote request
+  let localCompacting = false; // true while compacting for a human /compact
+  let compactDeadline: ReturnType<typeof setTimeout> | undefined;
   let activeToolName: string | null = null;
   let stateSince = Date.now();
   let lastPushedKind: string | null = null;
@@ -349,6 +351,20 @@ export default function (pi: ExtensionAPI) {
     if (inbox.length === 0) return;
     if (!ctx) return;
 
+    // Compacting: hold everything and return WITHOUT rescheduling. setCompacting()
+    // drains on release, so polling a compaction that may run to the 180s ceiling
+    // would be ~900 wakeups for no information.
+    //
+    // The two flags are not duplication. compactRunning is set synchronously by the
+    // compact_request handler before it calls ctx.compact(), covering the window
+    // before session_before_compact arrives; localCompacting covers a human
+    // /compact, which pi-link never initiates.
+    //
+    // Both are load-bearing because Pi will not save us here: AgentSession.prompt()
+    // refuses to run during compaction, but sendCustomMessage reaches
+    // _runAgentPrompt directly and is not covered by that guard.
+    if (localCompacting || compactRunning) return;
+
     // Select batch: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS total (soft cap —
     // first item always included even if oversized, others deferred to next flush)
     const batch: string[] = [];
@@ -376,6 +392,45 @@ export default function (pi: ExtensionAPI) {
     if (inbox.length > 0) {
       scheduleFlush(FLUSH_DELAY_MS);
     }
+  }
+
+  /**
+   * Drain the inbox once NO gate remains. Call after clearing either flag.
+   *
+   * Both gates must be checked together, because a remote compact sets both:
+   * ctx.compact() reaches Pi's compact(), which reports reason "manual", so
+   * session_before_compact sets localCompacting on top of compactRunning. Pi emits
+   * session_compact strictly before it resolves and fires onComplete, so releasing
+   * on either flag alone can arm a flush that finds the other flag still standing,
+   * returns without rescheduling, and strands the inbox with no release left.
+   */
+  function releaseInbox() {
+    if (!localCompacting && !compactRunning && inbox.length > 0) {
+      scheduleFlush(FLUSH_DELAY_MS);
+    }
+  }
+
+  /**
+   * Gate and release inbox delivery around a local manual compaction.
+   *
+   * The deadline is the only backstop. A failed manual compaction emits
+   * `compaction_end` to session listeners only, never to extensions, and Pi
+   * clears its compaction controller without aborting it — so success is the sole
+   * positive ending an extension can observe. The timer handle must be explicit
+   * and cleared on every transition: a bare setTimeout outlives its own
+   * compaction and would release a *later* compaction's flag.
+   *
+   * COMPACT_TIMEOUT_MS is reused only to avoid a new constant. It shares a value
+   * with the remote-request wait by coincidence, not by meaning.
+   */
+  function setCompacting(on: boolean) {
+    localCompacting = on;
+    clearTimeout(compactDeadline);
+    compactDeadline = on
+      ? setTimeout(() => setCompacting(false), COMPACT_TIMEOUT_MS)
+      : undefined;
+    // Release drains; it never polls. Nothing else wakes a waiting inbox.
+    if (!on) releaseInbox();
   }
 
   // ── Connection intent ──────────────────────────────────────────────────
@@ -580,7 +635,7 @@ export default function (pi: ExtensionAPI) {
 
       // ── Another terminal asks us to compact our context ──
       case "compact_request": {
-        if (agentRunning || compactRunning) {
+        if (agentRunning || compactRunning || localCompacting) {
           routeMessage({
             type: "compact_response",
             id: msg.id,
@@ -597,6 +652,7 @@ export default function (pi: ExtensionAPI) {
           if (finished) return;
           finished = true;
           compactRunning = false;
+          releaseInbox(); // last gate may clear here, after session_compact already fired
           routeMessage({
             type: "compact_response",
             id,
@@ -920,7 +976,7 @@ export default function (pi: ExtensionAPI) {
       reconnectTimer = null;
     }
 
-    // Clean up compact state
+    // Clear link-owned remote compaction state; a local /compact survives disconnect.
     compactRunning = false;
     for (const id of [...pendingCompactResponses.keys()]) {
       const pending = cleanupPendingCompact(id);
@@ -957,11 +1013,8 @@ export default function (pi: ExtensionAPI) {
     lastPushedTool = null;
     updateStatus();
 
-    // Inbox survives disconnect — messages are local state waiting for local delivery.
-    // Ensure pending flush still fires.
-    if (inbox.length > 0 && !flushTimer) {
-      scheduleFlush(FLUSH_DELAY_MS);
-    }
+    // Inbox survives disconnect; flush unless a local /compact still gates it.
+    if (!flushTimer) releaseInbox();
   }
 
   function cleanup() {
@@ -972,12 +1025,14 @@ export default function (pi: ExtensionAPI) {
     }
     disconnect();
     ctx = undefined;
-    // Full teardown: clear inbox and flush timer
+    // Full teardown: clear inbox and both timers. The compaction deadline runs to
+    // 180s, so it would otherwise outlive the extension and fire after teardown.
     inbox.length = 0;
     if (flushTimer) {
       clearTimeout(flushTimer);
       flushTimer = null;
     }
+    setCompacting(false);
   }
 
   // ── Lifecycle events ─────────────────────────────────────────────────────
@@ -1054,12 +1109,35 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_start", async () => {
     agentRunning = true;
+    setCompacting(false); // Pi resumed work, so any compaction has ended
     activeToolName = null;
     stateSince = Date.now();
     pushStatus();
   });
 
+  pi.on("session_before_compact", async (event) => {
+    // Manual only. Automatic (threshold/overflow) compaction runs inside the agent
+    // run, so a delivered message takes Pi's steering arm and _runAutoCompaction
+    // returns hasQueuedMessages() to drain it afterwards. Gating it would replace a
+    // working Pi path with our own.
+    //
+    // There is deliberately no abort listener: event.signal firing is not an ending.
+    // Pi passes that signal into the summarizer and its compaction controller lives
+    // until the catch/finally, so releasing on abort would re-open delivery while the
+    // aborted compaction is still unwinding. A cancelled compaction is released by
+    // the user's next run (agent_start) or by the deadline.
+    //
+    // Accepted gap: compact() aborts, authorises and prepares *before* emitting this
+    // event, so a flush in that window can still start a turn against context about
+    // to be rebuilt. The message itself survives — it is persisted and restored — so
+    // only the turn is wasted. No heuristics to guess at the window. This is a
+    // manual-compaction limit only; remote compaction is already gated by
+    // compactRunning, set before ctx.compact() is ever called.
+    if (event.reason === "manual") setCompacting(true);
+  });
+
   pi.on("session_compact", async () => {
+    setCompacting(false); // compaction succeeded
     // Tokens just dropped sharply — force a push so peers see the new context.
     pushStatus(true);
   });
@@ -1231,7 +1309,7 @@ export default function (pi: ExtensionAPI) {
           if (pending) {
             pending.resolve(
               textResult(
-                `Compact request to "${params.to}" timed out (${COMPACT_TIMEOUT_MS / 1000}s)`,
+                `Compact request to "${params.to}" timed out after ${COMPACT_TIMEOUT_MS / 1000}s; the target may still be compacting. Re-check with link_list before retrying.`,
                 { to: params.to, error: "timeout" },
               ),
             );
