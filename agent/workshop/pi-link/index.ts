@@ -147,10 +147,12 @@ export default function (pi: ExtensionAPI) {
   let localCompacting = false; // true while compacting for a human /compact
   let compactDeadline: ReturnType<typeof setTimeout> | undefined;
   let wasCompactionGated = false; // gate state syncCompactionStatus() last acted on
-  let activeToolName: string | null = null;
+  // toolCallId → toolName. Pi runs tools in parallel by default and both tool
+  // events carry the call id, so one slot per call is the only way an end can clear
+  // the call it belongs to. Insertion-ordered, which is what picks the display.
+  const activeTools = new Map<string, string>();
   let stateSince = Date.now();
-  let lastPushedKind: string | null = null;
-  let lastPushedTool: string | null = null;
+  let lastPushedStatus: string | null = null; // identity of the last published status
   const terminalStatuses = new Map<string, LinkStatus>(); // other terminals
   const terminalContexts = new Map<string, ContextSnapshot>(); // other terminals' context
   let currentCwd = "";
@@ -221,10 +223,37 @@ export default function (pi: ExtensionAPI) {
     // but where it could overlap, the gate is the more actionable fact: work sent
     // here waits, and link_compact declines.
     if (compactionGated()) return { kind: "compacting", since: stateSince };
-    if (activeToolName)
-      return { kind: "tool", toolName: activeToolName, since: stateSince };
+    const tool = displayedTool();
+    if (tool) return { kind: "tool", toolName: tool, since: stateSince };
     if (agentRunning) return { kind: "thinking", since: stateSince };
     return { kind: "idle", since: stateSince };
+  }
+
+  /**
+   * The tool a peer is shown while several run at once: the first still active, by
+   * start order. A later start never displaces it, so parallel work does not churn
+   * the status; when it ends the next one takes over.
+   */
+  function displayedTool(): string | null {
+    for (const name of activeTools.values()) return name;
+    return null;
+  }
+
+  /**
+   * The single definition of "the same status": what a peer sees, as one comparable
+   * value. Both users of that question go through here — pushStatus() dedupes on it,
+   * and every handler compares it before and after mutating to decide whether
+   * stateSince moves. One function, so the clock and the wire cannot come to
+   * disagree about what changed; restarting the clock on a change nobody can see
+   * would publish nothing now and make the next push carry a duration nobody
+   * observed. Two calls of the same tool handing over are one status by this rule.
+   *
+   * The two forms cannot collide: every non-tool kind is a fixed literal from the
+   * LinkStatus union with no colon in it, and the tool form is always prefixed, so
+   * no toolName can spell a kind.
+   */
+  function statusIdentity(s: LinkStatus): string {
+    return s.kind === "tool" ? `tool:${s.toolName}` : s.kind;
   }
 
   function captureContext(): ContextSnapshot | undefined {
@@ -239,12 +268,9 @@ export default function (pi: ExtensionAPI) {
   function pushStatus(force = false) {
     if (role === "disconnected") return;
     const status = deriveStatus();
-    const newKind = status.kind;
-    const newTool = status.kind === "tool" ? status.toolName : null;
-    if (!force && newKind === lastPushedKind && newTool === lastPushedTool)
-      return;
-    lastPushedKind = newKind;
-    lastPushedTool = newTool;
+    const identity = statusIdentity(status);
+    if (!force && identity === lastPushedStatus) return;
+    lastPushedStatus = identity;
     const context = captureContext(); // only when we actually push
     const msg: StatusUpdateMsg = {
       type: "status_update",
@@ -413,7 +439,7 @@ export default function (pi: ExtensionAPI) {
   /**
    * Record a compaction gate transition. Call after any change to either flag.
    *
-   * wasCompactionGated tracks the gate itself, deliberately NOT lastPushedKind: the
+   * wasCompactionGated tracks the gate itself, deliberately NOT lastPushedStatus: the
    * two diverge exactly while disconnected, when pushStatus() returns before
    * recording anything, and a gate that opened and closed unseen would then leave
    * stateSince stranded at the moment compaction began. Entering and leaving are one
@@ -1054,8 +1080,7 @@ export default function (pi: ExtensionAPI) {
     hubTerminalContexts.clear();
     terminalCwds.clear();
     hubTerminalCwds.clear();
-    lastPushedKind = null;
-    lastPushedTool = null;
+    lastPushedStatus = null;
     updateStatus();
 
     // Inbox survives disconnect; flush unless a local /compact still gates it.
@@ -1153,6 +1178,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_start", async () => {
+    const before = statusIdentity(deriveStatus());
     agentRunning = true;
     // Safe only under the current deployment, not by Pi's guarantees:
     // AgentSession.prompt() refuses to run during compaction, and the only caller
@@ -1162,8 +1188,8 @@ export default function (pi: ExtensionAPI) {
     // compaction, agent_start clears this flag, and delivery reopens into a
     // compaction that is still rebuilding context.
     setCompacting(false);
-    activeToolName = null;
-    stateSince = Date.now();
+    activeTools.clear(); // defensive: a run cannot begin owing tools from the last one
+    if (statusIdentity(deriveStatus()) !== before) stateSince = Date.now();
     pushStatus();
   });
 
@@ -1195,21 +1221,24 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_execution_start", async (event) => {
-    activeToolName = event.toolName;
-    stateSince = Date.now();
+    const before = statusIdentity(deriveStatus());
+    activeTools.set(event.toolCallId, event.toolName);
+    if (statusIdentity(deriveStatus()) !== before) stateSince = Date.now();
     pushStatus();
   });
 
-  pi.on("tool_execution_end", async () => {
-    activeToolName = null;
-    if (agentRunning) stateSince = Date.now();
+  pi.on("tool_execution_end", async (event) => {
+    const before = statusIdentity(deriveStatus());
+    activeTools.delete(event.toolCallId); // this call only; others may still run
+    if (statusIdentity(deriveStatus()) !== before) stateSince = Date.now();
     pushStatus();
   });
 
   pi.on("agent_end", async () => {
+    const before = statusIdentity(deriveStatus());
     agentRunning = false;
-    activeToolName = null;
-    stateSince = Date.now();
+    activeTools.clear(); // defensive: an unmatched end would otherwise pin the status
+    if (statusIdentity(deriveStatus()) !== before) stateSince = Date.now();
     pushStatus();
   });
 

@@ -19,8 +19,18 @@ is the entire shared state.
 ### `link_list`
 
 Returns connected terminals with names, live status (`idle`, `thinking`,
-`tool:<name>`), cwd, and (when available) context usage such as `45K/272K (17%)`.
-Your own entry is marked `(you)`.
+`compacting`, `tool:<name>`), cwd, and (when available) context usage such as
+`45K/272K (17%)`. Your own entry is marked `(you)`.
+
+Pi runs tools in parallel by default, and `tool:<name>` then names the first
+still-active call it reported rather than all of them. It advances only when that
+call ends, and becomes `thinking` only after the last call ends.
+
+`compacting` means a manual compaction has raised that terminal's delivery gate;
+messages sent to it wait until the gate clears. An automatic (threshold or
+overflow) compaction never shows it — pi-link has already seen the run end by
+then, so that terminal reads as `idle`. A manual compaction also runs briefly
+before the gate rises, and reads as `idle` until it does.
 
 Only connected terminals are visible. Messages to a terminal that is not connected
 are not queued anywhere; they are dropped.
@@ -54,16 +64,17 @@ list; beyond that, for a client a successful send means the hub accepted the
 message, not that it arrived. If the target has vanished, the routing failure is
 shown to the human as a notification and never reaches the sending model.
 
-A terminal that is compacting receives nothing until it finishes. The messages wait
-and are delivered afterwards. A cancelled compaction has no ending pi-link can see,
-so they wait for the terminal's next agent run, a later successful compaction, or a
-three-minute deadline — whichever comes first. The sender is told nothing meanwhile.
+A terminal reported as `compacting` receives nothing until its gate clears. The
+messages wait and are delivered afterwards. A cancelled compaction has no ending
+pi-link can see, so they wait for the terminal's next agent run, a later
+successful compaction, or a three-minute deadline — whichever comes first. The
+sender is told nothing meanwhile.
 
 ### `link_compact`
 
 Asks another terminal to compact its context and blocks until it completes, with a
-three-minute ceiling. Targets that are mid-turn or already compacting decline
-rather than being interrupted. Optional `instructions` focus the summary.
+three-minute ceiling. Targets that are mid-turn or reported as `compacting`
+decline rather than being interrupted. Optional `instructions` focus the summary.
 
 The timeout bounds your wait only. Nothing aborts the target, so a timed-out call
 may mean the compaction is still running.
@@ -94,5 +105,7 @@ an A → B → C → A delegation chain.
   or access.
 - **Names are identities.** The hub suffixes collisions, so the name you remember
   may not be the name that is connected; `link_list` shows the current one.
-- **Mixed-version meshes are unsupported.** All linked terminals must run the same
-  build.
+- **Mixed-version meshes are unsupported.** Across the current protocol break, a
+  message from a new sender can reach a 0.2.0 receiver as bare text — without the
+  `[Link: N message(s) received]` header or the `From "name":` line — and nothing
+  reports a fault.

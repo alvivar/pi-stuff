@@ -250,14 +250,16 @@ Each terminal also reports its current LLM context usage, rendered as `45K/272K 
 
 Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Four states:
 
-| Status            | Meaning                                     |
-| ----------------- | ------------------------------------------- |
-| `idle (2m)`       | Waiting for user input                      |
-| `thinking (3s)`   | LLM is generating                           |
-| `tool:bash (12s)` | Running a specific tool                     |
-| `compacting (8s)` | Manual compaction running; messages held    |
+| Status            | Meaning                                      |
+| ----------------- | -------------------------------------------- |
+| `idle (2m)`       | Waiting for user input                       |
+| `thinking (3s)`   | LLM is generating                            |
+| `tool:bash (12s)` | The first still-active call, not a list      |
+| `compacting (8s)` | Manual compaction gate raised; messages held |
 
-Only a manual compaction shows `compacting`. Automatic (threshold or overflow) compaction runs inside an agent run, so a terminal doing one reads as `thinking` or `tool:<name>`.
+Pi can run tools in parallel, and does by default. `tool:<name>` then names the first still-active call Pi reported — one call that really is still running, not a list of every concurrent one. It advances only when that call ends, and stays `tool:<name>` until the last call ends.
+
+Only a manual compaction shows `compacting`. An automatic (threshold or overflow) compaction never shows it — pi-link has already seen the run end by then, so that terminal reads as `idle`. A manual compaction also runs briefly before the gate rises, and reads as `idle` until it does.
 
 Durations are computed at render time from a `since` timestamp - no timer traffic over the wire. Terminals that just joined with no status data yet render as blank, not fake idle.
 
@@ -286,7 +288,7 @@ Ask another terminal to compact its context window and **wait up to 180 seconds*
 
 - The remote terminal runs `ctx.compact()` — the same code path as `/compact`. The call returns once the runtime reports completion.
 - **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
-- **Busy decline** — if the target is mid-turn or already compacting, it declines immediately with `reason: "busy"`. It does not interrupt active work.
+- **Busy decline** — if the target is mid-turn or already reporting `compacting`, it declines immediately with `reason: "busy"`. It does not interrupt active work.
 - **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`. A freshly started terminal cannot be compacted at all; the refusal was seen at 16K tokens and compaction succeeded at 35K on a 272K window, so the threshold sits between.
 - **Already-compacted decline** — a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`. Two compactions back to back require work in between.
 - **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
@@ -390,7 +392,7 @@ If another process occupies port 9900, the terminal can't become the hub. It wil
 
 ### `link_compact` reports a busy target
 
-A `link_compact` request does not interrupt an active agent run or another compaction. It resolves with `Compact on "<target>" not done: busy`. `link_send` is different: it is steered into an active run rather than declined.
+A `link_compact` request does not interrupt an active agent run or a compaction the target is already reporting. It resolves with `Compact on "<target>" not done: busy`. `link_send` is different: it is steered into an active run rather than declined.
 
 ### Terminals don't see each other
 
@@ -539,10 +541,10 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 | State Field               | Type                                  | Purpose                                                                          |
 | ------------------------- | ------------------------------------- | -------------------------------------------------------------------------------- |
 | `role`                    | `"hub" \| "client" \| "disconnected"` | Current network role                                                             |
-| `agentRunning`            | `boolean`                             | Whether an agent run is active; drives status and blocks incoming compact        |
-| `compactRunning`          | `boolean`                             | Whether this terminal is compacting for a remote request                         |
-| `localCompacting`         | `boolean`                             | Whether a `manual`-reason compaction is in progress; holds inbox delivery        |
-| `activeToolName`          | `string \| null`                      | Name of the currently executing tool (drives `tool:<name>` status)               |
+| `agentRunning`            | `boolean`                             | Between `agent_start` and `agent_end`; drives status and blocks incoming compact |
+| `compactRunning`          | `boolean`                             | Whether a remote request holds this terminal's delivery gate                     |
+| `localCompacting`         | `boolean`                             | Whether a `manual`-reason compaction has raised the delivery gate                |
+| `activeTools`             | `Map`                                 | `toolCallId` → `toolName` for calls still running; the first drives status       |
 | `stateSince`              | `number`                              | Timestamp of last status change (used for duration display)                      |
 | `currentCwd`              | `string`                              | Current working directory reported to peers on connect                           |
 | `inbox`                   | `array`                               | Queued incoming messages awaiting delivery                                       |
@@ -581,13 +583,15 @@ The `manuallyDisconnected` flag distinguishes user-initiated disconnects (`/link
 
 The extension hooks into Pi's agent lifecycle events:
 
-- **`agent_start`** → Sets `agentRunning = true`, which drives status and prevents remote compaction from interrupting active work. Clears the local compaction gate - safe only under the current deployment, not by Pi alone: Pi refuses to start an ordinary prompt during a manual compaction, and pi-link holds back the one delivery path that refusal does not cover, so nothing can start a run mid-compaction. Another extension starting a turn during one would void that. Broadcasts `status_update` (`thinking`).
-- **`agent_end`** → Broadcasts `status_update` (`idle`).
-- **`tool_execution_start`** → Broadcasts `status_update` (`tool:<name>`).
-- **`tool_execution_end`** → Clears tool status; broadcasts `status_update` (`thinking`) while the agent run continues.
-- **`session_before_compact`** → For a manual compaction, holds inbox delivery until the compaction ends. Automatic (threshold/overflow) compaction is left alone: it runs inside the agent run, where Pi already queues and drains steered messages itself.
+- **`agent_start`** → Sets `agentRunning = true`, which drives status and prevents remote compaction from interrupting active work. Clears the local compaction gate - safe only under the current deployment, not by Pi alone: Pi refuses to start an ordinary prompt during a manual compaction, and pi-link holds back the one delivery path that refusal does not cover, so nothing can start a run mid-compaction. Another extension starting a turn during one would void that. Also drops any tool calls left recorded; status normally becomes `thinking`.
+- **`agent_end`** → Ends the run and drops any tool calls still recorded; status normally returns to `idle`.
+- **`tool_execution_start`** → Records that call. It is displayed unless an earlier call is still running.
+- **`tool_execution_end`** → Drops that one call. The display stays `tool:<name>` while other calls remain, moves to the next call when the displayed one ends, and returns to `thinking` after the last one while the agent run continues.
+- **`session_before_compact`** → For a manual compaction, raises the gate that holds inbox delivery. Automatic (threshold/overflow) compaction is left alone: it runs inside the agent run, where Pi already queues and drains steered messages itself.
 - **`session_compact`** → Clears the local compaction gate and force-pushes a `status_update` so peers see the new (post-compaction) context usage immediately.
 - **`session_shutdown`** → Full cleanup via `cleanup()`: closes all sockets, resolves pending promises, and disposes the extension.
+
+The four agent and tool handlers — `agent_start`, `agent_end`, `tool_execution_start`, `tool_execution_end` — each recompute the status and hand it to `pushStatus()`, which publishes only when the status identity differs from the stored baseline of the last published identity. While a baseline is stored, a mutation leaving the display identical is therefore silent: a second tool starting behind the one already shown publishes nothing, and because a raised compaction gate outranks every other state, mutations beneath it publish nothing either. `disconnect()` clears that baseline. Once connected again, whichever comes first restores it: a forced push, such as the one a client makes on `welcome`, or the first of these handler events. So a handler event republishes an unchanged identity only when no forced push got there first — the case for a promoted hub, which receives no `welcome` of its own. The three session handlers are governed by their own bullets above, including `session_compact`'s forced push, which goes out whether the identity changed or not.
 
 Status updates are push-based: each terminal broadcasts changes to the hub, which fans them out. New joiners receive a status snapshot for all terminals in the `welcome` message. Context updates reuse the same status path, including a forced post-compaction update.
 
@@ -598,12 +602,12 @@ An arriving `chat` message goes into a local inbox rather than calling `pi.sendM
 The flush pipeline:
 
 1. **Debounce** - `scheduleFlush(FLUSH_DELAY_MS)` coalesces burst arrivals (200ms window).
-2. **Compaction gate** - `flushInbox()` returns without rescheduling while a gated compaction is in progress.
+2. **Compaction gate** - `flushInbox()` returns without rescheduling while the compaction gate is raised.
 3. **Batch** - up to 20 messages or ~16 000 chars per delivery (soft cap - the first item is always included even if oversized).
 4. **Deliver** - one `pi.sendMessage()` call with a `[Link: N message(s) received]` block. Pi reads the receiver's state at this point — not at send time — to decide whether the batch steers a running agent or starts a turn.
 5. **Drain** - if the inbox still has items, reschedule.
 
-Delivery is held while this terminal runs a `manual`-reason compaction, because a message delivered mid-compaction would be reasoned about against context that is being rebuilt. Two flags gate it: `compactRunning` for a compaction serving a remote `link_compact`, and `localCompacting`, set from `session_before_compact`. A remote request raises both, since Pi reports its own reason as `manual` either way. Automatic (threshold/overflow) compaction is deliberately **not** gated: it runs inside the agent run, where Pi already queues steered messages and drains them afterwards.
+Delivery is held while a `manual`-reason compaction holds this terminal's gate, because a message delivered mid-compaction would be reasoned about against context that is being rebuilt. Two flags gate it: `compactRunning` for a compaction serving a remote `link_compact`, and `localCompacting`, set from `session_before_compact`. A human `/compact` aborts and prepares before Pi emits that event, so the gate rises a moment after the compaction starts; a flush in that gap can still start a turn, and the message itself survives. A remote request raises both, since Pi reports its own reason as `manual` either way. Automatic (threshold/overflow) compaction is deliberately **not** gated: it runs inside the agent run, where Pi already queues steered messages and drains them afterwards.
 
 Because a gated flush does not reschedule, the release path is load-bearing. `releaseInbox()` is called after either flag clears and schedules a flush only when neither gate remains — so a remote compaction's `session_compact` calls it and correctly does nothing, and the later `finish()` is what drains. `compactDeadline` is the backstop, since a failed compaction reports no ending to an extension at all.
 
