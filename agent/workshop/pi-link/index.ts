@@ -1350,7 +1350,7 @@ export default function (pi: ExtensionAPI) {
     description: [
       "Ask another Pi terminal to compact its context window and wait until it finishes.",
       "Returns once the target has compacted, so you can immediately send it new work.",
-      "Busy targets (mid-turn or already compacting) decline; retry when idle.",
+      "A target declines while mid-turn or reporting `compacting`.",
     ].join(" "),
     promptSnippet: "Ask another Pi terminal to compact its context window",
     parameters: Type.Object({
@@ -1390,7 +1390,7 @@ export default function (pi: ExtensionAPI) {
           if (pending) {
             pending.resolve(
               textResult(
-                `Compact request to "${params.to}" timed out after ${COMPACT_TIMEOUT_MS / 1000}s; the target may still be compacting. Re-check with link_list before retrying.`,
+                `Compact request to "${params.to}" timed out after ${COMPACT_TIMEOUT_MS / 1000}s; the target may still be compacting.`,
                 { to: params.to, error: "timeout" },
               ),
             );
