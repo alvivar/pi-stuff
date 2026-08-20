@@ -6,6 +6,34 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
+## 0.3.0 — 2026-08-19
+
+### Added
+
+- **A terminal now reports `compacting` while its link delivery gate is raised.** It previously reported `idle`, so `link_list` and `/link` showed it as free at the one moment it was least available: messages sent to it wait in its inbox and `link_compact` declines. One local predicate decides both the `compacting` status a terminal derives and whether its inbox delivery is held, and it takes precedence over every other status a terminal derives for itself. It means the gate is raised, not that a compaction is provably still running — a cancelled manual compaction leaves it raised until the next successful compaction, the terminal's next agent start, or a 180-second deadline. Automatic threshold and overflow compaction are not gated by pi-link, and a terminal running one is observable as `idle`.
+
+### Breaking
+
+- **`link_prompt` is removed.** The blocking prompt-and-wait tool is gone end to end: the tool, the `prompt_request` / `prompt_response` wire messages, the pending-response state, and its timeouts. `link_send` is not a replacement for it — sending is asynchronous and un-correlated. A send reports whether the message was accepted for routing, not what the target did with it, and on a client that result is optimistic because the hub does the routing; nothing ties a later reply back to the call that prompted it. A worker that would have answered a prompt sends its answer with a later `link_send`, which is how callback-style coordination now works. Anything that needs a strict child operation with a join — one call that blocks until its own result comes back — needs orchestration owned by the host application.
+
+- **`link_send` no longer takes a `triggerTurn` parameter.** Delivery behavior is the receiver's alone: a running receiver is steered at its next safe boundary, an idle one starts a turn. Which of the two happens is decided when the debounced batch is actually delivered, not when the message was sent, so it is not something a sender could have chosen correctly anyway. The tool takes `to` and `message` and nothing else.
+
+- **Broadcast is removed.** `link_send` no longer accepts `to: "*"`, the hub no longer has a wildcard routing arm, and `/link-broadcast` is gone. Each send has exactly one recipient. Removing it from the tool alone would have left the feature reachable from the wire, so both went.
+
+- **Upgrade and restart every linked terminal together.** These removals changed the wire messages, and the link protocol carries no version of its own — nothing detects a mismatch or warns about one. One asymmetry has been observed directly: a new sender delivering to a 0.2.0 receiver can arrive as bare text, losing the `[Link: … message(s) received]` header and the `From "name":` line, with nothing reporting a fault. Restarting matters as much as upgrading, since a terminal keeps running the build it started with.
+
+### Changed
+
+- **`link_compact` now describes the guard it actually applies.** A target declines while it is mid-turn or reporting `compacting`, which is narrower than every target that happens to be compacting: a compaction pi-link does not gate is not visible to the guard. The 180-second timeout bounds the caller's wait only: once the request has been dispatched, a caller timeout or abort ends that wait and nothing else, and the target may still be compacting. A call aborted before it dispatches returns without having asked for anything. The tool no longer tells the caller to retry or to re-check; it reports what happened and leaves the next move to the caller.
+
+### Fixed
+
+- **Once Pi announces a manual compaction, link messages wait instead of starting a turn against context being rebuilt.** Pi refuses an ordinary prompt during a manual compaction, but pi-link's delivery path is not an ordinary prompt and that refusal does not cover it. While the gate is raised the inbox holds messages, and the gate releases them when Pi reports the compaction succeeded, on the terminal's next agent start, or on a deadline if neither arrives. Coverage begins at the announcement: a human `/compact` aborts and prepares before Pi announces it, so a delivery landing in that short window is still possible. The message itself is never lost. Automatic compaction is deliberately left alone, since Pi queues and drains steered messages itself.
+
+- **Status stays truthful while several tools run at once.** Active calls are tracked per call, so `tool:<name>` names the first still-active call Pi reported, advances only when that displayed call ends, and stays a tool status until the last call ends. Previously one call finishing could drop the reported status back to `thinking` while others were still running. Two calls with the same tool name hand over without resetting the reported duration. Nothing changed on the wire or in how status is displayed.
+
+---
+
 ## 0.2.0 — 2026-07-17
 
 ### Added
