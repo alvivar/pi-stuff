@@ -26,11 +26,15 @@ Pi runs tools in parallel by default, and `tool:<name>` then names the first
 still-active call it reported rather than all of them. It advances only when that
 call ends, and becomes `thinking` only after the last call ends.
 
+`thinking` covers every kind of unsettled work, not just an LLM call: an automatic
+retry, an automatic compaction and a queued continuation all run after the visible
+turn ends, and the terminal reads `thinking` until Pi reports the run settled.
+
 `compacting` means a manual compaction has raised that terminal's delivery gate;
 messages sent to it wait until the gate clears. An automatic (threshold or
-overflow) compaction never shows it — pi-link has already seen the run end by
-then, so that terminal reads as `idle`. A manual compaction also runs briefly
-before the gate rises, and reads as `idle` until it does.
+overflow) compaction never shows it — it is not gated, and reads `thinking` like
+the rest of the run it belongs to. A manual compaction also runs briefly before the
+gate rises, and reads as whatever preceded it until it does.
 
 Only connected terminals are visible. Messages to a terminal that is not connected
 are not queued anywhere; they are dropped.
@@ -73,8 +77,10 @@ sender is told nothing meanwhile.
 ### `link_compact`
 
 Asks another terminal to compact its context and blocks until it completes, with a
-three-minute ceiling. Targets that are mid-turn or reported as `compacting`
-decline rather than being interrupted. Optional `instructions` focus the summary.
+three-minute ceiling. A target accepts only when Pi reports its session idle and no
+manual compaction holds its gate; anything else declines rather than being
+interrupted, so a target reading `thinking` for a retry or an automatic compaction
+declines exactly as one mid-turn does. Optional `instructions` focus the summary.
 
 The timeout bounds your wait only. Nothing aborts the target, so a timed-out call
 may mean the compaction is still running.

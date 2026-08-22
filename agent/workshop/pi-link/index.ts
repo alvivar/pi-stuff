@@ -10,9 +10,10 @@
  * Commands: /link, /link-name, /link-connect, /link-disconnect
  */
 
-import type {
-  ExtensionAPI,
-  ExtensionContext,
+import {
+  VERSION as PI_VERSION,
+  type ExtensionAPI,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -22,6 +23,12 @@ import * as os from "node:os";
 import { WebSocket, WebSocketServer } from "ws";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
+
+// Pi 0.84.2 is the floor: `agent_settled` and `ctx.isIdle()` are the whole basis of
+// the settled lifecycle and the remote-compaction guard below, and there is one code
+// path for them. Package installation does not check the host version, so an older
+// Pi installs pi-link successfully and must be refused at load.
+const MIN_PI_VERSION = [0, 84, 2];
 
 const DEFAULT_PORT = 9900;
 const COMPACT_TIMEOUT_MS = 180_000;
@@ -111,9 +118,48 @@ type LinkMessage =
   | CompactRequestMsg
   | CompactResponseMsg;
 
+/**
+ * True when Pi is at or above MIN_PI_VERSION. A fixed floor needs an ordered compare
+ * of three numbers, not a semver dependency — but it does need SemVer's shape, so the
+ * core rejects leading zeros, an optional prerelease is captured because it lowers
+ * precedence, and optional build metadata is matched and then ignored because it
+ * carries none. A prerelease of the floor itself precedes it, so `0.84.2-beta.1` is
+ * below `0.84.2` while `0.85.0-beta.1` is above it on its core alone. Each suffix is
+ * a dot-separated series of nonempty identifiers, so `0.84.2+.` and `0.85.0-alpha..1`
+ * are malformed. Anything unparsable, or with a component too large to compare
+ * exactly, is refused rather than guessed at.
+ */
+function piVersionSupported(version: string): boolean {
+  const parsed =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+      version.trim(),
+    );
+  if (!parsed) return false;
+  // A numeric prerelease identifier may not carry a leading zero. `0rc` may, being
+  // alphanumeric, and so may a build identifier, which never affects precedence.
+  const prerelease = parsed[4];
+  if (prerelease?.split(".").some((id) => /^0\d+$/.test(id))) return false;
+  for (let i = 0; i < 3; i++) {
+    const part = Number(parsed[i + 1]);
+    if (!Number.isSafeInteger(part)) return false;
+    if (part !== MIN_PI_VERSION[i]) return part > MIN_PI_VERSION[i];
+  }
+  return prerelease === undefined; // exactly the floor: only the release qualifies
+}
+
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+  // First statement, so an unsupported host leaves behind no flag, event, tool,
+  // command, timer or socket to half-run with. Pi reports a factory that throws as an
+  // extension load error naming this message, and keeps running without pi-link.
+  if (!piVersionSupported(PI_VERSION)) {
+    throw new Error(
+      `pi-link requires Pi >=${MIN_PI_VERSION.join(".")} (detected ${PI_VERSION || "unknown"}); ` +
+        `upgrade Pi, or pin pi-link 0.2.x for Pi 0.74–0.84.1.`,
+    );
+  }
+
   pi.registerFlag("link", {
     description: "Connect to link on startup",
     type: "boolean",
@@ -142,7 +188,7 @@ export default function (pi: ExtensionAPI) {
   let startupConnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Status tracking (local truth)
-  let agentRunning = false;
+  let agentRunning = false; // agent_start until agent_settled, not until agent_end
   let compactRunning = false; // true while compacting for a remote request
   let localCompacting = false; // true while compacting for a human /compact
   let compactDeadline: ReturnType<typeof setTimeout> | undefined;
@@ -698,18 +744,34 @@ export default function (pi: ExtensionAPI) {
 
       // ── Another terminal asks us to compact our context ──
       case "compact_request": {
-        if (agentRunning || compactRunning || localCompacting) {
+        const { id, from } = msg;
+        const respond = (ok: boolean, reason?: string) =>
           routeMessage({
             type: "compact_response",
-            id: msg.id,
+            id,
             from: terminalName,
-            to: msg.from,
-            ok: false,
-            reason: "busy",
+            to: from,
+            ok,
+            reason,
           });
+        // Answered before the busy question, and not through finish(): no capability
+        // and no context are refusals of a request we never took on, so nothing here
+        // owns the gate to clear or the inbox to release.
+        if (!ctx || !ctx.compact) {
+          respond(false, "unsupported");
           break;
         }
-        const { id, from } = msg;
+        // Pi's idle state is the authority on whether this terminal is working.
+        // agentRunning is not: Pi may still retry, run an automatic compaction, or
+        // drain a queued continuation inside a run whose agent_end already fired, and
+        // compact() would abort that work and compact the same branch a second time.
+        // compactionGated() adds what Pi's idle flag cannot cover — a manual
+        // compaction is not an agent run — and keeps declining while either gate
+        // stands, so we never touch a compaction we did not start.
+        if (!ctx.isIdle() || compactionGated()) {
+          respond(false, "busy");
+          break;
+        }
         let finished = false;
         const finish = (ok: boolean, reason?: string) => {
           if (finished) return;
@@ -720,23 +782,12 @@ export default function (pi: ExtensionAPI) {
           // session_before_compact leaves it standing, so the terminal truthfully
           // keeps reporting compacting until the deadline or agent_start.
           syncCompactionStatus();
-          routeMessage({
-            type: "compact_response",
-            id,
-            from: terminalName,
-            to: from,
-            ok,
-            reason,
-          });
+          respond(ok, reason);
         };
-        if (!ctx?.compact) {
-          finish(false, "unsupported");
-          break;
-        }
         compactRunning = true;
         syncCompactionStatus();
         notify(`"${from}" requested compact`, "info");
-        // compact() aborts the current turn first, so the busy guard above
+        // compact() aborts the current turn first, so the idle guard above
         // keeps us from interrupting active work. The runtime guarantees
         // exactly one of onComplete/onError fires, so compactRunning can't
         // get stuck and the sender won't hang.
@@ -1236,8 +1287,23 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", async () => {
     const before = statusIdentity(deriveStatus());
-    agentRunning = false;
+    // agentRunning deliberately survives this event. Pi may still auto-retry, run an
+    // automatic compaction, or drain a queued continuation, all inside the same run;
+    // reporting idle here would advertise a terminal that is still working.
     activeTools.clear(); // defensive: an unmatched end would otherwise pin the status
+    if (statusIdentity(deriveStatus()) !== before) stateSince = Date.now();
+    pushStatus();
+  });
+
+  pi.on("agent_settled", async (_event, settledCtx) => {
+    // The authoritative end of a run: Pi emits this once no retry, compaction or
+    // queued continuation is left. It can still be followed immediately by a new run
+    // another extension started during settlement, whose agent_start already set the
+    // flag we would be clearing — so ask Pi instead of assuming, and leave a newer
+    // run reporting thinking.
+    if (!settledCtx.isIdle()) return;
+    const before = statusIdentity(deriveStatus());
+    agentRunning = false;
     if (statusIdentity(deriveStatus()) !== before) stateSince = Date.now();
     pushStatus();
   });
@@ -1350,7 +1416,7 @@ export default function (pi: ExtensionAPI) {
     description: [
       "Ask another Pi terminal to compact its context window and wait until it finishes.",
       "Returns once the target has compacted, so you can immediately send it new work.",
-      "A target declines while mid-turn or reporting `compacting`.",
+      "A target declines unless Pi reports its session idle and no manual compaction holds its gate, so an active run, retry, automatic compaction, queued continuation or reported `compacting` all decline.",
     ].join(" "),
     promptSnippet: "Ask another Pi terminal to compact its context window",
     parameters: Type.Object({

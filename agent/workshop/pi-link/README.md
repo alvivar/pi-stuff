@@ -36,8 +36,10 @@ A single Pi terminal is powerful. Multiple terminals working together unlock new
 
 ## Prerequisites
 
-- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.74 or later** (for pi-link 0.1.15+). On Pi ≤0.73, pin `pi-link@0.1.14`.
+- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.84.2 or later** (for pi-link 0.3+): the status lifecycle and the remote-compaction guard are built on Pi's `agent_settled` event and `ctx.isIdle()`, and there is one code path for them. On Pi 0.74–0.84.1, pin `pi-link@0.2.x`; on Pi ≤0.73, pin `pi-link@0.1.14`.
 - Node.js (LTS recommended)
+
+Pi's package installation does not check the host version, so `pi install` succeeds on an older Pi. pi-link then refuses to initialize instead of half-running: it throws before registering anything, and Pi reports it under **[Extension issues]** with the required minimum and the version it detected. Nothing else about the session changes.
 
 ---
 
@@ -259,7 +261,9 @@ Each terminal's status is derived automatically from Pi lifecycle events - agent
 
 Pi can run tools in parallel, and does by default. `tool:<name>` then names the first still-active call Pi reported — one call that really is still running, not a list of every concurrent one. It advances only when that call ends, and stays `tool:<name>` until the last call ends.
 
-Only a manual compaction shows `compacting`. An automatic (threshold or overflow) compaction never shows it — pi-link has already seen the run end by then, so that terminal reads as `idle`. A manual compaction also runs briefly before the gate rises, and reads as `idle` until it does.
+`thinking` means work Pi has not settled yet, which is more than an LLM call: an automatic retry, an automatic compaction and a queued continuation all happen after `agent_end` and inside the same run, and the terminal reports `thinking` through all of them until Pi reports the run settled.
+
+Only a manual compaction shows `compacting`. An automatic (threshold or overflow) compaction never shows it — it is not gated, so it reports `thinking` like the rest of the run it belongs to. A manual compaction also runs briefly before the gate rises, and reads as whatever preceded it until it does.
 
 Durations are computed at render time from a `since` timestamp - no timer traffic over the wire. Terminals that just joined with no status data yet render as blank, not fake idle.
 
@@ -288,7 +292,8 @@ Ask another terminal to compact its context window and **wait up to 180 seconds*
 
 - The remote terminal runs `ctx.compact()` — the same code path as `/compact`. The call returns once the runtime reports completion.
 - **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
-- **Busy decline** — if the target is mid-turn or already reporting `compacting`, it declines immediately with `reason: "busy"`. It does not interrupt active work.
+- **Busy decline** — the target accepts only when Pi reports its session idle **and** no manual compaction holds its delivery gate; otherwise it declines immediately with `reason: "busy"` and does not interrupt active work. Pi's idle state is the authority, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline, not just a visible turn.
+- **Unsupported decline** — a target whose runtime offers no compaction capability declines with `reason: "unsupported"`, and is never asked to compact.
 - **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`. A freshly started terminal cannot be compacted at all; the refusal was seen at 16K tokens and compaction succeeded at 35K on a 272K window, so the threshold sits between.
 - **Already-compacted decline** — a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`. Two compactions back to back require work in between.
 - **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
@@ -392,7 +397,7 @@ If another process occupies port 9900, the terminal can't become the hub. It wil
 
 ### `link_compact` reports a busy target
 
-A `link_compact` request does not interrupt an active agent run or a compaction the target is already reporting. It resolves with `Compact on "<target>" not done: busy`. `link_send` is different: it is steered into an active run rather than declined.
+A `link_compact` request does not interrupt work the target is still doing. It resolves with `Compact on "<target>" not done: busy` whenever Pi reports that terminal's session not idle — an agent run, an automatic retry, an automatic compaction or a queued continuation — or while a manual compaction holds its delivery gate. `link_send` is different: it is steered into an active run rather than declined.
 
 ### Terminals don't see each other
 
@@ -438,11 +443,11 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 | Package                           | Purpose                                          |
 | --------------------------------- | ------------------------------------------------ |
-| `@earendil-works/pi-coding-agent` | Pi SDK types (ExtensionAPI, ExtensionContext)    |
+| `@earendil-works/pi-coding-agent` | Pi SDK types (ExtensionAPI, ExtensionContext) and `VERSION` |
 | `@earendil-works/pi-tui`          | TUI Text widget for custom message rendering     |
 | `typebox`                         | JSON Schema type definitions for tool parameters |
 
-> **Pi version requirement:** pi-link 0.1.15+ requires Pi 0.74 or later (the `@earendil-works/*` namespace). Users on Pi 0.73 or earlier should pin `pi-link@0.1.14`.
+> **Pi version requirement:** pi-link 0.3+ requires Pi 0.84.2 or later and enforces it at load from Pi's exported `VERSION`. Users on Pi 0.74–0.84.1 should pin `pi-link@0.2.x`; on Pi 0.73 or earlier, `pi-link@0.1.14`.
 
 ### `package.json`
 
@@ -541,7 +546,7 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 | State Field               | Type                                  | Purpose                                                                          |
 | ------------------------- | ------------------------------------- | -------------------------------------------------------------------------------- |
 | `role`                    | `"hub" \| "client" \| "disconnected"` | Current network role                                                             |
-| `agentRunning`            | `boolean`                             | Between `agent_start` and `agent_end`; drives status and blocks incoming compact |
+| `agentRunning`            | `boolean`                             | Between `agent_start` and `agent_settled` — not `agent_end`; drives status only |
 | `compactRunning`          | `boolean`                             | Whether a remote request holds this terminal's delivery gate                     |
 | `localCompacting`         | `boolean`                             | Whether a `manual`-reason compaction has raised the delivery gate                |
 | `activeTools`             | `Map`                                 | `toolCallId` → `toolName` for calls still running; the first drives status       |
@@ -583,15 +588,16 @@ The `manuallyDisconnected` flag distinguishes user-initiated disconnects (`/link
 
 The extension hooks into Pi's agent lifecycle events:
 
-- **`agent_start`** → Sets `agentRunning = true`, which drives status and prevents remote compaction from interrupting active work. Clears the local compaction gate - safe only under the current deployment, not by Pi alone: Pi refuses to start an ordinary prompt during a manual compaction, and pi-link holds back the one delivery path that refusal does not cover, so nothing can start a run mid-compaction. Another extension starting a turn during one would void that. Also drops any tool calls left recorded; status normally becomes `thinking`.
-- **`agent_end`** → Ends the run and drops any tool calls still recorded; status normally returns to `idle`.
+- **`agent_start`** → Sets `agentRunning = true`, which drives status. Clears the local compaction gate - safe only under the current deployment, not by Pi alone: Pi refuses to start an ordinary prompt during a manual compaction, and pi-link holds back the one delivery path that refusal does not cover, so nothing can start a run mid-compaction. Another extension starting a turn during one would void that. Also drops any tool calls left recorded; status normally becomes `thinking`.
+- **`agent_end`** → Drops any tool calls still recorded, so an unmatched one falls back to `thinking` instead of staying pinned. It deliberately does **not** end the run: Pi may still retry, compact automatically, or drain a queued continuation, so the status stays `thinking`.
+- **`agent_settled`** → The authoritative end of a run: Pi emits it once no retry, compaction or queued continuation is left. Status becomes `idle` — unless the event's context reports Pi busy again, which means another extension started a new run during settlement, and that newer run keeps reporting `thinking`.
 - **`tool_execution_start`** → Records that call. It is displayed unless an earlier call is still running.
 - **`tool_execution_end`** → Drops that one call. The display stays `tool:<name>` while other calls remain, moves to the next call when the displayed one ends, and returns to `thinking` after the last one while the agent run continues.
 - **`session_before_compact`** → For a manual compaction, raises the gate that holds inbox delivery. Automatic (threshold/overflow) compaction is left alone: it runs inside the agent run, where Pi already queues and drains steered messages itself.
 - **`session_compact`** → Clears the local compaction gate and force-pushes a `status_update` so peers see the new (post-compaction) context usage immediately.
 - **`session_shutdown`** → Full cleanup via `cleanup()`: closes all sockets, resolves pending promises, and disposes the extension.
 
-The four agent and tool handlers — `agent_start`, `agent_end`, `tool_execution_start`, `tool_execution_end` — each recompute the status and hand it to `pushStatus()`, which publishes only when the status identity differs from the stored baseline of the last published identity. While a baseline is stored, a mutation leaving the display identical is therefore silent: a second tool starting behind the one already shown publishes nothing, and because a raised compaction gate outranks every other state, mutations beneath it publish nothing either. `disconnect()` clears that baseline. Once connected again, whichever comes first restores it: a forced push, such as the one a client makes on `welcome`, or the first of these handler events. So a handler event republishes an unchanged identity only when no forced push got there first — the case for a promoted hub, which receives no `welcome` of its own. The three session handlers are governed by their own bullets above, including `session_compact`'s forced push, which goes out whether the identity changed or not.
+The five agent and tool handlers — `agent_start`, `agent_end`, `agent_settled`, `tool_execution_start`, `tool_execution_end` — each recompute the status and hand it to `pushStatus()`, which publishes only when the status identity differs from the stored baseline of the last published identity. While a baseline is stored, a mutation leaving the display identical is therefore silent: a second tool starting behind the one already shown publishes nothing, and because a raised compaction gate outranks every other state, mutations beneath it publish nothing either. `disconnect()` clears that baseline. Once connected again, whichever comes first restores it: a forced push, such as the one a client makes on `welcome`, or the first of these handler events. So a handler event republishes an unchanged identity only when no forced push got there first — the case for a promoted hub, which receives no `welcome` of its own. The three session handlers are governed by their own bullets above, including `session_compact`'s forced push, which goes out whether the identity changed or not.
 
 Status updates are push-based: each terminal broadcasts changes to the hub, which fans them out. New joiners receive a status snapshot for all terminals in the `welcome` message. Context updates reuse the same status path, including a forced post-compaction update.
 
