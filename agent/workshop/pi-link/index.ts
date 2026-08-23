@@ -242,7 +242,7 @@ export default function (pi: ExtensionAPI) {
     }
   >();
 
-  // Inbox: debounced batching; every batch is delivered to the receiver's model
+  // Inbox: fixed-window batching; every batch is delivered to the receiver's model
   const inbox: { from: string; content: string }[] = [];
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -436,8 +436,12 @@ export default function (pi: ExtensionAPI) {
 
   // ── Inbox: batched delivery ──────────────────────────────────────────────
 
+  // The first queued message opens the window and later arrivals join it, so the
+  // deadline belongs to the message that started it. Rearming here instead would
+  // make the window trailing-edge, and a stream whose gaps stay under the delay
+  // could postpone delivery for as long as it kept arriving.
   function scheduleFlush(delay: number) {
-    if (flushTimer) clearTimeout(flushTimer);
+    if (flushTimer) return;
     flushTimer = setTimeout(flushInbox, delay);
   }
 
@@ -474,7 +478,7 @@ export default function (pi: ExtensionAPI) {
     );
     inbox.splice(0, batch.length);
 
-    // Items held back by the batch caps go out on the next debounce tick
+    // Items held back by the batch caps go out in the next window
     if (inbox.length > 0) {
       scheduleFlush(FLUSH_DELAY_MS);
     }

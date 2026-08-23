@@ -232,7 +232,7 @@ Send a message to one other terminal. The sender returns immediately.
 | `to`      | `string` | Target terminal name |
 | `message` | `string` | Message content      |
 
-Every message is delivered to the receiver's model. Messages arriving within about 200ms are held and delivered together as one `[Link: N message(s) received]` block, in arrival order, each under a `From "name":` header.
+Every message is delivered to the receiver's model. The first message to arrive opens a batching window of about 200ms; messages arriving inside it join that batch without pushing the delivery back, and the whole batch is delivered together as one `[Link: N message(s) received]` block, in arrival order, each under a `From "name":` header. A steady stream therefore keeps being delivered window by window instead of waiting for a quiet moment.
 
 The receiver's state is read when that batch is delivered, not when it is sent. If the receiver is still running then, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. Otherwise it starts a turn. There is no way to send without entering the receiver's reasoning.
 
@@ -556,7 +556,7 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 | `stateSince`              | `number`                              | Timestamp of last status change (used for duration display)                      |
 | `currentCwd`              | `string`                              | Current working directory reported to peers on connect                           |
 | `inbox`                   | `array`                               | Queued incoming messages awaiting delivery                                       |
-| `flushTimer`              | `Timer \| null`                       | Pending inbox flush (burst debounce)                                             |
+| `flushTimer`              | `Timer \| null`                       | Pending inbox flush; armed by the first queued message and not moved afterwards  |
 | `compactDeadline`         | `Timer \| undefined`                  | Backstop releasing the inbox if a compaction reports no ending                   |
 | `pendingCompactResponses` | `Map`                                 | Outstanding compact requests awaiting bounded responses                          |
 | `disposed`                | `boolean`                             | Set on shutdown; guards WebSocket callbacks against stale context                |
@@ -608,11 +608,11 @@ Status updates are push-based: each terminal broadcasts changes to the hub, whic
 
 ### Inbox
 
-An arriving `chat` message goes into a local inbox rather than calling `pi.sendMessage()` immediately, so that burst arrivals can be coalesced into a single delivery.
+An arriving `chat` message goes into a local inbox rather than calling `pi.sendMessage()` immediately, so that arrivals close together can be coalesced into a single delivery.
 
 The flush pipeline:
 
-1. **Debounce** - `scheduleFlush(FLUSH_DELAY_MS)` coalesces burst arrivals (200ms window).
+1. **Fixed window** - `scheduleFlush(FLUSH_DELAY_MS)` arms a timer only when none is pending, so the first queued message sets the deadline (about 200ms) and later arrivals join that window without moving it. The window is not sliding: sustained arrivals closer together than the delay cannot postpone delivery.
 2. **Compaction gate** - `flushInbox()` returns without rescheduling while the compaction gate is raised.
 3. **Batch** - up to 20 messages or ~16 000 chars per delivery (soft cap - the first item is always included even if oversized).
 4. **Deliver** - one `pi.sendMessage()` call with a `[Link: N message(s) received]` block. Pi reads the receiver's state at this point — not at send time — to decide whether the batch steers a running agent or starts a turn.
@@ -624,7 +624,7 @@ Because a gated flush does not reschedule, the release path is load-bearing. `re
 
 | Constant             | Value   | Purpose                                        |
 | -------------------- | ------- | ---------------------------------------------- |
-| `FLUSH_DELAY_MS`     | 200     | Burst debounce window                          |
+| `FLUSH_DELAY_MS`     | 200     | Batching window, from the first queued message  |
 | `BATCH_MAX_ITEMS`    | 20      | Max messages per batch                         |
 | `BATCH_MAX_CHARS`    | 16 000  | Soft cap on batch text size (~4K tokens)       |
 | `COMPACT_TIMEOUT_MS` | 180 000 | Remote-compact wait, reused as the gate backstop |

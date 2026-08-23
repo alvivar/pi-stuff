@@ -48,10 +48,11 @@ are invisible to you, and silence is indistinguishable from work in progress.
 link_send({ to: "worker", message: "..." })
 ```
 
-The message is delivered to the receiver's model. Messages arriving within ~200ms
-are held and delivered as one batch, in arrival order, each labelled with its
-sender: a `[Link: N message(s) received]` block containing one `From "name":` block
-per message.
+The message is delivered to the receiver's model. The first message to arrive opens
+a batching window of about 200ms, and messages arriving inside it join that batch
+rather than delaying it, so a steady stream is delivered window by window instead
+of waiting for a pause. A batch arrives as one `[Link: N message(s) received]`
+block, in arrival order, containing one `From "name":` block per message.
 
 The receiver's state is read when that batch is delivered, not when you send and
 not when you last ran `link_list`. If the receiver is still running then, the batch
