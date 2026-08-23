@@ -33,6 +33,9 @@ const MIN_PI_VERSION = [0, 84, 2];
 const DEFAULT_PORT = 9900;
 const COMPACT_TIMEOUT_MS = 180_000;
 const RECONNECT_DELAY_MS = 2000;
+// Bounds the HTTP Upgrade only. Without it `ws` waits forever, so a listener that
+// accepts the socket and never answers leaves the terminal offline with no retry.
+const CONNECT_HANDSHAKE_TIMEOUT_MS = 5_000;
 const FLUSH_DELAY_MS = 200;
 const BATCH_MAX_ITEMS = 20;
 const BATCH_MAX_CHARS = 16_000;
@@ -213,6 +216,18 @@ export default function (pi: ExtensionAPI) {
 
   // Client state
   let ws: WebSocket | null = null;
+
+  // Establishment. One attempt owns every pending transport across the whole
+  // client-then-hub sequence, because a transport can emit callbacks from
+  // construction onward while `ws`/`wss` are still empty. The record itself is the
+  // generation token: a callback that captured it can tell whether it is still the
+  // current owner by identity alone, and cancellation has handles to close.
+  type ConnectionAttempt = {
+    promise: Promise<void>;
+    socket: WebSocket | null; // dialing, not yet `ws`
+    server: WebSocketServer | null; // binding, not yet `wss`
+  };
+  let connectionAttempt: ConnectionAttempt | null = null;
 
   // Pending compact responses (sender waiting for remote compaction to finish)
   const pendingCompactResponses = new Map<
@@ -415,7 +430,7 @@ export default function (pi: ExtensionAPI) {
     if (startupConnectTimer) clearTimeout(startupConnectTimer);
     startupConnectTimer = setTimeout(() => {
       startupConnectTimer = null;
-      if (!disposed && ctx) initialize();
+      if (!disposed && ctx) void initialize();
     }, 0);
   }
 
@@ -954,17 +969,28 @@ export default function (pi: ExtensionAPI) {
 
   // ── Start as hub ─────────────────────────────────────────────────────────
 
-  function startHub(): Promise<boolean> {
+  function startHub(attempt: ConnectionAttempt): Promise<boolean> {
     return new Promise((resolve) => {
       const server = new WebSocketServer({
         port: DEFAULT_PORT,
         host: "127.0.0.1",
       });
+      attempt.server = server;
+
+      // The phase settles once. `error` and a pre-listen `close` both report the
+      // same failure, and closing a cancelled server reports it a third time.
+      let settled = false;
+      const settle = (established: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (attempt.server === server) attempt.server = null;
+        resolve(established);
+      };
 
       server.on("listening", () => {
-        if (disposed) {
+        if (!attemptIsCurrent(attempt)) {
           server.close();
-          resolve(false);
+          settle(false);
           return;
         }
         wss = server;
@@ -981,11 +1007,13 @@ export default function (pi: ExtensionAPI) {
           `Link hub started on :${DEFAULT_PORT} as "${terminalName}"`,
           "info",
         );
-        resolve(true);
+        settle(true);
       });
 
       server.on("connection", (clientWs) => {
-        if (disposed) {
+        // Only the established hub may adopt a client. A cancelled listener can
+        // still receive one while it unwinds, and teardown clears both of these.
+        if (wss !== server || role !== "hub") {
           clientWs.close();
           return;
         }
@@ -994,30 +1022,45 @@ export default function (pi: ExtensionAPI) {
 
       server.on("error", () => {
         // Port in use → someone else is the hub
-        resolve(false);
+        settle(false);
+      });
+
+      server.on("close", () => {
+        // Reached when a pending server is cancelled; a no-op once established.
+        settle(false);
       });
     });
   }
 
   // ── Connect as client ────────────────────────────────────────────────────
 
-  function connectAsClient(): Promise<boolean> {
+  function connectAsClient(attempt: ConnectionAttempt): Promise<boolean> {
     return new Promise((resolve) => {
-      const socket = new WebSocket(`ws://127.0.0.1:${DEFAULT_PORT}`);
-      let resolved = false;
+      const socket = new WebSocket(`ws://127.0.0.1:${DEFAULT_PORT}`, {
+        handshakeTimeout: CONNECT_HANDSHAKE_TIMEOUT_MS,
+      });
+      attempt.socket = socket;
+
+      // The phase settles once. A failed dial arrives as `error` then `close`, and
+      // ws reports a handshake timeout the same way, so both must be idempotent.
+      let settled = false;
+      const settle = (established: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (attempt.socket === socket) attempt.socket = null;
+        resolve(established);
+      };
 
       socket.on("open", () => {
-        if (disposed) {
+        if (!attemptIsCurrent(attempt)) {
           socket.close();
-          if (!resolved) {
-            resolved = true;
-            resolve(false);
-          }
+          settle(false);
           return;
         }
+        // Pending becomes established in one step, so no other code can observe a
+        // socket that is neither.
         ws = socket;
         role = "client";
-        resolved = true;
         // Register with preferred name if available, otherwise current name
         socket.send(
           JSON.stringify({
@@ -1027,35 +1070,34 @@ export default function (pi: ExtensionAPI) {
             context: captureContext(),
           } satisfies RegisterMsg),
         );
-        resolve(true);
+        settle(true);
       });
 
       socket.on("message", (raw) => {
-        if (!isRuntimeLive()) return;
+        // Only the established socket speaks for this terminal; a cancelled or
+        // superseded one is inert.
+        if (ws !== socket || !isRuntimeLive()) return;
         const msg = safeParse(raw.toString());
         if (msg) handleIncoming(msg);
       });
 
       socket.on("close", () => {
+        settle(false); // pre-open failure; a no-op once established
+        if (ws !== socket) return; // a stale socket owns none of the state below
         ws = null;
         if (disposed) return;
-        if (role === "client") {
-          role = "disconnected";
-          connectedTerminals = [];
-          updateStatus();
+        role = "disconnected";
+        connectedTerminals = [];
+        updateStatus();
 
-          if (!manuallyDisconnected) {
-            notify("Disconnected from link hub", "warning");
-            scheduleReconnect();
-          }
+        if (!manuallyDisconnected) {
+          notify("Disconnected from link hub", "warning");
+          scheduleReconnect();
         }
       });
 
       socket.on("error", () => {
-        if (!resolved) {
-          resolved = true;
-          resolve(false);
-        }
+        settle(false);
         socket.close();
       });
     });
@@ -1063,17 +1105,71 @@ export default function (pi: ExtensionAPI) {
 
   // ── Initialize (auto-discover) ──────────────────────────────────────────
 
-  async function initialize() {
-    if (disposed) return;
+  /** True while `attempt` still owns establishment and the terminal still wants it. */
+  function attemptIsCurrent(attempt: ConnectionAttempt): boolean {
+    return connectionAttempt === attempt && !disposed && !manuallyDisconnected;
+  }
 
-    // Try connecting to an existing hub
-    if (await connectAsClient()) return;
+  /**
+   * Single-flight: startup, reconnect and `/link-connect` all join the one attempt
+   * in flight instead of dialing again, because `role` stays "disconnected" for as
+   * long as establishment takes and is therefore no guard at all.
+   */
+  function initialize(): Promise<void> {
+    if (disposed || manuallyDisconnected) return Promise.resolve();
+    if (connectionAttempt) return connectionAttempt.promise;
+    // The record is the generation token, so it has to exist before the first
+    // transport does; `promise` is replaced on the next line.
+    const attempt: ConnectionAttempt = {
+      promise: Promise.resolve(),
+      socket: null,
+      server: null,
+    };
+    connectionAttempt = attempt;
+    attempt.promise = runAttempt(attempt);
+    return attempt.promise;
+  }
 
-    // No hub found — become the hub
-    if (await startHub()) return;
+  async function runAttempt(attempt: ConnectionAttempt) {
+    try {
+      // Try connecting to an existing hub
+      if (await connectAsClient(attempt)) return;
+      if (!attemptIsCurrent(attempt)) return;
 
-    // Port busy but couldn't connect (rare race). Retry after delay.
-    scheduleReconnect();
+      // No hub found — become the hub
+      if (await startHub(attempt)) return;
+      if (!attemptIsCurrent(attempt)) return;
+
+      // Port busy but couldn't connect (rare race). Retry after delay.
+      scheduleReconnect();
+    } finally {
+      // Only while still the owner: an attempt cancelled mid-flight must not clear
+      // the slot a newer one has already taken.
+      if (connectionAttempt === attempt) connectionAttempt = null;
+    }
+  }
+
+  /**
+   * Drop the attempt in flight. Invalidating it first means any callback arriving
+   * while its transports unwind is already stale; closing the pending handles is
+   * what makes those callbacks arrive at all, so the attempt settles instead of
+   * being abandoned. Also clears both connect timers, so a disconnect before the
+   * startup callback constructs nothing.
+   */
+  function cancelConnectionAttempt() {
+    if (startupConnectTimer) {
+      clearTimeout(startupConnectTimer);
+      startupConnectTimer = null;
+    }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    const attempt = connectionAttempt;
+    if (!attempt) return;
+    connectionAttempt = null;
+    attempt.socket?.close();
+    attempt.server?.close();
   }
 
   function scheduleReconnect() {
@@ -1082,18 +1178,16 @@ export default function (pi: ExtensionAPI) {
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       if (role === "disconnected" && !disposed && !manuallyDisconnected)
-        initialize();
+        void initialize();
     }, delay);
   }
 
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   function disconnect() {
-    // Clear reconnect timer first to prevent races
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
+    // Cancel establishment first, so nothing in flight can commit state behind us.
+    // This also clears the reconnect and startup timers.
+    cancelConnectionAttempt();
 
     // Clear link-owned remote compaction state; a local /compact survives disconnect.
     compactRunning = false;
@@ -1140,10 +1234,7 @@ export default function (pi: ExtensionAPI) {
 
   function cleanup() {
     disposed = true;
-    if (startupConnectTimer) {
-      clearTimeout(startupConnectTimer);
-      startupConnectTimer = null;
-    }
+    // disconnect() cancels the attempt in flight, including the startup timer.
     disconnect();
     ctx = undefined;
     // Full teardown: clear inbox and both timers. The compaction deadline runs to
@@ -1714,10 +1805,9 @@ export default function (pi: ExtensionAPI) {
       pi.appendEntry("link-active", { active: false });
       manuallyDisconnected = true;
       if (role === "disconnected") {
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer);
-          reconnectTimer = null;
-        }
+        // Nothing is established, but a startup or reconnect attempt may still be
+        // dialing or binding; persisted intent has to win over it too.
+        cancelConnectionAttempt();
         _ctx.ui.notify("Link disconnected", "info");
         return;
       }

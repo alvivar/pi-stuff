@@ -377,9 +377,11 @@ The discovery sequence runs on startup (with `--link` or `pi-link`) or when `/li
 
 The sequence is a simple fallback:
 
-1. Attempt to connect as a **client** to `127.0.0.1:9900`.
+1. Attempt to connect as a **client** to `127.0.0.1:9900`. The WebSocket opening handshake is bounded at **5 seconds**; a listener that accepts the connection but never completes the upgrade fails the attempt instead of holding it open.
 2. If connection fails → become the **hub** (start a WebSocket server on that port).
 3. If both fail (rare race condition) → retry after a randomized 2-5 second backoff.
+
+Only **one attempt runs at a time**, across both steps. Startup, a retry and `/link-connect` arriving while an attempt is in flight all join that attempt rather than opening a second connection, so a terminal cannot register twice or leave a second socket behind.
 
 ### Hub Promotion
 
@@ -393,7 +395,7 @@ There is **no explicit leader election** - promotion is race-based.
 
 ### Port 9900 is already in use
 
-If another process occupies port 9900, the terminal can't become the hub. It will attempt to connect as a client instead (which also fails if there's no real hub), then retry after 2-5 seconds. Free the port or modify `DEFAULT_PORT` in `index.ts` - see [Limitations](#limitations--design-decisions).
+If another process occupies port 9900, the terminal can't become the hub. It tries to connect as a client first, and that attempt fails within 5 seconds even against a listener that accepts the connection and never speaks WebSocket - so the terminal falls back to trying the hub role and then retries after 2-5 seconds, rather than sitting offline indefinitely. Free the port or modify `DEFAULT_PORT` in `index.ts` - see [Limitations](#limitations--design-decisions).
 
 ### `link_compact` reports a busy target
 
@@ -546,6 +548,7 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 | State Field               | Type                                  | Purpose                                                                          |
 | ------------------------- | ------------------------------------- | -------------------------------------------------------------------------------- |
 | `role`                    | `"hub" \| "client" \| "disconnected"` | Current network role                                                             |
+| `connectionAttempt`       | `record \| null`                      | The one establishment attempt in flight: its shared promise plus any pending socket/server. Object identity marks the owner |
 | `agentRunning`            | `boolean`                             | Between `agent_start` and `agent_settled` — not `agent_end`; drives status only |
 | `compactRunning`          | `boolean`                             | Whether a remote request holds this terminal's delivery gate                     |
 | `localCompacting`         | `boolean`                             | Whether a `manual`-reason compaction has raised the delivery gate                |
@@ -581,6 +584,8 @@ Three helpers protect WebSocket callbacks from stale extension context:
 - **`isRuntimeLive()`** - returns `false` if `disposed` or context is stale; checked before processing any incoming WebSocket message.
 
 Startup connect is deferred via `scheduleStartupConnect()` (`setTimeout(0)`) so Pi's startup cycle completes and the extension context is fully valid before WebSocket work begins.
+
+`disconnect()` also cancels the connection attempt in flight: it invalidates the attempt first, then closes whatever it had pending - a dialing socket or a binding server - so nothing can finish establishing after the user asked to disconnect. The startup and retry timers are cancelled on the same path, so `/link-disconnect` before the deferred startup connect opens nothing at all. Because ownership is tracked per attempt, a callback from a superseded or cancelled transport is inert: only the established socket (`ws`) may deliver messages or tear down client state, and only the established server (`wss`) may accept clients.
 
 The `manuallyDisconnected` flag distinguishes user-initiated disconnects (`/link-disconnect`) from connection loss. When set, `scheduleReconnect()` is suppressed - the terminal stays offline until `/link-connect` is explicitly called.
 
