@@ -72,12 +72,12 @@ function readRecord() {
   return JSON.parse(readFileSync(stubRecordFile, "utf-8"));
 }
 
-function run(args) {
+function run(args, envOverrides, cwdOverride) {
   clearRecord();
   const result = spawnSync("node", [CLI, ...args], {
     encoding: "utf-8",
-    env: baseEnv,
-    cwd: stubDir,
+    env: envOverrides ? { ...baseEnv, ...envOverrides } : baseEnv,
+    cwd: cwdOverride ?? stubDir,
     timeout: 10000,
   });
   return {
@@ -88,12 +88,27 @@ function run(args) {
   };
 }
 
-function writeSession(relPath, entries) {
-  const filePath = join(agentDir, "sessions", relPath);
+function writeSessionAt(filePath, entries) {
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
   return filePath;
 }
+
+function writeSession(relPath, entries) {
+  return writeSessionAt(join(agentDir, "sessions", relPath), entries);
+}
+
+// Filler history, so a `link-name` placed after it is genuinely late in the file.
+const history = (count) =>
+  Array.from({ length: count }, (_, i) => ({
+    type: "message",
+    id: `m${i}`,
+    message: { role: i % 2 ? "assistant" : "user", content: [{ type: "text", text: `line ${i}` }] },
+  }));
+
+// The advice a local miss prints, and the claim it must never make.
+const GLOBAL_ADVICE = "Use --global to search other cwds.";
+const claimsForeignMatch = (output) => /match(es)? in other cwds/.test(output);
 
 // Single place the filter is applied: caller passes a thunk that runs the spawn
 // and returns [ok, detail]. Skipped cases never spawn.
@@ -217,23 +232,141 @@ runCase("H2: renamed link-name is last-wins", () => {
   ];
 });
 
-runCase("H5: resolve scopes cwd unless global", () => {
-  const filePath = writeSession(join("h5-elsewhere", "elsewhere.jsonl"), [
-    { type: "session", cwd: join(stubDir, "other-cwd"), id: "h5-elsewhere" },
-    { type: "custom", customType: "link-name", data: { name: "elsewhere" } },
-  ]);
+// A foreign session whose link-name sits after its history: a local scan must
+// never see that name, and must not claim anything about other cwds.
+const h5ForeignPath = writeSession(join("h5-elsewhere", "elsewhere.jsonl"), [
+  { type: "session", cwd: join(stubDir, "other-cwd"), id: "h5-elsewhere" },
+  ...history(6),
+  { type: "custom", customType: "link-name", data: { name: "elsewhere" } },
+  ...history(2),
+]);
+
+runCase("H5: local resolve ignores foreign names and advises --global", () => {
   const local = run(["--resolve", "elsewhere"]);
   const global = run(["--resolve", "elsewhere", "-g"]);
   const localOutput = local.stdout + local.stderr;
   const ok =
     local.code === 2 &&
-    localOutput.includes("match in other cwds") &&
-    localOutput.includes("try --global") &&
+    localOutput.includes('No session named "elsewhere" found in this cwd.') &&
+    localOutput.includes(GLOBAL_ADVICE) &&
+    !claimsForeignMatch(localOutput) &&
     global.code === 0 &&
-    global.stdout === filePath;
+    global.stdout === h5ForeignPath;
   return [
     ok,
     `local: exit ${local.code}, output=${JSON.stringify(localOutput)}; global: exit ${global.code}, stdout=${JSON.stringify(global.stdout)}`,
+  ];
+});
+
+runCase("H5b: launcher starts a new session for a foreign-only name", () => {
+  const r = run(["elsewhere"]);
+  const output = r.stdout + r.stderr;
+  const ok =
+    r.code === 0 &&
+    r.record !== null &&
+    JSON.stringify(r.record.argv) === JSON.stringify(["--link"]) &&
+    r.record.piLinkName === "elsewhere" &&
+    output.includes('No "elsewhere" found in this cwd. ' + GLOBAL_ADVICE) &&
+    output.includes("Starting new session.") &&
+    !claimsForeignMatch(output);
+  return [
+    ok,
+    `exit ${r.code}, record=${JSON.stringify(r.record)}, output=${JSON.stringify(output)}`,
+  ];
+});
+
+runCase("H5c: custom flat sessionDir scopes locally and stays global-visible", () => {
+  const flatDir = join(stubDir, "flat-sessions");
+  const localPath = writeSessionAt(join(flatDir, "flat-local.jsonl"), [
+    { type: "session", cwd: stubDir, id: "flat-local" },
+    ...history(4),
+    { type: "custom", customType: "link-name", data: { name: "flat-local" } },
+  ]);
+  const foreignPath = writeSessionAt(join(flatDir, "flat-foreign.jsonl"), [
+    { type: "session", cwd: join(stubDir, "other-cwd"), id: "flat-foreign" },
+    ...history(4),
+    { type: "custom", customType: "link-name", data: { name: "flat-foreign" } },
+  ]);
+  const env = { PI_CODING_AGENT_SESSION_DIR: flatDir };
+  const localHit = run(["--resolve", "flat-local"], env);
+  const localMiss = run(["--resolve", "flat-foreign"], env);
+  const globalHit = run(["--resolve", "flat-foreign", "-g"], env);
+  const ok =
+    localHit.code === 0 && localHit.stdout === localPath &&
+    localMiss.code === 2 && !claimsForeignMatch(localMiss.stdout + localMiss.stderr) &&
+    globalHit.code === 0 && globalHit.stdout === foreignPath;
+  return [
+    ok,
+    `localHit: exit ${localHit.code} stdout=${JSON.stringify(localHit.stdout)}; ` +
+      `localMiss: exit ${localMiss.code}; globalHit: exit ${globalHit.code} stdout=${JSON.stringify(globalHit.stdout)}`,
+  ];
+});
+
+// POSIX root normalizes to the empty string, which is a real scope. Only an
+// absent scope may widen a lookup, so this guards the one platform where a
+// truthiness check on the scope would silently behave like --global.
+if (!isWin) {
+  runCase("H5e: POSIX root is a scope, not an absent scope", () => {
+    const flatDir = join(stubDir, "root-sessions");
+    const rootPath = writeSessionAt(join(flatDir, "root.jsonl"), [
+      { type: "session", cwd: "/", id: "root-scope" },
+      ...history(4),
+      { type: "custom", customType: "link-name", data: { name: "root-scoped" } },
+    ]);
+    const foreignPath = writeSessionAt(join(flatDir, "foreign.jsonl"), [
+      { type: "session", cwd: join(stubDir, "other-cwd"), id: "root-foreign" },
+      ...history(4),
+      { type: "custom", customType: "link-name", data: { name: "root-foreign" } },
+    ]);
+    const env = { PI_CODING_AGENT_SESSION_DIR: flatDir };
+    const localHit = run(["--resolve", "root-scoped"], env, "/");
+    const localMiss = run(["--resolve", "root-foreign"], env, "/");
+    const globalHit = run(["--resolve", "root-foreign", "-g"], env, "/");
+    const localList = run(["--list"], env, "/");
+    const globalList = run(["--list", "-g"], env, "/");
+    const ok =
+      localHit.code === 0 && localHit.stdout === rootPath &&
+      localMiss.code === 2 && !claimsForeignMatch(localMiss.stdout + localMiss.stderr) &&
+      globalHit.code === 0 && globalHit.stdout === foreignPath &&
+      localList.stdout.includes("root-scoped") && !localList.stdout.includes("root-foreign") &&
+      globalList.stdout.includes("root-scoped") && globalList.stdout.includes("root-foreign");
+    return [
+      ok,
+      `localHit: exit ${localHit.code} stdout=${JSON.stringify(localHit.stdout)}; ` +
+        `localMiss: exit ${localMiss.code}; globalHit: exit ${globalHit.code} stdout=${JSON.stringify(globalHit.stdout)}; ` +
+        `localList=${JSON.stringify(localList.stdout)}`,
+    ];
+  });
+}
+
+runCase("H5d: list scopes to this cwd and keeps its message count", () => {
+  writeSession(join("h5d-local", "local.jsonl"), [
+    { type: "session", cwd: stubDir, id: "h5d-local" },
+    { type: "custom", customType: "link-name", data: { name: "list-local" } },
+    ...history(3),
+  ]);
+  writeSession(join("h5d-foreign", "foreign.jsonl"), [
+    { type: "session", cwd: join(stubDir, "other-cwd"), id: "h5d-foreign" },
+    { type: "custom", customType: "link-name", data: { name: "list-foreign" } },
+    ...history(9),
+  ]);
+  const local = run(["--list"]);
+  const global = run(["--list", "-g"]);
+  // Columns are separated by at least two spaces: NAME MODIFIED MESSAGES ID.
+  const localRow = local.stdout.split("\n").find((line) => line.startsWith("list-local"));
+  const messages = localRow?.split(/\s{2,}/)[2];
+  const ok =
+    local.code === 0 &&
+    messages === "3" &&
+    !local.stdout.includes("list-foreign") &&
+    global.code === 0 &&
+    global.stdout.includes("list-local") &&
+    global.stdout.includes("list-foreign");
+  return [
+    ok,
+    `local: exit ${local.code} row=${JSON.stringify(localRow)} messages=${JSON.stringify(messages)} ` +
+      `hasForeign=${local.stdout.includes("list-foreign")}; global: exit ${global.code} ` +
+      `hasLocal=${global.stdout.includes("list-local")} hasForeign=${global.stdout.includes("list-foreign")}`,
   ];
 });
 
