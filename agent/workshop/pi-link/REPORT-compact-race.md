@@ -1,8 +1,8 @@
 # REPORT — link_compact vs. local compaction race ("reading 'signal'" crash)
 
 > **Status:** Report (historical evidence; Defect 2 mitigated in pi-link 0.3)
-> **Last aligned:** 2026-08-19
-> **Build from this?** No new pi-link work is pending here. Defect 1 remains upstream pi-core and is still present in 0.84.2 (`compact()` assigns `this._compactionAbortController` and then reads `.signal` non-optionally across async gaps, clearing the shared field in an unconditional `finally`). Defect 2 is mitigated in two steps: pi-link gates delivery and declines remote requests while a *manual* compaction it can see is running, and — since 0.3.0-beta.0 — authorizes remote requests from Pi's own `ctx.isIdle()` instead of its view of the agent run, so the post-`agent_end` retry / automatic-compaction / queued-continuation window is closed too. What is **not** closed: a local manual `/compact` aborts, authorizes and prepares before Pi announces it, so a remote request landing in that window is still accepted. Only the core fix closes it.
+> **Last aligned:** 2026-08-25
+> **Build from this?** No new pi-link work is pending here. Defect 1 remains upstream pi-core and is still present in 0.84.2 (`compact()` assigns `this._compactionAbortController` and then reads `.signal` non-optionally across async gaps, clearing the shared field in an unconditional `finally`). Defect 2 is mitigated in two steps: pi-link gates delivery and declines remote requests while a *manual* compaction it can see is running, and — since 0.3.0 — authorizes remote requests from Pi's own `ctx.isIdle()` instead of its view of the agent run, so the post-`agent_end` retry / automatic-compaction / queued-continuation window is closed too. What is **not** closed: a local manual `/compact` aborts, authorizes and prepares before Pi announces it, so a remote request landing in that window is still accepted. Only the core fix closes it.
 > **Summary:** forensic report of a live compaction race, kept for its 0.79.1 evidence and line numbers, plus the mitigation that was built from it.
 
 Observed live on 2026-06-11 during the orchestrate-code-pipeline run; reproducible
@@ -125,7 +125,7 @@ Caveats to verify during implementation:
   line numbers). Unchanged in 0.84.2.
 - Defect 2 → done in pi-link, in the two steps described in the status block:
   the manual-compaction gate, then idle-authoritative authorization plus the
-  settled lifecycle in 0.3.0-beta.0. The guard now declines unless Pi reports the
+  settled lifecycle in 0.3.0. The guard now declines unless Pi reports the
   session idle and no manual compaction holds the gate, which covers the local,
   remote and automatic compactions the original guard missed — every window except
   the one before Pi announces a local manual compaction, which stays open until
@@ -134,4 +134,4 @@ Caveats to verify during implementation:
 - Bonus observation for SKILL.md accuracy: the skill's "(3 min ceiling …)" note
   remains correct — this race produces an immediate error, not a timeout. Its
   busy-decline wording was correct for the guard of the time and was rewritten in
-  0.3.0-beta.0, when the guard became "idle by Pi, and ungated".
+  0.3.0, when the guard became "idle by Pi, and ungated".
