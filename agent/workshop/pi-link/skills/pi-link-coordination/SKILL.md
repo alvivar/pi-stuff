@@ -18,9 +18,10 @@ is the entire shared state.
 
 ### `link_list`
 
-Returns connected terminals with names, live status (`idle`, `thinking`,
+Returns connected terminals with names, status (`idle`, `thinking`,
 `compacting`, `tool:<name>`), cwd, and (when available) context usage such as
-`45K/272K (17%)`. Your own entry is marked `(you)`.
+`45K/272K (17%)`. Your own entry is marked `(you)`; its status and context are
+computed when listed, while peer values are their latest published snapshots.
 
 Pi runs tools in parallel by default, and `tool:<name>` then names the first
 still-active call it reported rather than all of them. It advances only when that
@@ -49,10 +50,10 @@ link_send({ to: "worker", message: "..." })
 ```
 
 The message is delivered to the receiver's model. The first message to arrive opens
-a batching window of about 200ms, and messages arriving inside it join that batch
-rather than delaying it, so a steady stream is delivered window by window instead
-of waiting for a pause. A batch arrives as one `[Link: N message(s) received]`
-block, in arrival order, containing one `From "name":` block per message.
+a batching window of about 200ms; later arrivals do not move its deadline, so a
+steady stream is delivered window by window instead of waiting for a pause. A batch
+arrives as one `[Link: N message(s) received]` block, in arrival order, containing
+one `From "name":` block per message.
 
 The receiver's state is read when that batch is delivered, not when you send and
 not when you last ran `link_list`. If the receiver is still running then, the batch
@@ -65,9 +66,10 @@ Each send has exactly one recipient. There is no fan-out.
 
 The call returns send status, not the receiver's eventual work result. Sending to
 yourself is rejected. A definitely absent target fails against the local terminal
-list; beyond that, for a client a successful send means the hub accepted the
-message, not that it arrived. If the target has vanished, the routing failure is
-shown to the human as a notification and never reaches the sending model.
+list; beyond that, for a client a successful send means the message was written to
+its hub connection, not that it arrived. If the target has vanished, the routing
+failure is shown to the human as a notification and never reaches the sending
+model.
 
 A terminal reported as `compacting` receives nothing until its gate clears. The
 messages wait and are delivered afterwards. A cancelled compaction has no ending
@@ -77,7 +79,7 @@ sender is told nothing meanwhile.
 
 ### `link_compact`
 
-Asks another terminal to compact its context and blocks until it completes, with a
+Asks another terminal to compact its context and waits for a result, with a
 three-minute ceiling. A target accepts only when Pi reports its session idle and no
 manual compaction holds its gate; anything else declines rather than being
 interrupted, so a target reading `thinking` for a retry or an automatic compaction
@@ -97,6 +99,10 @@ A callback is an ordinary `link_send` from the worker back to you. There is no
 request ID, no automatic response, no delivery receipt, and no protocol timeout —
 nothing correlates a callback with the dispatch that asked for it except the text
 of both, and nothing produces one except the receiver choosing to send it.
+
+A callback can be sent before its sender's run settles; receiving it does not
+prove the sender is idle, so a `link_compact` aimed at it can still decline as
+busy.
 
 An accepted send does not wait for a reply, so several tasks can be dispatched
 before any callback arrives, and callbacks may arrive separately or batched into
