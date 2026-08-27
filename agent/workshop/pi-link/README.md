@@ -2,7 +2,7 @@
 
 A WebSocket-based inter-terminal communication system that creates a local network between multiple Pi coding agent terminals. Enables terminals to discover each other, exchange messages, and orchestrate work across agents - all automatically on `localhost`.
 
-> One agent messaging tool: `link_send`. Dispatch work to another terminal and receive conventional callbacks. Start two Pi terminals with `--link` — they find each other automatically.
+> Message another Pi terminal with `link_send`. Replies are ordinary messages the other agent chooses to send, not automatic responses. Start two Pi terminals with `--link` — they find each other automatically.
 
 ---
 
@@ -36,7 +36,7 @@ A single Pi terminal is powerful. Multiple terminals working together unlock new
 
 ## Prerequisites
 
-- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.84.2 or later** (for pi-link 0.3+): the status lifecycle and the remote-compaction guard are built on Pi's `agent_settled` event and `ctx.isIdle()`, and there is one code path for them. On Pi 0.74–0.84.1, pin `pi-link@0.2.x`; on Pi ≤0.73, pin `pi-link@0.1.14`.
+- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.84.2 or later** (for pi-link 0.3+). On Pi 0.74–0.84.1, pin `pi-link@0.2.x`; on Pi ≤0.73, pin `pi-link@0.1.14`.
 - Node.js (LTS recommended)
 
 Pi's package installation does not check the host version, so `pi install` succeeds on an older Pi. pi-link then refuses to initialize instead of half-running: it throws before registering anything, and Pi reports it under **[Extension issues]** with the required minimum and the version it detected. Nothing else about the session changes.
@@ -99,18 +99,11 @@ Already in a session? Use `/link-connect`. Use `/link` any time to check status,
 
 Here's a concrete example of two terminals collaborating. Open two separate `pi --link` sessions.
 
-**Terminal 1** - rename and check status:
+**Terminal 1** - rename it:
 
 ```
 > /link-name builder
 ✓ Renamed to "builder"
-
-> /link
-⚡ Link: builder (hub) · 2 online
-  builder: idle (5s) · 45K/272K (17%)
-    cwd: ~/my-project
-  researcher: idle (12s) · 80K/272K (29%)
-    cwd: ~/my-project
 ```
 
 **Terminal 2** - rename it too:
@@ -118,6 +111,17 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi 
 ```
 > /link-name researcher
 ✓ Reconnecting, requesting "researcher" (hub may assign a different name if taken)...
+```
+
+`/link-name` reconnects under the new name, so wait for Terminal 2 to come back before checking. **Back in Terminal 1**, both names are now visible:
+
+```
+> /link
+⚡ Link: builder (hub) · 2 online
+  builder: idle (5s) · 45K/272K (17%)
+    cwd: ~/my-project
+  researcher: idle (12s) · 80K/272K (29%)
+    cwd: ~/my-project
 ```
 
 **Now ask Terminal 1's LLM to delegate work:**
@@ -213,7 +217,7 @@ For scripting, `pi-link --resolve <name>` prints just the session path (machine-
 
 ## LLM Tools
 
-The extension registers three tools. `link_send` is the sole agent messaging tool; `link_list` provides discovery and status, and `link_compact` is a separate bounded blocking operation. pi-link also ships a **pi-link-coordination** skill with dispatch and callback guidance.
+The extension registers three tools. `link_send` is the sole agent messaging tool; `link_list` provides discovery and status, and `link_compact` is a separate bounded blocking operation. pi-link also ships a **pi-link-coordination** skill that explains how the tools behave.
 
 ### Which tool should I use?
 
@@ -294,11 +298,11 @@ Ask another terminal to compact its context window and wait up to 180 seconds fo
 - **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
 - **Busy decline** — the target accepts only when Pi reports its session idle **and** no manual compaction holds its delivery gate; otherwise it declines immediately with `reason: "busy"` and does not interrupt active work. Pi's idle state is the authority, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline, not just a visible turn.
 - **Unsupported decline** — a target whose runtime offers no compaction capability declines with `reason: "unsupported"`, and is never asked to compact.
-- **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`. A freshly started terminal cannot be compacted at all; the refusal was seen at 16K tokens and compaction succeeded at 35K on a 272K window, so the threshold sits between.
+- **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`.
 - **Already-compacted decline** — a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`. Two compactions back to back require work in between.
 - **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
 - **Flat 180-second timeout** — compaction typically takes 5–60s. The timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
-- **A cancelled compaction does not reopen delivery by itself** — Pi emits no ending an extension can observe when a compaction is cancelled. The human at that terminal does see an ending; in the observed path it was `Error: Compaction failed: Turn prefix summarization failed: This operation was aborted` — AgentSession emits that message on its internal `compaction_end` event and interactive mode renders it, supplying the `Error: ` prefix; extensions are never sent that event. The gate is cleared by the terminal's next agent run, by a later successful compaction, or failing both by the `COMPACT_TIMEOUT_MS` deadline. Observed live with nothing touching the terminal in between: it reported `compacting` for nearly three minutes with its context unchanged, and the message held for it arrived when the deadline fired. A message sent into that window is held, not refused, and the sender is told nothing.
+- **A cancelled compaction does not reopen delivery by itself** — pi-link cannot observe the cancellation. The target may keep reporting `compacting` and hold messages without notifying the sender until its next agent run, a later successful compaction, or the 180-second backstop.
 - **Caller abort** — if the call is aborted before the request is sent, the target does nothing. After the request is sent, aborting only stops the caller from waiting; it does not cancel the target's work.
 - Each call targets one terminal; independent calls can run concurrently.
 - Any connected terminal can request compaction on another; link participants are cooperating peers.
@@ -399,7 +403,11 @@ If another process occupies port 9900, the terminal can't become the hub. It tri
 
 ### `link_compact` reports a busy target
 
-A `link_compact` request does not interrupt work the target is still doing. It resolves with `Compact on "<target>" not done: busy` whenever Pi reports that terminal's session not idle — an agent run, an automatic retry, an automatic compaction or a queued continuation — or while a manual compaction holds its delivery gate. `link_send` is different: it is steered into an active run rather than declined.
+A `link_compact` request does not interrupt work the target is still doing, so it declines while that terminal is unsettled — see [`link_compact`](#link_compact) for the full list of what counts. Try again once `/link` or `link_list` reports the target idle, keeping in mind that idle is what was true a moment ago, not a reservation: the target can start working again before your request lands. `link_send` is different — it enters or steers the target's reasoning instead of declining just because it is busy.
+
+### I sent a message but got no reply
+
+A successful send is not a confirmation. On a client it means the message was handed to the hub connection, not that the target received it or acted on it — and replies are ordinary messages the other agent chooses to send, so nothing produces one automatically. Run `/link`, or ask your model to call `link_list`, and check the target: confirm the name is still exactly right, and note that a target in the `compacting` state holds messages that reach it until that state clears. Otherwise silence may mean the work is still running or that no reply was sent.
 
 ### Terminals don't see each other
 
@@ -449,30 +457,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | `@earendil-works/pi-tui`          | TUI Text widget for custom message rendering     |
 | `typebox`                         | JSON Schema type definitions for tool parameters |
 
-> **Pi version requirement:** pi-link 0.3+ requires Pi 0.84.2 or later and enforces it at load from Pi's exported `VERSION`. Users on Pi 0.74–0.84.1 should pin `pi-link@0.2.x`; on Pi 0.73 or earlier, `pi-link@0.1.14`.
-
-### `package.json`
-
-```json
-{
-  "name": "pi-link",
-  "bin": {
-    "pi-link": "./bin/pi-link.mjs"
-  },
-  "dependencies": {
-    "ws": "^8.20.0"
-  },
-  "devDependencies": {
-    "@types/ws": "^8.18.1"
-  },
-  "pi": {
-    "extensions": ["./index.ts"],
-    "skills": ["./skills"]
-  }
-}
-```
-
-`pi.extensions` tells Pi which files to load as extensions. `pi.skills` registers bundled skill directories. `bin` exposes the `pi-link` CLI (see [Configuration](#configuration)).
+> See [Prerequisites](#prerequisites) for supported Pi versions.
 
 ---
 
@@ -482,7 +467,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 ### Protocol
 
-The wire protocol consists of **9 message types**, all serialized as JSON over WebSocket frames. Cwd and context fields are optional.
+The wire protocol consists of the following message types, all serialized as JSON over WebSocket frames. Cwd and context fields are optional.
 
 | Type               | Direction       | Purpose                                                                             |
 | ------------------ | --------------- | ----------------------------------------------------------------------------------- |
