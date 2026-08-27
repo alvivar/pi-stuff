@@ -217,11 +217,11 @@ The extension registers three tools. `link_send` is the sole agent messaging too
 
 ### Which tool should I use?
 
-| Tool           | Behavior                                           | Returns                                             |
-| -------------- | -------------------------------------------------- | --------------------------------------------------- |
-| `link_send`    | Send a message to one other terminal               | Send/delivery status only                           |
-| `link_list`    | List currently connected terminals                 | Terminal list with roles, status, cwd, and context  |
-| `link_compact` | Ask another terminal to compact its context window | Waits for completion; returns compacted or an error |
+| Tool           | Behavior                                                | Returns                                                 |
+| -------------- | ------------------------------------------------------- | ------------------------------------------------------- |
+| `link_send`    | Send a message to one other terminal                    | Reports whether sending started, not whether it arrived |
+| `link_list`    | List currently connected terminals                      | Terminal list with roles, status, cwd, and context      |
+| `link_compact` | Ask another terminal to compact and wait for its result | Compacted, declined, or failed                          |
 
 ### `link_send`
 
@@ -232,7 +232,7 @@ Send a message to one other terminal. The sender returns immediately.
 | `to`      | `string` | Target terminal name |
 | `message` | `string` | Message content      |
 
-Every message is delivered to the receiver's model. The first message to arrive opens a batching window of about 200ms; messages arriving inside it join that batch without pushing the delivery back, and the whole batch is delivered together as one `[Link: N message(s) received]` block, in arrival order, each under a `From "name":` header. A steady stream therefore keeps being delivered window by window instead of waiting for a quiet moment.
+When a message reaches the target terminal, it enters the receiver's inbox. Messages arriving close together may be delivered in one batch. The first message sets a delay of about 200ms; later messages do not extend it, so continuous traffic still gets delivered regularly. Each batch arrives as one `[Link: N message(s) received]` block, in arrival order, with each message under a `From "name":` header.
 
 The receiver's state is read when that batch is delivered, not when it is sent. If the receiver is still running then, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. Otherwise it starts a turn. There is no way to send without entering the receiver's reasoning.
 
@@ -240,15 +240,15 @@ Each send has exactly one recipient; there is no fan-out.
 
 `link_send` never returns the receiver's eventual work result. A reply is an ordinary later `link_send`, uncorrelated with the message that prompted it: there is no request ID, no automatic response, and no delivery receipt for completed work.
 
-Targets are pre-validated against the local terminal list to catch definite typos or offline names. Sending to yourself is rejected. For a client, a successful send means the hub accepted the message, not that it arrived — see [Message Routing](#message-routing--error-handling).
+Targets are pre-validated against the local terminal list to catch definite typos or offline names. Sending to yourself is rejected. For a client, a successful send means the message was handed to its connection to the hub. It does not confirm that the hub routed it or that the receiver saw it — see [Message Routing](#message-routing--error-handling).
 
 ### `link_list`
 
-Lists all connected terminals with role info, live agent status, working directory, context usage, and self-identification. Takes no parameters.
+Lists all connected terminals with role info, status, working directory, context usage, and self-identification. Takes no parameters. Your own status and context are read when you run `link_list`; for other terminals, you see their most recently reported values, which may be slightly behind.
 
 Each terminal reports its current working directory on connect. `link_list` shows the full absolute path.
 
-Each terminal also reports its current LLM context usage, rendered as `45K/272K (17%)` — tokens used over the context window, with percent. Briefly after compaction it shows as `?/272K` until the next live token count arrives.
+Each terminal also reports its LLM context usage, rendered as `45K/272K (17%)` — tokens used over the context window, with percent. Briefly after compaction it shows as `?/272K` until the next measured context value is available.
 
 Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Four states:
 
@@ -283,14 +283,14 @@ Connected terminals:
 
 ### `link_compact`
 
-Ask another terminal to compact its context window and **wait up to 180 seconds** for it — a separate bounded blocking tool, not agent messaging. The next call can then dispatch work to the freshly trimmed worker.
+Ask another terminal to compact its context window and wait up to 180 seconds for a result. The target may compact successfully, decline, or return an error. After a successful result, the next call can dispatch work to the freshly trimmed worker.
 
 | Parameter      | Type     | Description                                            |
 | -------------- | -------- | ------------------------------------------------------ |
 | `to`           | `string` | Target terminal name                                   |
 | `instructions` | `string` | Optional custom compaction instructions for the target |
 
-- The remote terminal runs `ctx.compact()` — the same code path as `/compact`. The call returns once the runtime reports completion.
+- When the target accepts, it runs `ctx.compact()` — the same operation as `/compact`. Success is returned only after the runtime reports that it finished.
 - **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
 - **Busy decline** — the target accepts only when Pi reports its session idle **and** no manual compaction holds its delivery gate; otherwise it declines immediately with `reason: "busy"` and does not interrupt active work. Pi's idle state is the authority, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline, not just a visible turn.
 - **Unsupported decline** — a target whose runtime offers no compaction capability declines with `reason: "unsupported"`, and is never asked to compact.
@@ -299,7 +299,7 @@ Ask another terminal to compact its context window and **wait up to 180 seconds*
 - **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
 - **Flat 180-second timeout** — compaction typically takes 5–60s. The timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
 - **A cancelled compaction does not reopen delivery by itself** — Pi emits no ending an extension can observe when a compaction is cancelled. The human at that terminal does see an ending; in the observed path it was `Error: Compaction failed: Turn prefix summarization failed: This operation was aborted` — AgentSession emits that message on its internal `compaction_end` event and interactive mode renders it, supplying the `Error: ` prefix; extensions are never sent that event. The gate is cleared by the terminal's next agent run, by a later successful compaction, or failing both by the `COMPACT_TIMEOUT_MS` deadline. Observed live with nothing touching the terminal in between: it reported `compacting` for nearly three minutes with its context unchanged, and the message held for it arrived when the deadline fired. A message sent into that window is held, not refused, and the sender is told nothing.
-- Supports abort signals.
+- **Caller abort** — if the call is aborted before the request is sent, the target does nothing. After the request is sent, aborting only stops the caller from waiting; it does not cancel the target's work.
 - Each call targets one terminal; independent calls can run concurrently.
 - Any connected terminal can request compaction on another; link participants are cooperating peers.
 
@@ -420,7 +420,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                          |
 | 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                  |
 | 3   | **Race-based hub promotion**              | Non-deterministic. Terminal names and in-flight ephemeral messages can be lost during promotion. Simple but imperfect.                               |
-| 4   | **No message persistence**                | Purely ephemeral WebSocket frames. Messages are lost if the recipient is offline.                                                                    |
+| 4   | **No offline backlog**                    | A definitely absent target is rejected, and nothing is stored for later delivery. A terminal that reconnects receives no messages it missed while offline. |
 | 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.              |
 | 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                         |
 | 7   | **Callbacks are conventional**            | Async work results are uncorrelated messages, not protocol responses. A send carries no request identifier, nothing correlates a reply to it, and a callback exists only because the receiver chose to send one. |
