@@ -34,20 +34,15 @@ turn ends, and the terminal reads `thinking` until Pi reports the run settled.
 `compacting` means a manual compaction has raised that terminal's delivery gate;
 messages sent to it wait until the gate clears. An automatic (threshold or
 overflow) compaction never shows it — it is not gated, and reads `thinking` like
-the rest of the run it belongs to. A manual compaction also runs briefly before the
-gate rises, and reads as whatever preceded it until it does.
+the rest of the run it belongs to.
 
-Only connected terminals are visible. Messages to a terminal that is not connected
-are not queued anywhere; they are dropped.
+Only connected terminals are visible; nothing is stored for disconnected
+terminals, so a reconnecting terminal receives no backlog.
 
-A terminal's activity is not observable by any other means. Its queued messages
-are invisible to you, and silence is indistinguishable from work in progress.
+A terminal's queued messages are invisible to you, and silence is
+indistinguishable from work in progress.
 
 ### `link_send`
-
-```text
-link_send({ to: "worker", message: "..." })
-```
 
 The message is delivered to the receiver's model. The first message to arrive opens
 a batching window of about 200ms; later arrivals do not move its deadline, so a
@@ -64,12 +59,11 @@ turn. There is no way to send without entering the receiver's reasoning.
 
 Each send has exactly one recipient. There is no fan-out.
 
-The call returns send status, not the receiver's eventual work result. Sending to
-yourself is rejected. A definitely absent target fails against the local terminal
-list; beyond that, for a client a successful send means the message was written to
-its hub connection, not that it arrived. If the target has vanished, the routing
-failure is shown to the human as a notification and never reaches the sending
-model.
+The call returns send status, not the receiver's eventual work result. A definitely
+absent target fails against the local terminal list; beyond that, for a client a
+successful send means the message was written to its hub connection, not that it
+arrived. If the target has vanished, the routing failure is shown to the human as a
+notification and never reaches the sending model.
 
 A terminal reported as `compacting` receives nothing until its gate clears. The
 messages wait and are delivered afterwards. A cancelled compaction has no ending
