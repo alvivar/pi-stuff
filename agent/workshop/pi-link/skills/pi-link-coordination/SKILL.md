@@ -94,6 +94,11 @@ request ID, no automatic response, no delivery receipt, and no protocol timeout 
 nothing correlates a callback with the dispatch that asked for it except the text
 of both, and nothing produces one except the receiver choosing to send it.
 
+Waiting for one requires no live run: if the terminal is idle when the batch is
+delivered, the message starts a turn by itself. Keeping a run alive only to wait —
+by sleeping or polling `link_list` — is unnecessary and can postpone delivery to
+the model until active tool calls end.
+
 A callback can be sent before its sender's run settles; receiving it does not
 prove the sender is idle, so a `link_compact` aimed at it can still decline as
 busy.
@@ -109,7 +114,8 @@ an A → B → C → A delegation chain.
 
 - **Localhost only.** All terminals run on the same machine.
 - **Cwd is a hint, not proof.** Same cwd does not prove the same workspace, branch,
-  or access.
+  or access. Paths named in a message are only text: they do not change the
+  receiver's cwd, and relative commands resolve from the receiver's own cwd.
 - **Names are identities.** The hub suffixes collisions, so the name you remember
   may not be the name that is connected; `link_list` shows the current one.
 - **Mixed-version meshes are unsupported.** Across the current protocol break, a
