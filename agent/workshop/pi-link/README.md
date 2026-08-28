@@ -4,6 +4,8 @@ A WebSocket-based inter-terminal communication system that creates a local netwo
 
 > Message another Pi terminal with `link_send`. Replies are ordinary messages the other agent chooses to send, not automatic responses. Start two Pi terminals with `--link` — they find each other automatically.
 
+Questions, ideas? There's a [pi-link thread](https://discord.com/channels/1456806362351669492/1485515696719921183) in the official Pi Discord.
+
 ---
 
 ## Table of Contents
@@ -311,12 +313,12 @@ Ask another terminal to compact its context window and wait up to 180 seconds fo
 
 ## Slash Commands
 
-| Command                 | Purpose                                                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `/link`                 | Show link status (name, role, online count, agent status, context usage, and cwd per terminal)                           |
-| `/link-name [name]`     | Rename and save as this session's preferred link name. With no argument, adopts the Pi session name. Restored on resume. |
-| `/link-connect`         | Connect to Pi Link (works anytime, with or without `--link`)                                                             |
-| `/link-disconnect`      | Disconnect from Pi Link and suppress auto-reconnect (overrides `--link`)                                                 |
+| Command             | Purpose                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `/link`             | Show link status (name, role, online count, agent status, context usage, and cwd per terminal)                           |
+| `/link-name [name]` | Rename and save as this session's preferred link name. With no argument, adopts the Pi session name. Restored on resume. |
+| `/link-connect`     | Connect to Pi Link (works anytime, with or without `--link`)                                                             |
+| `/link-disconnect`  | Disconnect from Pi Link and suppress auto-reconnect (overrides `--link`)                                                 |
 
 ### Examples
 
@@ -423,14 +425,14 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 ## Limitations & Design Decisions
 
-| #   | Decision                                  | Rationale / Impact                                                                                                                                    |
-| --- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                          |
-| 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                  |
-| 3   | **Race-based hub promotion**              | Non-deterministic. Terminal names and in-flight ephemeral messages can be lost during promotion. Simple but imperfect.                               |
-| 4   | **No offline backlog**                    | A definitely absent target is rejected, and nothing is stored for later delivery. A terminal that reconnects receives no messages it missed while offline. |
-| 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.              |
-| 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                         |
+| #   | Decision                                  | Rationale / Impact                                                                                                                                                                                               |
+| --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                                                                      |
+| 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                                                                              |
+| 3   | **Race-based hub promotion**              | Non-deterministic. Terminal names and in-flight ephemeral messages can be lost during promotion. Simple but imperfect.                                                                                           |
+| 4   | **No offline backlog**                    | A definitely absent target is rejected, and nothing is stored for later delivery. A terminal that reconnects receives no messages it missed while offline.                                                       |
+| 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.                                                                          |
+| 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                                                                     |
 | 7   | **Callbacks are conventional**            | Async work results are uncorrelated messages, not protocol responses. A send carries no request identifier, nothing correlates a reply to it, and a callback exists only because the receiver chose to send one. |
 
 ---
@@ -451,11 +453,11 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 ### Provided by Pi (no install needed)
 
-| Package                           | Purpose                                          |
-| --------------------------------- | ------------------------------------------------ |
+| Package                           | Purpose                                                     |
+| --------------------------------- | ----------------------------------------------------------- |
 | `@earendil-works/pi-coding-agent` | Pi SDK types (ExtensionAPI, ExtensionContext) and `VERSION` |
-| `@earendil-works/pi-tui`          | TUI Text widget for custom message rendering     |
-| `typebox`                         | JSON Schema type definitions for tool parameters |
+| `@earendil-works/pi-tui`          | TUI Text widget for custom message rendering                |
+| `typebox`                         | JSON Schema type definitions for tool parameters            |
 
 > See [Prerequisites](#prerequisites) for supported Pi versions.
 
@@ -469,17 +471,17 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 
 The wire protocol consists of the following message types, all serialized as JSON over WebSocket frames. Cwd and context fields are optional.
 
-| Type               | Direction       | Purpose                                                                             |
-| ------------------ | --------------- | ----------------------------------------------------------------------------------- |
-| `register`         | Client → Hub    | First message after connecting; requests a name, optionally reports cwd and context |
-| `welcome`          | Hub → Client    | Confirms assigned name, terminal list + status/cwd/context snapshots                |
-| `terminal_joined`  | Hub → All       | Broadcast when a terminal joins; may include cwd and context                        |
-| `terminal_left`    | Hub → All       | Broadcast when a terminal disconnects                                               |
+| Type               | Direction       | Purpose                                                                                             |
+| ------------------ | --------------- | --------------------------------------------------------------------------------------------------- |
+| `register`         | Client → Hub    | First message after connecting; requests a name, optionally reports cwd and context                 |
+| `welcome`          | Hub → Client    | Confirms assigned name, terminal list + status/cwd/context snapshots                                |
+| `terminal_joined`  | Hub → All       | Broadcast when a terminal joins; may include cwd and context                                        |
+| `terminal_left`    | Hub → All       | Broadcast when a terminal disconnects                                                               |
 | `chat`             | Any → Any       | Message delivered to the receiver's model: steered into a running agent, or starting a turn if idle |
-| `compact_request`  | Any → Any       | Request a remote terminal to compact its context; awaits a response                 |
-| `compact_response` | Any → Any       | Completion/failure response for a compact_request                                   |
-| `status_update`    | Any → Hub → All | Terminal broadcasts agent status change; carries updated context                    |
-| `error`            | Hub → Client    | Error notification                                                                  |
+| `compact_request`  | Any → Any       | Request a remote terminal to compact its context; awaits a response                                 |
+| `compact_response` | Any → Any       | Completion/failure response for a compact_request                                                   |
+| `status_update`    | Any → Hub → All | Terminal broadcasts agent status change; carries updated context                                    |
+| `error`            | Hub → Client    | Error notification                                                                                  |
 
 ### Message Flow Examples
 
@@ -530,23 +532,23 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 
 ### State Management
 
-| State Field               | Type                                  | Purpose                                                                          |
-| ------------------------- | ------------------------------------- | -------------------------------------------------------------------------------- |
-| `role`                    | `"hub" \| "client" \| "disconnected"` | Current network role                                                             |
+| State Field               | Type                                  | Purpose                                                                                                                     |
+| ------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `role`                    | `"hub" \| "client" \| "disconnected"` | Current network role                                                                                                        |
 | `connectionAttempt`       | `record \| null`                      | The one establishment attempt in flight: its shared promise plus any pending socket/server. Object identity marks the owner |
-| `agentRunning`            | `boolean`                             | Between `agent_start` and `agent_settled` — not `agent_end`; drives status only |
-| `compactRunning`          | `boolean`                             | Whether a remote request holds this terminal's delivery gate                     |
-| `localCompacting`         | `boolean`                             | Whether a `manual`-reason compaction has raised the delivery gate                |
-| `activeTools`             | `Map`                                 | `toolCallId` → `toolName` for calls still running; the first drives status       |
-| `stateSince`              | `number`                              | Timestamp of last status change (used for duration display)                      |
-| `currentCwd`              | `string`                              | Current working directory reported to peers on connect                           |
-| `inbox`                   | `array`                               | Queued incoming messages awaiting delivery                                       |
-| `flushTimer`              | `Timer \| null`                       | Pending inbox flush; armed by the first queued message and not moved afterwards  |
-| `compactDeadline`         | `Timer \| undefined`                  | Backstop releasing the inbox if a compaction reports no ending                   |
-| `pendingCompactResponses` | `Map`                                 | Outstanding compact requests awaiting bounded responses                          |
-| `disposed`                | `boolean`                             | Set on shutdown; guards WebSocket callbacks against stale context                |
-| `startupConnectTimer`     | `Timer \| null`                       | Deferred startup connect so Pi's startup cycle completes first                   |
-| `manuallyDisconnected`    | `boolean`                             | Set by `/link-disconnect`; suppresses auto-reconnect                             |
+| `agentRunning`            | `boolean`                             | Between `agent_start` and `agent_settled` — not `agent_end`; drives status only                                             |
+| `compactRunning`          | `boolean`                             | Whether a remote request holds this terminal's delivery gate                                                                |
+| `localCompacting`         | `boolean`                             | Whether a `manual`-reason compaction has raised the delivery gate                                                           |
+| `activeTools`             | `Map`                                 | `toolCallId` → `toolName` for calls still running; the first drives status                                                  |
+| `stateSince`              | `number`                              | Timestamp of last status change (used for duration display)                                                                 |
+| `currentCwd`              | `string`                              | Current working directory reported to peers on connect                                                                      |
+| `inbox`                   | `array`                               | Queued incoming messages awaiting delivery                                                                                  |
+| `flushTimer`              | `Timer \| null`                       | Pending inbox flush; armed by the first queued message and not moved afterwards                                             |
+| `compactDeadline`         | `Timer \| undefined`                  | Backstop releasing the inbox if a compaction reports no ending                                                              |
+| `pendingCompactResponses` | `Map`                                 | Outstanding compact requests awaiting bounded responses                                                                     |
+| `disposed`                | `boolean`                             | Set on shutdown; guards WebSocket callbacks against stale context                                                           |
+| `startupConnectTimer`     | `Timer \| null`                       | Deferred startup connect so Pi's startup cycle completes first                                                              |
+| `manuallyDisconnected`    | `boolean`                             | Set by `/link-disconnect`; suppresses auto-reconnect                                                                        |
 
 ### Message Routing & Error Handling
 
@@ -607,11 +609,11 @@ Delivery is held while a `manual`-reason compaction holds this terminal's gate, 
 
 Because a gated flush does not reschedule, the release path is load-bearing. `releaseInbox()` is called after either flag clears and schedules a flush only when neither gate remains — so a remote compaction's `session_compact` calls it and correctly does nothing, and the later `finish()` is what drains. `compactDeadline` is the backstop, since a failed compaction reports no ending to an extension at all.
 
-| Constant             | Value   | Purpose                                        |
-| -------------------- | ------- | ---------------------------------------------- |
-| `FLUSH_DELAY_MS`     | 200     | Batching window, from the first queued message  |
-| `BATCH_MAX_ITEMS`    | 20      | Max messages per batch                         |
-| `BATCH_MAX_CHARS`    | 16 000  | Soft cap on batch text size (~4K tokens)       |
+| Constant             | Value   | Purpose                                          |
+| -------------------- | ------- | ------------------------------------------------ |
+| `FLUSH_DELAY_MS`     | 200     | Batching window, from the first queued message   |
+| `BATCH_MAX_ITEMS`    | 20      | Max messages per batch                           |
+| `BATCH_MAX_CHARS`    | 16 000  | Soft cap on batch text size (~4K tokens)         |
 | `COMPACT_TIMEOUT_MS` | 180 000 | Remote-compact wait, reused as the gate backstop |
 
 ### Rendering
