@@ -6,7 +6,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
-## 0.3.0 — 2026-08-25
+## 0.3.0 — 2026-08-28
 
 ### Added
 
@@ -18,7 +18,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 - **`link_send` no longer takes a `triggerTurn` parameter.** Delivery behavior is the receiver's alone: a running receiver is steered at its next safe boundary, an idle one starts a turn. Which of the two happens is decided when the debounced batch is actually delivered, not when the message was sent, so it is not something a sender could have chosen correctly anyway. The tool takes `to` and `message` and nothing else.
 
-- **Broadcast is removed.** `link_send` no longer accepts `to: "*"`, the hub no longer has a wildcard routing arm, and `/link-broadcast` is gone. Each send has exactly one recipient. Removing it from the tool alone would have left the feature reachable from the wire, so both went.
+- **Broadcast is removed.** `link_send` no longer treats `to: "*"` as a broadcast target, the hub no longer has wildcard routing, and `/link-broadcast` is gone. Each send routes to exactly one named recipient. Removing it from the tool alone would have left the feature reachable from the wire, so both went.
 
 - **pi-link 0.3 requires Pi 0.84.2 or later.** The status lifecycle and the remote-compaction guard are built on Pi's `agent_settled` event and `ctx.isIdle()`, with one code path and no compatibility fallback. Pi's package installation does not check the host version, so `pi install` succeeds on an older Pi; pi-link then refuses to initialize rather than half-run. It throws before registering a single flag, event, tool or command and before opening any socket, and Pi reports the refusal with the required minimum and the detected version. Malformed versions and prereleases below the floor are refused the same way. On Pi 0.74–0.84.1 pin `pi-link@0.2.x`; on Pi 0.73 or earlier, `pi-link@0.1.14`.
 
