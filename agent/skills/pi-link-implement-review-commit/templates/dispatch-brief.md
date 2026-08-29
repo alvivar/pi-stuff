@@ -1,6 +1,6 @@
 # Dispatch brief — worked example (implementer)
 
-Send via `link_send(to: <implementer>, triggerTurn: true)`. This is an example
+Send via `link_send(to: <implementer>, message: ...)`. This is an example
 from good runs, not a form — write the brief YOUR task needs. What is
 non-negotiable is §3.2: self-contained (the worker shares none of your
 context), go-signal, gate, callback contract.
@@ -31,7 +31,7 @@ Constraints: do NOT commit, do NOT bump versions / touch lockfiles.
 Also reason through (confirm in your report, no need to run live):
   - <correctness property to trace>
 
-Report DONE/BLOCKED to <orchestrator> via link_send(triggerTurn:true) with:
+Report DONE/BLOCKED to <orchestrator> via link_send with:
   - diff summary (functions/sites touched)
   - gate results (build ok? test count?)
   - the requested reasoning
@@ -51,4 +51,5 @@ Report DONE/BLOCKED to <orchestrator> via link_send(triggerTurn:true) with:
   the implementer declared — undeclared deviations are invisible to it.
   "Material" keeps this from becoming a design diary: declare what a reviewer
   would evaluate differently if told, not every local choice.
-- **Callback contract**: triggerTurn:true returns nothing automatically — you must ask.
+- **Callback contract**: `link_send` returns send status, never the worker's
+  result — a callback happens only because the brief asked for one.

@@ -8,7 +8,7 @@
       {
         "name": "archon@pi-link",
         "icon": "organization",
-        "color": "terminal.ansiBrightYellow",
+        "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -54,7 +54,7 @@
       {
         "name": "updater@pi-link",
         "icon": "sync",
-        "color": "terminal.ansiBrightBlue",
+        "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link updater@pi-link"
@@ -128,7 +128,7 @@
       {
         "name": "archon@pi-dock",
         "icon": "organization",
-        "color": "terminal.ansiBrightYellow",
+        "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -233,7 +233,7 @@
       {
         "name": "archon@pi-chrome",
         "icon": "organization",
-        "color": "terminal.ansiBrightYellow",
+        "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -309,7 +309,7 @@
       {
         "name": "gpt@pi-rules",
         "icon": "law",
-        "color": "terminal.ansiGreen",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi-rules"
@@ -348,7 +348,7 @@
       {
         "name": "gpt@pi.claude.hack",
         "icon": "tools",
-        "color": "terminal.ansiGreen",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi.claude.hack"
@@ -387,7 +387,7 @@
       {
         "name": "gpt@claude-code-provider",
         "icon": "plug",
-        "color": "terminal.ansiGreen",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@claude-code-provider"

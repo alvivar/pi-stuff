@@ -1,6 +1,6 @@
 # Review brief — worked example (reviewer)
 
-Send via `link_send(to: <reviewer>, triggerTurn: true)`. An example, not a form
+Send via `link_send(to: <reviewer>, message: ...)`. An example, not a form
 — aim the checks at THIS task's real risks. The reviewer must differ from the
 implementer.
 
@@ -26,7 +26,7 @@ CRITICAL checks (the real correctness risks):
 
 Gate green per implementer: <build ok>, <test N/N>.
 
-Report to <orchestrator> via link_send(triggerTurn:true): APPROVE or
+Report to <orchestrator> via link_send: APPROVE or
 CHANGES-NEEDED. If CHANGES-NEEDED, list each concern with file location and the
 specific fix so the implementer can act directly.
 ```
