@@ -1,5 +1,5 @@
 {
-  "active": "pi-link",
+  "active": "pi-rules",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -297,18 +297,27 @@
     ],
     "pi-rules": [
       {
-        "name": "opus@pi-rules",
-        "icon": "law",
-        "color": "terminal.ansiBrightMagenta",
+        "name": "archon@pi-rules",
+        "icon": "organization",
+        "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-rules"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-rules"
+        ]
+      },
+      {
+        "name": "claude@pi-rules",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightMagenta",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link claude@pi-rules"
         ]
       },
       {
         "name": "gpt@pi-rules",
-        "icon": "law",
+        "icon": "copilot",
         "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
