@@ -17,10 +17,12 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 const MAX_PREVIEW = 280;
+const WARN_SIZE = 20_000;
 
 /** Payload persisted per `rules` entry; `null` marks an explicit clear. */
 type RulesData = { text: string | null };
@@ -41,16 +43,30 @@ export default function (pi: ExtensionAPI) {
   }
 
   function updateWidget(ctx: ExtensionContext) {
-    if (rulesText) {
-      const preview = rulesText.split("\n")[0].slice(0, MAX_PREVIEW);
-      const text =
-        rulesText.length > MAX_PREVIEW || rulesText.includes("\n")
-          ? preview + "..."
-          : rulesText;
-      ctx.ui.setWidget("pi-rules", [ctx.ui.theme.fg("dim", `⚙ ${text}`)]);
-    } else {
+    if (!rulesText) {
       ctx.ui.setWidget("pi-rules", undefined);
+      return;
     }
+    const preview = rulesText.split("\n")[0].slice(0, MAX_PREVIEW);
+    const text =
+      rulesText.length > MAX_PREVIEW || rulesText.includes("\n")
+        ? preview + "..."
+        : rulesText;
+    // Factory form: theme.fg resolves at render time, so /theme recolors the widget.
+    // Text matches how the host renders string widgets, keeping output width-safe.
+    ctx.ui.setWidget("pi-rules", (_tui, theme) => ({
+      render: (width) => new Text(theme.fg("dim", `⚙ ${text}`), 1, 0).render(width),
+      invalidate: () => {},
+    }));
+  }
+
+  /** Rules cost tokens on every turn, so flag unusually large ones without blocking. */
+  function warnIfLarge(ctx: ExtensionContext, text: string) {
+    if (text.length <= WARN_SIZE) return;
+    ctx.ui.notify(
+      `Rules are ${Math.round(text.length / 1000)}k chars and are injected into every turn's system prompt. Consider trimming them to reduce per-turn cost.`,
+      "warning",
+    );
   }
 
   /** Rules are branch-local, so re-read them whenever the active branch changes. */
@@ -129,6 +145,7 @@ export default function (pi: ExtensionAPI) {
           `Rules loaded from ${resolved} (${rulesText.length} chars)`,
           "info",
         );
+        warnIfLarge(ctx, rulesText);
         return;
       }
 
@@ -136,6 +153,7 @@ export default function (pi: ExtensionAPI) {
       pi.appendEntry("rules", { text: rulesText });
       updateWidget(ctx);
       ctx.ui.notify(`Rules set (${rulesText.length} chars)`, "info");
+      warnIfLarge(ctx, rulesText);
     },
   });
 }
