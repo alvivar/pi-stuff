@@ -27,6 +27,14 @@ const WARN_SIZE = 20_000;
 /** Payload persisted per `rules` entry; `null` marks an explicit clear. */
 type RulesData = { text: string | null };
 
+/** First line, capped at MAX_PREVIEW, ellipsized when anything was omitted. */
+function previewOf(text: string): string {
+  const firstLine = text.split("\n")[0].slice(0, MAX_PREVIEW);
+  return text.length > MAX_PREVIEW || text.includes("\n")
+    ? firstLine + "..."
+    : text;
+}
+
 export default function (pi: ExtensionAPI) {
   let rulesText: string | null = null;
 
@@ -47,11 +55,7 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.setWidget("pi-rules", undefined);
       return;
     }
-    const preview = rulesText.split("\n")[0].slice(0, MAX_PREVIEW);
-    const text =
-      rulesText.length > MAX_PREVIEW || rulesText.includes("\n")
-        ? preview + "..."
-        : rulesText;
+    const text = previewOf(rulesText);
     // Factory form: theme.fg resolves at render time, so /theme recolors the widget.
     // Text matches how the host renders string widgets, keeping output width-safe.
     ctx.ui.setWidget("pi-rules", (_tui, theme) => ({
@@ -85,6 +89,14 @@ export default function (pi: ExtensionAPI) {
         event.systemPrompt +
         `\n\n## Session Rules\nFollow this guidance for the current session.\n\n${rulesText}`,
     };
+  });
+
+  // Display-only: shows each /rules change inline in the transcript where it happened.
+  pi.registerEntryRenderer<RulesData>("rules", (entry, { expanded }, theme) => {
+    const text = entry.data?.text;
+    if (!text) return new Text(theme.fg("dim", "⚙ Rules cleared"), 1, 0);
+    if (expanded) return new Text(`${theme.fg("dim", "⚙")} ${text}`, 1, 0);
+    return new Text(theme.fg("dim", `⚙ ${previewOf(text)}`), 1, 0);
   });
 
   pi.registerCommand("rules", {
