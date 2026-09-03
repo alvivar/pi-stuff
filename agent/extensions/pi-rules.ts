@@ -8,43 +8,39 @@
  * /rules @<file>  → set rules from file
  * /rules          → show current rules
  * /rules clear    → clear rules
+ *
+ * Note: "clear" is a reserved literal — rules consisting solely of that word cannot be set.
+ * Note: @ paths are used verbatim after trim; quotes are not stripped.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 const MAX_PREVIEW = 280;
 
+/** Payload persisted per `rules` entry; `null` marks an explicit clear. */
+type RulesData = { text: string | null };
+
 export default function (pi: ExtensionAPI) {
   let rulesText: string | null = null;
 
-  type RulesEntry = {
-    type: string;
-    customType?: string;
-    data?: { text?: string | null };
-  };
-
-  function restoreRules(ctx: {
-    sessionManager: { getBranch(): RulesEntry[] };
-  }) {
+  function restoreRules(ctx: ExtensionContext) {
     const entries = ctx.sessionManager.getBranch();
     rulesText = null;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i];
       if (entry.type === "custom" && entry.customType === "rules") {
-        rulesText = entry.data?.text ?? null;
+        rulesText = (entry.data as RulesData | undefined)?.text ?? null;
         break;
       }
     }
   }
 
-  function updateWidget(ctx: {
-    ui: {
-      theme: { fg(style: string, text: string): string };
-      setWidget(key: string, content: string[] | undefined): void;
-    };
-  }) {
+  function updateWidget(ctx: ExtensionContext) {
     if (rulesText) {
       const preview = rulesText.split("\n")[0].slice(0, MAX_PREVIEW);
       const text =
@@ -57,15 +53,14 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  pi.on("session_start", (_event, ctx) => {
+  /** Rules are branch-local, so re-read them whenever the active branch changes. */
+  function syncRules(_event: unknown, ctx: ExtensionContext) {
     restoreRules(ctx);
     updateWidget(ctx);
-  });
+  }
 
-  pi.on("session_tree", (_event, ctx) => {
-    restoreRules(ctx);
-    updateWidget(ctx);
-  });
+  pi.on("session_start", syncRules);
+  pi.on("session_tree", syncRules);
 
   pi.on("before_agent_start", (event) => {
     if (!rulesText) return;
@@ -88,7 +83,7 @@ export default function (pi: ExtensionAPI) {
       );
       return filtered.length > 0 ? filtered : null;
     },
-    handler: (args, ctx) => {
+    handler: async (args, ctx) => {
       const trimmed = (args ?? "").trim();
 
       if (!trimmed) {
