@@ -32,11 +32,9 @@
  * this finalizer.
  *
  * Trade-off vs. the previous `before_agent_start` implementation:
- * `ctx.getSystemPrompt()` no longer reflects the transform, because it
- * reports PI's internal system-prompt string rather than the final
- * serialized provider payload. Outbound correctness is preserved; internal
- * prompt introspection sees the pre-uppercase string. This is the
- * documented behavior of the hook, not a bug of this extension.
+ * `ctx.getSystemPrompt()` no longer reflects the transform — it reports PI's
+ * internal prompt string, not the serialized payload. Outbound correctness is
+ * unaffected; this is documented hook behavior, not a bug of this extension.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -59,7 +57,6 @@ const CODE_SPAN = /(```[\s\S]*?```|~~~[\s\S]*?~~~|``[^`\n]*``|`[^`\n]*`)/;
 // Returns the input reference unchanged when nothing matched, so callers
 // can cheaply test `next === text` to skip allocating wrappers.
 function transform(text: string): string {
-  if (text.length === 0) return text;
   const parts = text.split(CODE_SPAN);
   let changed = false;
   for (let i = 0; i < parts.length; i += 2) {
@@ -72,32 +69,44 @@ function transform(text: string): string {
   return changed ? parts.join("") : text;
 }
 
+// Map an array, returning null when no element changed. Callers treat null as
+// "keep the original array reference" — this is what makes copy-on-write fall
+// out of the walkers instead of being tracked by hand at each call site.
+function mapChanged<T>(arr: readonly T[], fn: (item: T) => T): T[] | null {
+  let touched = false;
+  const next = arr.map((item) => {
+    const mapped = fn(item);
+    if (mapped !== item) touched = true;
+    return mapped;
+  });
+  return touched ? next : null;
+}
+
+// Rewrite the `text` field of a text-ish block, preserving every sibling field
+// (`cache_control`, `type`, ...). Returns the input reference when the item
+// isn't a text block, or when the transform was a no-op.
+//
+// `requireTextType` distinguishes the two block conventions in play: chat and
+// Responses content parts are discriminated unions and must carry
+// `type: "text"`, while Anthropic/Bedrock system blocks and Gemini parts are
+// not — Bedrock emits a bare `{ text }` with no `type` at all (test section 2),
+// so for those the check must stay off or the block would be skipped.
+function withText(item: unknown, requireTextType = false): unknown {
+  if (!item || typeof item !== "object") return item;
+  const block = item as { type?: unknown; text?: unknown };
+  if (requireTextType && block.type !== "text") return item;
+  if (typeof block.text !== "string") return item;
+  const replaced = transform(block.text);
+  return replaced === block.text ? item : { ...(item as object), text: replaced };
+}
+
 // Rewrite a chat-message `content` field. Accepts the two shapes used by
 // OpenAI Completions / Mistral system messages: a plain string, or an array
 // of content parts `{ type: "text", text: string }`. Returns the original
 // reference when nothing changed.
 function transformContent(content: unknown): unknown {
   if (typeof content === "string") return transform(content);
-  if (Array.isArray(content)) {
-    let touched = false;
-    const next = content.map((part) => {
-      if (
-        part &&
-        typeof part === "object" &&
-        (part as { type?: unknown }).type === "text" &&
-        typeof (part as { text?: unknown }).text === "string"
-      ) {
-        const text = (part as { text: string }).text;
-        const replaced = transform(text);
-        if (replaced !== text) {
-          touched = true;
-          return { ...(part as object), text: replaced };
-        }
-      }
-      return part;
-    });
-    return touched ? next : content;
-  }
+  if (Array.isArray(content)) return mapChanged(content, (part) => withText(part, true)) ?? content;
   return content;
 }
 
@@ -107,40 +116,32 @@ function transformContent(content: unknown): unknown {
 function rewriteSystemInstructions(payload: unknown): unknown {
   if (!payload || typeof payload !== "object") return payload;
   const p = payload as Record<string, unknown>;
-  const out: Record<string, unknown> = { ...p };
-  let touched = false;
+
+  // Copy-on-write: `out` stays null until a field actually changes, then
+  // becomes a shallow copy of `p`. A non-null `out` is therefore exactly the
+  // "something changed" signal — no separate touched flags to keep in sync.
+  let out: Record<string, unknown> | null = null;
+  const set = (key: string, value: unknown): void => {
+    const target = out ?? (out = { ...p });
+    target[key] = value;
+  };
+  // Transform a string field and write it back only if it changed.
+  const setTransformed = (key: string, value: string): void => {
+    const replaced = transform(value);
+    if (replaced !== value) set(key, replaced);
+  };
 
   // 1. Anthropic / Amazon Bedrock: `system` is an array of text blocks.
   //    Each block: { type?: "text", text: string, cache_control?: ... }.
   //    We copy every block, only swapping `text` on the ones we rewrote,
   //    so `cache_control` and any other fields are preserved verbatim.
   if (Array.isArray(p.system)) {
-    let sysTouched = false;
-    const nextSystem = (p.system as unknown[]).map((block) => {
-      if (block && typeof block === "object") {
-        const b = block as { text?: unknown };
-        if (typeof b.text === "string") {
-          const replaced = transform(b.text);
-          if (replaced !== b.text) {
-            sysTouched = true;
-            return { ...(block as object), text: replaced };
-          }
-        }
-      }
-      return block;
-    });
-    if (sysTouched) {
-      out.system = nextSystem;
-      touched = true;
-    }
+    const next = mapChanged(p.system as unknown[], (block) => withText(block));
+    if (next) set("system", next);
   } else if (typeof p.system === "string") {
     // Defensive: not emitted by any built-in provider today, but some
     // custom providers may use a plain string here.
-    const replaced = transform(p.system);
-    if (replaced !== p.system) {
-      out.system = replaced;
-      touched = true;
-    }
+    setTransformed("system", p.system);
   }
 
   // 2. OpenAI Codex Responses: `instructions` is a plain string. Standard
@@ -148,45 +149,19 @@ function rewriteSystemInstructions(payload: unknown): unknown {
   //    they embed system as the first entry of `payload.input[]`, handled
   //    below together with chat-style `messages[]` via the role-filtered walk.
   if (typeof p.instructions === "string") {
-    const replaced = transform(p.instructions);
-    if (replaced !== p.instructions) {
-      out.instructions = replaced;
-      touched = true;
-    }
+    setTransformed("instructions", p.instructions);
   }
 
   // 3. Google / Vertex / Gemini CLI: `systemInstruction` is a plain string
   //    in PI's current provider code, but the native Gemini API also
   //    accepts `{ parts: [{ text: string }, ...] }` — handle both.
   if (typeof p.systemInstruction === "string") {
-    const replaced = transform(p.systemInstruction);
-    if (replaced !== p.systemInstruction) {
-      out.systemInstruction = replaced;
-      touched = true;
-    }
+    setTransformed("systemInstruction", p.systemInstruction);
   } else if (p.systemInstruction && typeof p.systemInstruction === "object") {
     const si = p.systemInstruction as { parts?: unknown };
     if (Array.isArray(si.parts)) {
-      let siTouched = false;
-      const nextParts = (si.parts as unknown[]).map((part) => {
-        if (
-          part &&
-          typeof part === "object" &&
-          typeof (part as { text?: unknown }).text === "string"
-        ) {
-          const text = (part as { text: string }).text;
-          const replaced = transform(text);
-          if (replaced !== text) {
-            siTouched = true;
-            return { ...(part as object), text: replaced };
-          }
-        }
-        return part;
-      });
-      if (siTouched) {
-        out.systemInstruction = { ...(si as object), parts: nextParts };
-        touched = true;
-      }
+      const nextParts = mapChanged(si.parts as unknown[], (part) => withText(part));
+      if (nextParts) set("systemInstruction", { ...(si as object), parts: nextParts });
     }
   }
 
@@ -202,27 +177,17 @@ function rewriteSystemInstructions(payload: unknown): unknown {
   for (const key of ["messages", "input"] as const) {
     const arr = p[key];
     if (!Array.isArray(arr)) continue;
-    let arrTouched = false;
-    const next = (arr as unknown[]).map((msg) => {
-      if (msg && typeof msg === "object") {
-        const m = msg as { role?: unknown; content?: unknown };
-        if (m.role === "system" || m.role === "developer") {
-          const nextContent = transformContent(m.content);
-          if (nextContent !== m.content) {
-            arrTouched = true;
-            return { ...(msg as object), content: nextContent };
-          }
-        }
-      }
-      return msg;
+    const next = mapChanged(arr as unknown[], (msg) => {
+      if (!msg || typeof msg !== "object") return msg;
+      const m = msg as { role?: unknown; content?: unknown };
+      if (m.role !== "system" && m.role !== "developer") return msg;
+      const nextContent = transformContent(m.content);
+      return nextContent === m.content ? msg : { ...(msg as object), content: nextContent };
     });
-    if (arrTouched) {
-      out[key] = next;
-      touched = true;
-    }
+    if (next) set(key, next);
   }
 
-  return touched ? out : payload;
+  return out ?? payload;
 }
 
 export default function (pi: ExtensionAPI) {
