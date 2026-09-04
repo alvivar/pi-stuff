@@ -1,5 +1,5 @@
 {
-  "active": "pi.claude.hack",
+  "active": "pi-link",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -348,6 +348,7 @@
         "name": "archon@pi.claude.hack",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
+        "focus": true,
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi.claude.hack"
@@ -357,7 +358,6 @@
         "name": "claude@pi.claude.hack",
         "icon": "sparkle",
         "color": "terminal.ansiBrightMagenta",
-        "focus": true,
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link claude@pi.claude.hack"

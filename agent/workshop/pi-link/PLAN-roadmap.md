@@ -1,7 +1,7 @@
 # PLAN — pi-link roadmap (triage index)
 
 > **Status:** Index / source of truth
-> **Last aligned:** 2026-07-17
+> **Last aligned:** 2026-09-03 (post-0.4.0)
 
 Single entry point for pi-link's plan backlog. Lists what shipped, what's open
 (priority-ranked), what's stale, and what's parked — so a future agent or the
@@ -51,11 +51,10 @@ commits versions.**
   wake-all vs wake-none, non-waking `/link-broadcast`, and compact idle-succeeds /
   busy-declines. Plan file retired (was `PLAN-link-send-only.md`, archived in git
   history at `0338ee5`).
-  **Release handoff still owed:** the release notes must state that all linked
-  terminals must be **upgraded and restarted together**, because mixed-version
-  prompt RPC is unsupported — an un-restarted peer keeps the old extension and its
-  `link_prompt` calls hang until the 90s inactivity timeout. Observed live: two
-  terminals lost `link_prompt` mid-session when the reload landed under them.
+  **Release handoff delivered:** the 0.3.0 changelog carries “Upgrade and restart
+  every linked terminal together.” (Observed live before the fix: an un-restarted
+  peer keeps the old extension — two terminals lost `link_prompt` mid-session when
+  the reload landed under them.)
   Explicitly dropped along the way — do not re-propose without new evidence:
   compatibility tombstones / dormant wire handlers, a permanent README migration
   section, a standalone extension test harness, and an asymmetric broadcast
@@ -81,11 +80,38 @@ commits versions.**
   **All sixteen live gates passed** on the restarted mesh, including the cancelled
   compaction releasing at the 180s deadline and automatic compaction delivering
   through Pi's own queue. Plan and ledgers retired with this entry.
-  **Release handoff still owed:** the notes must state that all linked terminals are
-  **upgraded and restarted together**. Observed live during the gates: a new sender
-  against an old receiver delivers **unattributed** — the text reaches the model, the
-  `[Link: …]` header and `From "name":` line are lost, and nothing anywhere reports a
-  fault. Both builds report the same `0.2.0`, so nothing announces the mismatch.
+  **Release handoff delivered:** shipped as **0.3.0** (published to npm) with the
+  upgrade-and-restart-together note in the changelog, which also records the
+  observed mixed-version asymmetry (unattributed bare-text delivery to a 0.2.0
+  receiver, no fault reported, both builds claiming the same version).
+
+- **Link status endpoint + `pi-link --status`** (0.4.0, 2026-09-03) — the hub owns
+  a `node:http` server and answers read-only `GET /status` on `127.0.0.1:9900`
+  (hub first, clients sorted; `status`/`sinceSeconds` optional pair, absence =
+  unknown, never a default; `context` always present, null = no snapshot; 404
+  elsewhere). CLI `--status [--json]` with automation-grade exit codes: 0 valid,
+  2 “No link hub running on :<port>.” (all timeouts, including stalled bodies),
+  1 usage or “Link hub does not support /status …” (a 0.3.0 hub's hardwired 426
+  lands here — verified against a live 0.3.0 hub). `wss.close()` never closes a
+  provided HTTP server, so all three teardown sites close it explicitly, each
+  singly observable in tests (mutation-proofed; a zombie :9900 breaking hub
+  election machine-wide was the one real hazard). Election untouched (ws forwards
+  `listening`/`error` from the provided server). Suite 195→286.
+  Commits `8068231d`, `7d32908`, `ec2ca5a`, `b0a684d`, `04652c0` — the last from
+  an independent post-pipeline philosophy review (fable: SHIP-QUALITY; two dead
+  formatter guards deleted, single-use helper inlined; the dual absence encodings
+  — `cwd` omitted vs `context` null — are frozen contract, recorded so nobody
+  “cleans them up” later).
+  One review dissent, owner-ratified: the CLI validates `status` as **non-empty
+  string, deliberately not a frozen enum** — the vocabulary grew once already
+  (`compacting`, in 0.3.0) and a strict enum would blank the whole fleet view
+  intermittently on older CLIs when a future kind appears. Do not re-freeze
+  without new evidence.
+  Explicitly rejected along the way — do not re-propose: `probe:true` on register
+  (fail-dirty against old hubs), LIVE/DEAD wording (connection ≠ process health),
+  a CONNECTED column in `--list` without an end-to-end session id, `--watch`,
+  auth/CORS, extension-side `PI_LINK_PORT`. Plan files retired (`PLAN-link-status.md`;
+  superseded `PLAN-cli-status.md`; both archived in git history at `8068231d`).
 
 - **Compact-race guard (former P0, Defect 2)** — closed at the extension level by
   `e4e2c97`. `flushInbox` holds while `localCompacting || compactRunning`, and
@@ -99,9 +125,8 @@ commits versions.**
 
 ## Open work (priority-ranked)
 
-| # | Work item | File | Status | Readiness | Next action |
-|---|-----------|------|--------|-----------|-------------|
-| P1 | Link status endpoint + `--status` | `PLAN-cli-status.md` | Executable | Ready (owner-approved, no open decisions; parser cleaned by CLI closeout, no remaining blocker) | Implement; re-check its parser line references against the post-closeout 5-phase parser before building |
+None — the backlog is empty. Next candidates live under Parked and in the
+deferred `REPORT-*.md` files below; each carries its own status header.
 
 ## Stale / historical
 
@@ -153,6 +178,17 @@ script-orchestration, wrong for pi-link's peer-LLM coordination model:
   candidate direction is returning the hub's routing error to the sender as an
   ordinary attributed message through the unified path, with proof it cannot route to
   itself or loop — never receipts, correlation, or blocking RPC.
+
+## Deferred reports (each self-contained; read its header before acting)
+
+- `REPORT-compact-race.md` — upstream Pi reentrancy evidence (see the compact-race
+  entry above); the owner files it.
+- `REPORT-omp-tool-visibility.md` / `REPORT-omp-renderer-signature.md` — OMP
+  (third-party Pi fork) integration issues; consultive analysis only, reproduce
+  before writing any code.
+- `REPORT-session-compact-failed.md` — opportunity deferred until compaction
+  ownership is demonstrable upstream; a bare `setCompacting(false)` handler is
+  explicitly ruled out without correlation.
 
 ## Deferred doc work
 

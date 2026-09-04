@@ -23,6 +23,29 @@ const INDEX_URL = pathToFileURL(
 
 // ── Stubs for the modules Pi provides ───────────────────────────────────────
 
+const HTTP_STUB = `
+  import { EventEmitter } from "node:events";
+  export const httpServers = [];
+  class FakeHttpServer extends EventEmitter {
+    constructor(handler) {
+      super();
+      this.handler = handler;
+      this.listening = false;
+      this.closed = false;
+      httpServers.push(this);
+    }
+    listen(...args) { this.listenArgs = args; this.listening = true; return this; }
+    close() {
+      if (this.closed) return this;
+      this.closed = true;
+      this.listening = false;
+      this.emit("close");
+      return this;
+    }
+  }
+  export function createServer(handler) { return new FakeHttpServer(handler); }
+`;
+
 const STUBS = {
   "@earendil-works/pi-coding-agent": `
     export let VERSION = "0.84.2";
@@ -52,6 +75,10 @@ const STUBS = {
       close() {}
     }
   `,
+  // The hub owns an HTTP server so it can answer `GET /status`. Stubbed under both
+  // specifier spellings so no suite can ever bind a real port.
+  "node:http": HTTP_STUB,
+  http: HTTP_STUB,
 };
 
 registerHooks({

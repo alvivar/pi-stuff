@@ -8,7 +8,7 @@
 //   node test/cli-flags-test.mjs           # run all
 //   node test/cli-flags-test.mjs <filter>  # only cases whose label includes <filter>
 
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
 import { tmpdir, platform } from "os";
 import { join, resolve, dirname } from "path";
@@ -126,9 +126,9 @@ function runCase(label, body) {
 }
 
 // Asserts exit code, and (if given) that `substring` appears in stdout+stderr.
-function expectExit(label, args, code, substring) {
+function expectExit(label, args, code, substring, envOverrides) {
   runCase(label, () => {
-    const r = run(args);
+    const r = run(args, envOverrides);
     const combined = r.stdout + r.stderr;
     const ok = r.code === code && (substring === undefined || combined.includes(substring));
     return [
@@ -404,6 +404,295 @@ runCase("I43: --version prints semver", () => {
 expectExit("I44: --version foo rejects arguments", ["--version", "foo"], 1, "does not accept arguments");
 expectExit("I45: foo --version cannot combine", ["foo", "--version"], 1, "cannot combine");
 expectExit("I46: --list --version cannot combine", ["--list", "--version"], 1, "cannot combine");
+
+// ── J. --status (live hub query) ─────────────────────────────────────────────
+//
+// The hub is stubbed by a real HTTP server in a SEPARATE process: `run` uses
+// spawnSync, which blocks this process's event loop, so an in-process server
+// could never answer. It binds port 0 and reports the port it was given, so the
+// suite never touches 9900 — the port the live mesh runs on.
+
+const stubServerJs = join(stubDir, "status-stub.mjs");
+writeFileSync(
+  stubServerJs,
+  `import { createServer } from "node:http";
+` +
+    `const mode = process.argv[2] ?? "ok";
+` +
+    `const payload = process.argv[3] ?? "{}";
+` +
+    `const server = createServer((req, res) => {
+` +
+    `  if (mode === "426") { res.writeHead(426, { "content-type": "text/plain" }); res.end("Upgrade Required"); return; }
+` +
+    `  if (mode === "nonjson") { res.writeHead(200, { "content-type": "text/html" }); res.end("<html>nope</html>"); return; }
+` +
+    `  if (mode === "wrongshape") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"ok":true}'); return; }
+` +
+    // Headers, then silence: the fetch deadline must expire mid-body.
+    `  if (mode === "stall") { res.writeHead(200, { "content-type": "application/json" }); res.flushHeaders(); return; }
+` +
+    `  if (req.method === "GET" && req.url === "/status") {
+` +
+    `    res.writeHead(200, { "content-type": "application/json" });
+` +
+    `    res.end(payload);
+` +
+    `    return;
+` +
+    `  }
+` +
+    `  res.writeHead(404); res.end();
+` +
+    `});
+` +
+    `server.listen(0, "127.0.0.1", () => {
+` +
+    `  process.stdout.write(JSON.stringify({ port: server.address().port }) + "\\n");
+` +
+    `});
+`,
+);
+
+function startStubHub(mode, payload) {
+  const child = spawn("node", [stubServerJs, mode, payload ?? "{}"], { env: baseEnv });
+  return new Promise((resolveStub, rejectStub) => {
+    let buffered = "";
+    const onData = (chunk) => {
+      buffered += chunk.toString();
+      const nl = buffered.indexOf("\n");
+      if (nl === -1) return;
+      child.stdout.off("data", onData);
+      resolveStub({
+        port: JSON.parse(buffered.slice(0, nl)).port,
+        stop: () =>
+          new Promise((done) => {
+            if (child.exitCode !== null) return done();
+            child.once("exit", () => done());
+            child.kill();
+          }),
+      });
+    };
+    child.stdout.on("data", onData);
+    child.once("error", rejectStub);
+  });
+}
+
+// Hub first, then clients. Covers every optional shape the contract allows:
+// a full row, `tokens: null`, `compacting`, and a terminal the hub has
+// registered but not yet heard from (status/sinceSeconds/cwd all absent).
+const STATUS_FIXTURE = {
+  hub: "archon@pi-link",
+  port: 9900,
+  terminals: [
+    { name: "archon@pi-link", role: "hub", status: "idle", sinceSeconds: 420,
+      cwd: "C:/work/proj", context: { tokens: 92000, window: 272000 } },
+    { name: "fable@pi-link", role: "client", status: "compacting", sinceSeconds: 12,
+      cwd: "C:/work/proj", context: { tokens: null, window: 272000 } },
+    { name: "ghost@pi-link", role: "client", context: null },
+  ],
+};
+const STATUS_BODY = JSON.stringify(STATUS_FIXTURE);
+
+const okHub = await startStubHub("ok", STATUS_BODY);
+const oldHub = await startStubHub("426");
+const htmlHub = await startStubHub("nonjson");
+const shapeHub = await startStubHub("wrongshape");
+const stallHub = await startStubHub("stall");
+
+// Well-formed JSON that is not the frozen contract. Each of these reached the
+// renderer before the contract predicate existed; the first two stack-traced.
+const MALFORMED = {
+  "a null row": '{"hub":"h","port":9900,"terminals":[null]}',
+  "a non-string cwd": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","cwd":123,"context":null}]}',
+  "an empty terminal list": '{"hub":"h","port":9900,"terminals":[]}',
+  "a row missing name": '{"hub":"h","port":9900,"terminals":[{"role":"hub","context":null}]}',
+  "a row missing role": '{"hub":"h","port":9900,"terminals":[{"name":"h","context":null}]}',
+  "a client in the hub slot": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"client","context":null}]}',
+  "a hub in a client slot": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","context":null},{"name":"c","role":"hub","context":null}]}',
+  "a first row that is not the named hub": '{"hub":"other","port":9900,"terminals":[{"name":"h","role":"hub","context":null}]}',
+  "half of the status pair": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","status":"idle","context":null}]}',
+  "a non-numeric sinceSeconds": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","status":"idle","sinceSeconds":"7m","context":null}]}',
+  "an empty status string": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","status":"","sinceSeconds":1,"context":null}]}',
+  "a context missing window": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","context":{"tokens":1}}]}',
+  "a non-numeric port": '{"hub":"h","port":"9900","terminals":[{"name":"h","role":"hub","context":null}]}',
+  "a JSON array": '[{"name":"h"}]',
+};
+// A port that was bound and then released: nothing is listening, so a dial is
+// refused immediately rather than hanging until the 2s timeout.
+const deadHub = await startStubHub("ok", STATUS_BODY);
+await deadHub.stop();
+
+const atPort = (port) => ({ PI_LINK_PORT: String(port) });
+
+runCase("J1: --status --json prints the hub's bytes verbatim", () => {
+  const r = run(["--status", "--json"], atPort(okHub.port));
+  let parsed = null;
+  try { parsed = JSON.parse(r.stdout); } catch {}
+  const ok =
+    r.code === 0 &&
+    r.stdout === STATUS_BODY &&
+    parsed?.hub === "archon@pi-link" &&
+    parsed?.port === 9900 &&
+    parsed?.terminals?.length === 3;
+  return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout.slice(0, 200))}`];
+});
+
+runCase("J1b: --json passes the optional shapes through untouched", () => {
+  const r = run(["--status", "--json"], atPort(okHub.port));
+  const t = JSON.parse(r.stdout).terminals;
+  const ok =
+    t[1].context.tokens === null &&
+    t[1].status === "compacting" &&
+    !("status" in t[2]) &&
+    !("sinceSeconds" in t[2]) &&
+    t[2].context === null;
+  return [ok, JSON.stringify(t)];
+});
+
+runCase("J2: --status renders the table with link_list formats", () => {
+  const r = run(["--status"], atPort(okHub.port));
+  const out = r.stdout;
+  const ok =
+    r.code === 0 &&
+    /NAME\s+STATUS\s+CONTEXT\s+CWD/.test(out) &&
+    out.includes("archon@pi-link") &&
+    out.includes("idle (7m)") &&
+    out.includes("92K/272K (34%)") &&
+    out.includes("compacting (12s)") &&
+    out.includes("?/272K");
+  return [ok, `exit ${r.code}, stdout=${JSON.stringify(out)}`];
+});
+
+runCase("J2b: an unheard-from terminal renders unknown, never idle", () => {
+  const r = run(["--status"], atPort(okHub.port));
+  const ghost = r.stdout.split("\n").find((line) => line.includes("ghost@pi-link")) ?? "";
+  // One `?` for status, one for context, one for cwd — and no invented status.
+  const ok =
+    r.code === 0 &&
+    (ghost.match(/\?/g) ?? []).length === 3 &&
+    !ghost.includes("idle");
+  return [ok, `ghost row=${JSON.stringify(ghost)}`];
+});
+
+runCase("J2c: payload order is preserved, hub first", () => {
+  const r = run(["--status"], atPort(okHub.port));
+  const body = r.stdout.split("\n").slice(1); // drop the header row
+  const ok =
+    body[0].includes("archon@pi-link") &&
+    body[1].includes("fable@pi-link") &&
+    body[2].includes("ghost@pi-link");
+  return [ok, JSON.stringify(r.stdout)];
+});
+
+expectExit("J3: no hub listening exits 2", ["--status"], 2, "No link hub running", atPort(deadHub.port));
+expectExit("J4: an old hub answering 426 exits 1", ["--status"], 1, "does not support /status", atPort(oldHub.port));
+expectExit("J4b: a 200 that is not JSON exits 1", ["--status"], 1, "does not support /status", atPort(htmlHub.port));
+expectExit("J4c: valid JSON of the wrong shape exits 1", ["--status"], 1, "does not support /status", atPort(shapeHub.port));
+expectExit("J4d: --json does not bypass the unsupported check", ["--status", "--json"], 1, "does not support /status", atPort(oldHub.port));
+expectExit("J5: --status foo rejects arguments", ["--status", "foo"], 1, "does not accept arguments");
+expectExit("J6: --status --list cannot combine", ["--status", "--list"], 1, "cannot combine");
+expectExit("J6b: --list --status cannot combine", ["--list", "--status"], 1, "cannot combine");
+expectExit("J7: --status -g cannot combine", ["--status", "-g"], 1, "cannot combine");
+expectExit("J7b: -g --status cannot combine regardless of order", ["-g", "--status"], 1, "cannot combine");
+expectExit("J7c: --status --global cannot combine", ["--status", "--global"], 1, "cannot combine");
+expectExit("J7d: --json without --status is a usage error", ["--json"], 1, "only valid with --status");
+expectExit("J7e: --list --json is rejected", ["--list", "--json"], 1, "does not accept argument");
+
+runCase("J8: the exit-2 message names the effective port", () => {
+  const r = run(["--status"], atPort(deadHub.port));
+  const ok = r.code === 2 && r.stderr.includes(`:${deadHub.port}.`);
+  return [ok, `exit ${r.code}, stderr=${JSON.stringify(r.stderr)}`];
+});
+
+runCase("J8b: an unusable PI_LINK_PORT is reported, not validated", () => {
+  const r = run(["--status"], { PI_LINK_PORT: "not-a-port" });
+  const ok = r.code === 2 && r.stderr.includes("No link hub running on :not-a-port.");
+  return [ok, `exit ${r.code}, stderr=${JSON.stringify(r.stderr)}`];
+});
+
+runCase("J9: help advertises --status", () => {
+  const r = run(["--help"]);
+  const ok = r.code === 0 && r.stderr.includes("pi-link --status [--json]");
+  return [ok, JSON.stringify(r.stderr)];
+});
+
+// J10 — a stalled body is a timeout, not an unsupported hub.
+runCase("J10: 200 headers then a stalled body exits 2", () => {
+  const r = run(["--status"], atPort(stallHub.port));
+  const ok =
+    r.code === 2 &&
+    r.stderr.includes(`No link hub running on :${stallHub.port}.`) &&
+    !r.stderr.includes("does not support");
+  return [ok, `exit ${r.code}, stderr=${JSON.stringify(r.stderr)}`];
+});
+
+runCase("J10b: a stalled body exits 2 under --json too", () => {
+  const r = run(["--status", "--json"], atPort(stallHub.port));
+  const ok = r.code === 2 && r.stderr.includes("No link hub running") && r.stdout === "";
+  return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}, stderr=${JSON.stringify(r.stderr)}`];
+});
+
+// J11 — every non-contract payload is rejected cleanly, in both output modes.
+for (const [description, payload] of Object.entries(MALFORMED)) {
+  const hub = await startStubHub("ok", payload);
+  for (const args of [["--status"], ["--status", "--json"]]) {
+    const mode = args.length === 1 ? "human" : "--json";
+    runCase(`J11: ${description} is rejected (${mode})`, () => {
+      const r = run(args, atPort(hub.port));
+      const combined = r.stdout + r.stderr;
+      const ok =
+        r.code === 1 &&
+        combined.includes("does not support /status") &&
+        // The whole point: a wrong server must not surface as a crash.
+        !/TypeError|ReferenceError|\n\s+at /.test(combined) &&
+        r.stdout === "";
+      return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout.slice(0, 120))}, stderr=${JSON.stringify(r.stderr.slice(0, 200))}`];
+    });
+  }
+  await hub.stop();
+}
+
+// J13 — forward compatibility, decided at the T2 tie-break: the status value is
+// display-only passthrough, so a kind this CLI has never heard of is rendered
+// rather than rejected. A future hub's fifth status kind must not blank out the
+// whole fleet, and must not do so intermittently.
+{
+  const futureBody = JSON.stringify({
+    hub: "h",
+    port: 9900,
+    terminals: [
+      { name: "h", role: "hub", status: "quiescing", sinceSeconds: 1, context: null },
+      { name: "c", role: "client", status: "tool:some_new_tool", sinceSeconds: 90, context: null },
+    ],
+  });
+  const futureHub = await startStubHub("ok", futureBody);
+
+  runCase("J13: an unknown status kind renders instead of rejecting the payload", () => {
+    const r = run(["--status"], atPort(futureHub.port));
+    const ok =
+      r.code === 0 &&
+      r.stdout.includes("quiescing (1s)") &&
+      r.stdout.includes("tool:some_new_tool (1m)") &&
+      !r.stdout.includes("does not support");
+    return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}`];
+  });
+
+  runCase("J13b: an unknown status kind passes through --json unchanged", () => {
+    const r = run(["--status", "--json"], atPort(futureHub.port));
+    const ok = r.code === 0 && r.stdout === futureBody;
+    return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout.slice(0, 160))}`];
+  });
+
+  await futureHub.stop();
+}
+
+// J12 — after a session name, both flags belong to pi, not to the wrapper.
+expectSpawn("J12: foo --status forwards --status to pi", ["foo", "--status"], ["--link", "--status"], "foo");
+expectSpawn("J12b: foo --json forwards --json to pi", ["foo", "--json"], ["--link", "--json"], "foo");
+expectSpawn("J12c: foo --status --json forwards both, in order", ["foo", "--status", "--json"], ["--link", "--status", "--json"], "foo");
+
+for (const hub of [okHub, oldHub, htmlHub, shapeHub, stallHub]) await hub.stop();
 
 // ── Report ──────────────────────────────────────────────────────────────────
 

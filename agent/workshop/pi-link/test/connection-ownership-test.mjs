@@ -24,8 +24,56 @@ const INDEX_URL = pathToFileURL(
 
 // ── Stubs for the modules Pi provides ───────────────────────────────────────
 
+// The hub hands this server to `ws` so it can answer `GET /status` on the link
+// port. Registered under both specifier spellings so no suite can bind a real one.
+// `listen` never emits on its own: each test decides when `listening`/`error`
+// arrive, exactly like the `ws` stub below.
+const HTTP_STUB = `
+  import { EventEmitter } from "node:events";
+  export const httpServers = [];
+  class FakeHttpServer extends EventEmitter {
+    constructor(handler) {
+      super();
+      this.handler = handler;
+      this.listening = false;
+      this.closed = false;
+      this.listenArgs = null;
+      // Counts every call, including the idempotent ones. A close site that runs
+      // after the server is already closed is invisible in \`closed\` alone, so
+      // without this a teardown test can pass while its own site does nothing.
+      this.closeCalls = 0;
+      httpServers.push(this);
+    }
+    listen(...args) { this.listenArgs = args; this.listening = true; return this; }
+    close() {
+      this.closeCalls++;
+      if (this.closed) return this;
+      this.closed = true;
+      this.listening = false;
+      this.emit("close");
+      return this;
+    }
+    /** Drive a request the way Node would, capturing the response. */
+    request(method, url) {
+      const res = {
+        statusCode: null,
+        headers: null,
+        body: "",
+        writeHead(code, headers) { res.statusCode = code; res.headers = headers ?? null; },
+        end(chunk) { if (chunk) res.body += chunk; res.ended = true; },
+        ended: false,
+      };
+      this.handler({ method, url }, res);
+      return res;
+    }
+  }
+  export function createServer(handler) { return new FakeHttpServer(handler); }
+`;
+
 const STUBS = {
   "@earendil-works/pi-coding-agent": `export const VERSION = "0.84.2";`,
+  "node:http": HTTP_STUB,
+  http: HTTP_STUB,
   "@earendil-works/pi-tui": `export class Text { constructor(text) { this.text = text; } }`,
   typebox: `export const Type = {
     Object: () => ({}), String: () => ({}), Optional: (s) => s,
@@ -68,10 +116,29 @@ const STUBS = {
         this.options = options;
         this.closed = false;
         servers.push(this);
+        // Real ws forwards \`listening\` and \`error\` from a provided server
+        // (8.21.3, websocket-server.js: addListeners). Hub election reads those
+        // two events, so without forwarding it could not be tested at all.
+        const provided = options && options.server;
+        if (provided) {
+          this.providedServer = provided;
+          this._fwdListening = () => this.emit("listening");
+          this._fwdError = (err) => this.emit("error", err);
+          provided.on("listening", this._fwdListening);
+          provided.on("error", this._fwdError);
+        }
       }
       close() {
         if (this.closed) return;
         this.closed = true;
+        // Real ws detaches its listeners and drops the reference but NEVER closes
+        // a server it was handed \u2014 only an internally created one. A stub kinder
+        // than this would make every teardown assertion below vacuous.
+        if (this.providedServer) {
+          this.providedServer.off("listening", this._fwdListening);
+          this.providedServer.off("error", this._fwdError);
+          this.providedServer = null;
+        }
         this.emit("close");
       }
     }
@@ -92,7 +159,15 @@ registerHooks({
 });
 
 const wsStub = await import("ws");
+const httpStub = await import("node:http");
 const createExtension = (await import(INDEX_URL)).default;
+
+// Known-answer guard: if the resolve hook ever stopped intercepting `node:http`,
+// every hub test would bind :9900 for real instead of failing visibly.
+if (typeof httpStub.httpServers === "undefined") {
+  console.error("FATAL: node:http is not stubbed — tests would bind a real port.");
+  process.exit(1);
+}
 
 // ── Harness ─────────────────────────────────────────────────────────────────
 
@@ -152,6 +227,7 @@ function boot({ link = false } = {}) {
 
   const socketBase = wsStub.sockets.length;
   const serverBase = wsStub.servers.length;
+  const httpBase = httpStub.httpServers.length;
   createExtension(api);
 
   const t = {
@@ -166,6 +242,7 @@ function boot({ link = false } = {}) {
     tool: (name, params = {}) => tools.get(name).execute("probe", params),
     sockets: () => wsStub.sockets.slice(socketBase),
     servers: () => wsStub.servers.slice(serverBase),
+    httpServers: () => httpStub.httpServers.slice(httpBase),
     /** "hub" | "client" | "disconnected", read from the real link_list tool. */
     role: async () => (await tools.get("link_list").execute("probe", {})).details?.role ?? "disconnected",
     start: async () => {
@@ -202,6 +279,9 @@ const peerEnded = new Set();
 
 function failBind(server) {
   peerEnded.add(server);
+  // A bind that never listened holds no port, so pi-link has nothing to close on
+  // the http server either — `settle` releases the handle and the object is done.
+  if (server.providedServer) peerEnded.add(server.providedServer);
   server.emit("error", new Error("EADDRINUSE"));
 }
 
@@ -656,6 +736,216 @@ async function readName(t) {
     registers(t.sockets()[1])[0]?.name === "after", JSON.stringify(t.sockets()[1].sent));
 }
 
+// ── 11. Hub `GET /status`: the endpoint, and the handle that serves it ──────
+
+/** Bring a terminal up as an established hub and hand back its two servers. */
+async function bootHub() {
+  const t = await boot({ link: true }).start();
+  await until(() => t.sockets().length === 1, "the startup dial");
+  failDial(t.sockets()[0]);
+  await until(() => t.servers().length === 1, "the hub attempt");
+  const http = t.httpServers()[0];
+  http.emit("listening"); // forwarded to the wss, exactly as ws 8.21.3 does
+  await tick();
+  // The harness names each terminal randomly, so read the name rather than fix it.
+  const self = (await t.tool("link_list")).details.self;
+  return { t, http, server: t.servers()[0], self };
+}
+
+const getStatus = (http) => {
+  const res = http.request("GET", "/status");
+  return { res, body: JSON.parse(res.body) };
+};
+
+{
+  const { t, http, server, self } = await bootHub();
+
+  check("11: the provided server is the one that listens on the link port",
+    JSON.stringify(http.listenArgs) === JSON.stringify([9900, "127.0.0.1"]),
+    JSON.stringify(http.listenArgs));
+  check("11: forwarded listening committed the hub", (await t.role()) === "hub");
+  check("11: the ws server was handed the http server",
+    server.options?.server === http && server.options?.port === undefined,
+    JSON.stringify(Object.keys(server.options ?? {})));
+
+  const { res, body } = getStatus(http);
+  check("11: GET /status answers 200 JSON",
+    res.statusCode === 200 && res.headers?.["content-type"] === "application/json" && res.ended,
+    `${res.statusCode} ${JSON.stringify(res.headers)}`);
+  check("11: payload carries hub name and port",
+    body.hub === self && body.port === 9900, JSON.stringify(body));
+  check("11: the hub is the first terminal and is labelled hub",
+    body.terminals[0].name === self && body.terminals[0].role === "hub",
+    JSON.stringify(body.terminals));
+  check("11: the hub reports its own live status and context",
+    body.terminals[0].status === "idle" &&
+      typeof body.terminals[0].sinceSeconds === "number" &&
+      body.terminals[0].context.tokens === 10 &&
+      body.terminals[0].context.window === 100,
+    JSON.stringify(body.terminals[0]));
+  check("11: the hub reports its cwd", body.terminals[0].cwd === "C:/probe",
+    JSON.stringify(body.terminals[0]));
+
+  // Other paths and other methods are not the endpoint.
+  const notFound = [
+    http.request("GET", "/"),
+    http.request("GET", "/statuses"),
+    http.request("GET", "/status?x=1"),
+    http.request("POST", "/status"),
+    http.request("DELETE", "/status"),
+  ];
+  check("11: every other path and method is 404 with no body",
+    notFound.every((r) => r.statusCode === 404 && r.body === "" && r.ended),
+    JSON.stringify(notFound.map((r) => r.statusCode)));
+}
+
+{
+  const { t, http, server, self } = await bootHub();
+
+  // Two clients, registered out of alphabetical order.
+  const zeta = fakeIncoming();
+  server.emit("connection", zeta);
+  zeta.receive({ type: "register", name: "zeta", cwd: "C:/zeta" });
+  const alpha = fakeIncoming();
+  server.emit("connection", alpha);
+  alpha.receive({ type: "register", name: "alpha" });
+  await tick();
+
+  // All four status kinds, driven over the wire the way a real peer reports them.
+  const since = Date.now() - 5_000;
+  alpha.receive({
+    type: "status_update",
+    status: { kind: "thinking", since },
+    context: { tokens: null, contextWindow: 200 },
+  });
+  await tick();
+
+  const { body } = getStatus(http);
+  check("11: hub first, then clients sorted by name",
+    body.terminals.map((e) => e.name).join(",") === `${self},alpha,zeta`,
+    JSON.stringify(body.terminals.map((e) => e.name)));
+  check("11: clients are labelled client",
+    body.terminals.slice(1).every((e) => e.role === "client"),
+    JSON.stringify(body.terminals));
+
+  const a = body.terminals.find((e) => e.name === "alpha");
+  check("11: a reported status is flattened and dated",
+    a.status === "thinking" && a.sinceSeconds === 5, JSON.stringify(a));
+  check("11: tokens null survives as null, window is renamed from contextWindow",
+    a.context.tokens === null && a.context.window === 200, JSON.stringify(a));
+  check("11: a client that sent no cwd omits the field", !("cwd" in a), JSON.stringify(a));
+
+  const z = body.terminals.find((e) => e.name === "zeta");
+  check("11: a client heard from but not yet reporting omits status, never invents idle",
+    !("status" in z) && !("sinceSeconds" in z), JSON.stringify(z));
+  check("11: no context snapshot renders the whole field null", z.context === null, JSON.stringify(z));
+  check("11: a client cwd from register is reported", z.cwd === "C:/zeta", JSON.stringify(z));
+
+  for (const [kind, expected] of [
+    [{ kind: "compacting", since }, "compacting"],
+    [{ kind: "tool", toolName: "link_send", since }, "tool:link_send"],
+    [{ kind: "idle", since }, "idle"],
+  ]) {
+    alpha.receive({ type: "status_update", status: kind });
+    await tick();
+    const seen = getStatus(http).body.terminals.find((e) => e.name === "alpha").status;
+    check(`11: status kind ${expected} is reported verbatim`, seen === expected, seen);
+  }
+
+  // Read-only: observing the link must not disturb it.
+  const before = {
+    terminals: (await t.tool("link_list")).details.terminals.join(","),
+    zetaFrames: zeta.sent.length,
+    alphaFrames: alpha.sent.length,
+  };
+  for (let i = 0; i < 3; i++) getStatus(http);
+  await tick();
+  const after = (await t.tool("link_list")).details.terminals.join(",");
+  check("11: /status broadcasts nothing to clients",
+    zeta.sent.length === before.zetaFrames && alpha.sent.length === before.alphaFrames,
+    `zeta ${before.zetaFrames}->${zeta.sent.length} alpha ${before.alphaFrames}->${alpha.sent.length}`);
+  check("11: /status leaves membership untouched", after === before.terminals,
+    `${before.terminals} -> ${after}`);
+  check("11: clients stay connected across polling",
+    zeta.closed === false && alpha.closed === false);
+}
+
+// The invariant the three teardown sites exist for: closing the ws server does
+// not close a server it was handed, so pi-link must close it at every exit.
+{
+  const { http, server } = await bootHub();
+  server.close();
+  await tick();
+  check("11: wss.close() alone leaves the provided http server open",
+    server.closed === true && http.closed === false);
+  check("11: and ws has detached its forwarding listeners",
+    server.providedServer === null);
+}
+
+// Site 1 — listening arrives after the attempt was cancelled.
+{
+  const t = await boot({ link: true }).start();
+  await until(() => t.sockets().length === 1, "the startup dial");
+  failDial(t.sockets()[0]);
+  await until(() => t.servers().length === 1, "the hub attempt");
+  const http = t.httpServers()[0];
+  const server = t.servers()[0];
+  await t.cmd("link-disconnect");
+  await tick();
+  // Cancellation has already closed this server, and `ws` detached its forwarding
+  // on `wss.close()` — so a forwarded `listening` can no longer reach the branch.
+  // Drive the wss directly, the way the older adversarial tests do: that is the
+  // only route to this close site, and only the call count can observe it.
+  const closesBefore = http.closeCalls;
+  server.emit("listening");
+  await tick();
+  check("11: the stale-listening branch closes the http server itself",
+    http.closeCalls === closesBefore + 1, `${closesBefore} -> ${http.closeCalls}`);
+  check("11: late listening does not make it the hub", (await t.role()) === "disconnected");
+}
+
+// Site 2 — cancellation while the bind is still pending.
+{
+  const t = await boot({ link: true }).start();
+  await until(() => t.sockets().length === 1, "the startup dial");
+  failDial(t.sockets()[0]);
+  await until(() => t.servers().length === 1, "the hub attempt");
+  const http = t.httpServers()[0];
+  check("11: the pending http server is open before cancellation", http.closed === false);
+  await t.cmd("link-disconnect");
+  await tick();
+  check("11: cancelConnectionAttempt closes the pending http server", http.closed === true);
+}
+
+// Site 3 — an established hub disconnecting must free the port.
+{
+  const { t, http, server } = await bootHub();
+  check("11: the established hub's http server is open", http.closed === false);
+  await t.cmd("link-disconnect");
+  await tick();
+  check("11: disconnect closes the established http server", http.closed === true);
+  check("11: disconnect closed the ws server too", server.closed === true);
+  check("11: the hub is no longer serving", (await t.role()) === "disconnected");
+}
+
+// Election: a bind failure forwarded from the provided server still falls back.
+{
+  const t = await boot({ link: true }).start();
+  await until(() => t.sockets().length === 1, "the startup dial");
+  failDial(t.sockets()[0]);
+  await until(() => t.servers().length === 1, "the hub attempt");
+  const http = t.httpServers()[0];
+  peerEnded.add(t.servers()[0]);
+  peerEnded.add(http);
+  http.emit("error", Object.assign(new Error("EADDRINUSE"), { code: "EADDRINUSE" }));
+  await until(() => t.sockets().length === 2, "the single reconnect", RECONNECT_CEILING_MS);
+  await new Promise((r) => setTimeout(r, 200));
+  check("11: EADDRINUSE forwarded from the http server falls back to client, once",
+    t.sockets().length === 2 && t.servers().length === 1,
+    `sockets=${t.sockets().length} servers=${t.servers().length}`);
+  check("11: a failed bind never became the hub", (await t.role()) !== "hub");
+}
+
 // ── Teardown: every instance closes its own transports and timers ───────────
 
 for (const { t, ctx } of booted) await t.emit("session_shutdown", { reason: "quit" }, ctx);
@@ -667,10 +957,13 @@ const stillOpen = (transports) =>
     .map(({ index }) => index);
 const leakedSockets = stillOpen(wsStub.sockets);
 const leakedServers = stillOpen(wsStub.servers);
+// An unclosed http server is the one leak that outlives the process's usefulness:
+// it squats :9900 and no other terminal can ever become hub.
+const leakedHttp = stillOpen(httpStub.httpServers);
 check(
-  `teardown: pi-link closed every transport it held (${wsStub.sockets.length} sockets, ${wsStub.servers.length} servers)`,
-  leakedSockets.length === 0 && leakedServers.length === 0,
-  `still open: sockets ${JSON.stringify(leakedSockets)} servers ${JSON.stringify(leakedServers)}`,
+  `teardown: pi-link closed every transport it held (${wsStub.sockets.length} sockets, ${wsStub.servers.length} servers, ${httpStub.httpServers.length} http)`,
+  leakedSockets.length === 0 && leakedServers.length === 0 && leakedHttp.length === 0,
+  `still open: sockets ${JSON.stringify(leakedSockets)} servers ${JSON.stringify(leakedServers)} http ${JSON.stringify(leakedHttp)}`,
 );
 
 console.log(`\n\nPassed: ${pass}`);
