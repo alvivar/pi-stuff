@@ -121,6 +121,25 @@ section("3. Bedrock cache-point block without `text` left alone");
 }
 
 // ---------------------------------------------------------------------------
+section("3b. Custom-provider shape — payload.system as plain string");
+{
+  // Defensive branch in index.ts: no built-in provider emits a bare string
+  // here today, but custom providers may. Covered so the refactor can't
+  // silently drop it.
+  const payload = { system: "You are pi. Use pi wisely." };
+  const { effective } = run(payload);
+  check("string system rewritten",
+    effective.system === "You are PI. Use PI wisely.",
+    `got: ${JSON.stringify(effective.system)}`);
+  check("original payload not mutated", payload.system === "You are pi. Use pi wisely.");
+
+  // No standalone "pi" anywhere -> nothing to change -> no-op fast path.
+  const noMatch = { system: "Nothing here." };
+  check("no-match string system -> undefined",
+    handler({ type: "before_provider_request", payload: noMatch }, {}) === undefined);
+}
+
+// ---------------------------------------------------------------------------
 section("4. OpenAI Codex Responses shape — payload.instructions (string)");
 {
   const payload = {
