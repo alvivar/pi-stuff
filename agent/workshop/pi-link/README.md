@@ -14,10 +14,10 @@ Questions, ideas? There's a [pi-link thread](https://discord.com/channels/145680
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Walkthrough](#walkthrough)
-- [Configuration](#configuration)
-  - [Who is connected right now](#who-is-connected-right-now)
 - [LLM Tools](#llm-tools)
 - [Slash Commands](#slash-commands)
+- [Configuration](#configuration)
+  - [Who is connected right now](#who-is-connected-right-now)
 - [Architecture](#architecture)
 - [Troubleshooting](#troubleshooting)
 - [Limitations & Design Decisions](#limitations--design-decisions)
@@ -136,6 +136,142 @@ In Terminal 1, type a normal prompt:
 ```
 
 Terminal 1 calls `link_send` and returns immediately. The message enters Terminal 2's reasoning — steered into its current run if it is working, or starting a turn if it is idle. Terminal 2 completes the assignment, then sends a conventional `DONE` callback. That callback enters Terminal 1 the same way, where the result can be presented or used for follow-up work.
+
+---
+
+## LLM Tools
+
+The extension registers three tools. `link_send` is the sole agent messaging tool; `link_list` provides discovery and status, and `link_compact` is a separate bounded blocking operation. pi-link also ships a **pi-link-coordination** skill that explains how the tools behave.
+
+### Which tool should I use?
+
+| Tool           | Behavior                                                | Returns                                                 |
+| -------------- | ------------------------------------------------------- | ------------------------------------------------------- |
+| `link_send`    | Send a message to one other terminal                    | Reports whether sending started, not whether it arrived |
+| `link_list`    | List currently connected terminals                      | Terminal list with roles, status, cwd, and context      |
+| `link_compact` | Ask another terminal to compact and wait for its result | Compacted, declined, or failed                          |
+
+### `link_send`
+
+Send a message to one other terminal. The sender returns immediately.
+
+| Parameter | Type     | Description          |
+| --------- | -------- | -------------------- |
+| `to`      | `string` | Target terminal name |
+| `message` | `string` | Message content      |
+
+When a message reaches the target terminal, it enters the receiver's inbox. Messages arriving close together may be delivered in one batch. The first message sets a delay of about 200ms; later messages do not extend it, so continuous traffic still gets delivered regularly. Each batch arrives as one `[Link: N message(s) received]` block, in arrival order, with each message under a `From "name":` header.
+
+The receiver's state is read when that batch is delivered, not when it is sent. If the receiver is still running then, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. Otherwise it starts a turn. There is no way to send without entering the receiver's reasoning.
+
+Each send has exactly one recipient; there is no fan-out.
+
+`link_send` never returns the receiver's eventual work result. A reply is an ordinary later `link_send`, uncorrelated with the message that prompted it: there is no request ID, no automatic response, and no delivery receipt for completed work.
+
+Targets are pre-validated against the local terminal list to catch definite typos or offline names. Sending to yourself is rejected. For a client, a successful send means the message was handed to its connection to the hub. It does not confirm that the hub routed it or that the receiver saw it — see [Message Routing](#message-routing--error-handling).
+
+### `link_list`
+
+Lists all connected terminals with role info, status, working directory, context usage, and self-identification. Takes no parameters. Your own status and context are read when you run `link_list`; for other terminals, you see their most recently reported values, which may be slightly behind.
+
+Each terminal reports its current working directory on connect. `link_list` shows the full absolute path.
+
+Each terminal also reports its LLM context usage, rendered as `45K/272K (17%)` — tokens used over the context window, with percent. Briefly after compaction it shows as `?/272K` until the next measured context value is available.
+
+Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Four states:
+
+| Status            | Meaning                                      |
+| ----------------- | -------------------------------------------- |
+| `idle (2m)`       | Waiting for user input                       |
+| `thinking (3s)`   | LLM is generating                            |
+| `tool:bash (12s)` | The first still-active call, not a list      |
+| `compacting (8s)` | Manual compaction gate raised; messages held |
+
+Pi can run tools in parallel, and does by default. `tool:<name>` then names the first still-active call Pi reported — one call that really is still running, not a list of every concurrent one. It advances only when that call ends, and stays `tool:<name>` until the last call ends.
+
+`thinking` means work Pi has not settled yet, which is more than an LLM call: an automatic retry, an automatic compaction and a queued continuation all happen after `agent_end` and inside the same run, and the terminal reports `thinking` through all of them until Pi reports the run settled.
+
+Only a manual compaction shows `compacting`. An automatic (threshold or overflow) compaction never shows it — it is not gated, so it reports `thinking` like the rest of the run it belongs to. A manual compaction also runs briefly before the gate rises, and reads as whatever preceded it until it does.
+
+Durations are computed at render time from a `since` timestamp - no timer traffic over the wire. Terminals that just joined with no status data yet render as blank, not fake idle.
+
+Working directories use full absolute paths in tool output. In the TUI (`/link`), paths are shortened to `~/...` when possible to keep the display compact.
+
+**Example output:**
+
+```
+Connected terminals:
+  • opus@pi-link (you)  idle (12s)  · 45K/272K (17%)
+    cwd: C:\Users\andre\.pi
+  • gpt@pi-link  thinking (3s)  · ?/272K
+    cwd: C:\Users\andre\.pi
+  • docs@pi-link  idle (1m)  · 90K/272K (33%)
+    cwd: C:\Users\andre\.pi
+```
+
+### `link_compact`
+
+Ask another terminal to compact its context window and wait up to 180 seconds for a result. The target may compact successfully, decline, or return an error. After a successful result, the next call can dispatch work to the freshly trimmed worker.
+
+| Parameter      | Type     | Description                                            |
+| -------------- | -------- | ------------------------------------------------------ |
+| `to`           | `string` | Target terminal name                                   |
+| `instructions` | `string` | Optional custom compaction instructions for the target |
+
+- When the target accepts, it runs `ctx.compact()` — the same operation as `/compact`. Success is returned only after the runtime reports that it finished.
+- **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
+- **Busy decline** — the target accepts only when Pi reports its session idle **and** no manual compaction holds its delivery gate; otherwise it declines immediately with `reason: "busy"` and does not interrupt active work. Pi's idle state is the authority, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline, not just a visible turn.
+- **Unsupported decline** — a target whose runtime offers no compaction capability declines with `reason: "unsupported"`, and is never asked to compact.
+- **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`.
+- **Already-compacted decline** — a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`. Two compactions back to back require work in between.
+- **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
+- **Flat 180-second timeout** — compaction typically takes 5–60s. The timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
+- **A cancelled compaction does not reopen delivery by itself** — pi-link cannot observe the cancellation. The target may keep reporting `compacting` and hold messages without notifying the sender until its next agent run, a later successful compaction, or the 180-second backstop.
+- **Caller abort** — if the call is aborted before the request is sent, the target does nothing. After the request is sent, aborting only stops the caller from waiting; it does not cancel the target's work.
+- Each call targets one terminal; independent calls can run concurrently.
+- Any connected terminal can request compaction on another; link participants are cooperating peers.
+
+---
+
+## Slash Commands
+
+| Command             | Purpose                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `/link`             | Show link status (name, role, online count, agent status, context usage, and cwd per terminal)                           |
+| `/link-name [name]` | Rename and save as this session's preferred link name. With no argument, adopts the Pi session name. Restored on resume. |
+| `/link-connect`     | Connect to Pi Link (works anytime, with or without `--link`)                                                             |
+| `/link-disconnect`  | Disconnect from Pi Link and suppress auto-reconnect (overrides `--link`)                                                 |
+
+### Examples
+
+```
+> /link
+⚡ Link: builder (hub) · 3 online
+  builder: idle (12s) · 45K/272K (17%)
+    cwd: ~/my-project
+  worker-1: thinking (3s) · ?/272K
+    cwd: ~/my-project
+  worker-2: tool:bash (5s) · 180K/272K (66%)
+    cwd: ~/other-project
+
+> /link-name orchestrator
+✓ Renamed to "orchestrator"
+
+> /link-name
+✓ Renamed to "my-session"
+
+> /link-disconnect
+✓ Disconnected from link
+
+> /link-connect
+✓ Joined link as "orchestrator" (3 online)
+```
+
+With no argument, `/link-name` adopts the Pi session name. `/link-connect` joins an existing hub if one is running; otherwise it starts the hub.
+
+**Name persistence:** `/link-name` saves your preferred name to the session. Resume later and it's restored automatically. If the name is taken, the hub assigns a variant (e.g., `"builder-2"`), but your preferred name stays saved for the next reconnect. See [Name Uniqueness & Persistence](#name-uniqueness--persistence) for details.
+
+See [Configuration](#configuration) for details on `--link`, `/link-connect`, and `/link-disconnect` behavior.
 
 ---
 
@@ -308,142 +444,6 @@ Exit `2` means no hub answered **at that instant**. When a hub exits, a survivin
 The endpoint is bound to `127.0.0.1` with no authentication, the same trust boundary as the WebSocket surface it shares a port with: any process on this machine can already connect to the link.
 
 Finally, `--status` and `--json` belong to the wrapper only until a session name appears. After one, they are pi's: `pi-link mybot --status` forwards `--status` to pi untouched, exactly like any other passthrough flag.
-
----
-
-## LLM Tools
-
-The extension registers three tools. `link_send` is the sole agent messaging tool; `link_list` provides discovery and status, and `link_compact` is a separate bounded blocking operation. pi-link also ships a **pi-link-coordination** skill that explains how the tools behave.
-
-### Which tool should I use?
-
-| Tool           | Behavior                                                | Returns                                                 |
-| -------------- | ------------------------------------------------------- | ------------------------------------------------------- |
-| `link_send`    | Send a message to one other terminal                    | Reports whether sending started, not whether it arrived |
-| `link_list`    | List currently connected terminals                      | Terminal list with roles, status, cwd, and context      |
-| `link_compact` | Ask another terminal to compact and wait for its result | Compacted, declined, or failed                          |
-
-### `link_send`
-
-Send a message to one other terminal. The sender returns immediately.
-
-| Parameter | Type     | Description          |
-| --------- | -------- | -------------------- |
-| `to`      | `string` | Target terminal name |
-| `message` | `string` | Message content      |
-
-When a message reaches the target terminal, it enters the receiver's inbox. Messages arriving close together may be delivered in one batch. The first message sets a delay of about 200ms; later messages do not extend it, so continuous traffic still gets delivered regularly. Each batch arrives as one `[Link: N message(s) received]` block, in arrival order, with each message under a `From "name":` header.
-
-The receiver's state is read when that batch is delivered, not when it is sent. If the receiver is still running then, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. Otherwise it starts a turn. There is no way to send without entering the receiver's reasoning.
-
-Each send has exactly one recipient; there is no fan-out.
-
-`link_send` never returns the receiver's eventual work result. A reply is an ordinary later `link_send`, uncorrelated with the message that prompted it: there is no request ID, no automatic response, and no delivery receipt for completed work.
-
-Targets are pre-validated against the local terminal list to catch definite typos or offline names. Sending to yourself is rejected. For a client, a successful send means the message was handed to its connection to the hub. It does not confirm that the hub routed it or that the receiver saw it — see [Message Routing](#message-routing--error-handling).
-
-### `link_list`
-
-Lists all connected terminals with role info, status, working directory, context usage, and self-identification. Takes no parameters. Your own status and context are read when you run `link_list`; for other terminals, you see their most recently reported values, which may be slightly behind.
-
-Each terminal reports its current working directory on connect. `link_list` shows the full absolute path.
-
-Each terminal also reports its LLM context usage, rendered as `45K/272K (17%)` — tokens used over the context window, with percent. Briefly after compaction it shows as `?/272K` until the next measured context value is available.
-
-Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Four states:
-
-| Status            | Meaning                                      |
-| ----------------- | -------------------------------------------- |
-| `idle (2m)`       | Waiting for user input                       |
-| `thinking (3s)`   | LLM is generating                            |
-| `tool:bash (12s)` | The first still-active call, not a list      |
-| `compacting (8s)` | Manual compaction gate raised; messages held |
-
-Pi can run tools in parallel, and does by default. `tool:<name>` then names the first still-active call Pi reported — one call that really is still running, not a list of every concurrent one. It advances only when that call ends, and stays `tool:<name>` until the last call ends.
-
-`thinking` means work Pi has not settled yet, which is more than an LLM call: an automatic retry, an automatic compaction and a queued continuation all happen after `agent_end` and inside the same run, and the terminal reports `thinking` through all of them until Pi reports the run settled.
-
-Only a manual compaction shows `compacting`. An automatic (threshold or overflow) compaction never shows it — it is not gated, so it reports `thinking` like the rest of the run it belongs to. A manual compaction also runs briefly before the gate rises, and reads as whatever preceded it until it does.
-
-Durations are computed at render time from a `since` timestamp - no timer traffic over the wire. Terminals that just joined with no status data yet render as blank, not fake idle.
-
-Working directories use full absolute paths in tool output. In the TUI (`/link`), paths are shortened to `~/...` when possible to keep the display compact.
-
-**Example output:**
-
-```
-Connected terminals:
-  • opus@pi-link (you)  idle (12s)  · 45K/272K (17%)
-    cwd: C:\Users\andre\.pi
-  • gpt@pi-link  thinking (3s)  · ?/272K
-    cwd: C:\Users\andre\.pi
-  • docs@pi-link  idle (1m)  · 90K/272K (33%)
-    cwd: C:\Users\andre\.pi
-```
-
-### `link_compact`
-
-Ask another terminal to compact its context window and wait up to 180 seconds for a result. The target may compact successfully, decline, or return an error. After a successful result, the next call can dispatch work to the freshly trimmed worker.
-
-| Parameter      | Type     | Description                                            |
-| -------------- | -------- | ------------------------------------------------------ |
-| `to`           | `string` | Target terminal name                                   |
-| `instructions` | `string` | Optional custom compaction instructions for the target |
-
-- When the target accepts, it runs `ctx.compact()` — the same operation as `/compact`. Success is returned only after the runtime reports that it finished.
-- **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
-- **Busy decline** — the target accepts only when Pi reports its session idle **and** no manual compaction holds its delivery gate; otherwise it declines immediately with `reason: "busy"` and does not interrupt active work. Pi's idle state is the authority, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline, not just a visible turn.
-- **Unsupported decline** — a target whose runtime offers no compaction capability declines with `reason: "unsupported"`, and is never asked to compact.
-- **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`.
-- **Already-compacted decline** — a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`. Two compactions back to back require work in between.
-- **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
-- **Flat 180-second timeout** — compaction typically takes 5–60s. The timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
-- **A cancelled compaction does not reopen delivery by itself** — pi-link cannot observe the cancellation. The target may keep reporting `compacting` and hold messages without notifying the sender until its next agent run, a later successful compaction, or the 180-second backstop.
-- **Caller abort** — if the call is aborted before the request is sent, the target does nothing. After the request is sent, aborting only stops the caller from waiting; it does not cancel the target's work.
-- Each call targets one terminal; independent calls can run concurrently.
-- Any connected terminal can request compaction on another; link participants are cooperating peers.
-
----
-
-## Slash Commands
-
-| Command             | Purpose                                                                                                                  |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `/link`             | Show link status (name, role, online count, agent status, context usage, and cwd per terminal)                           |
-| `/link-name [name]` | Rename and save as this session's preferred link name. With no argument, adopts the Pi session name. Restored on resume. |
-| `/link-connect`     | Connect to Pi Link (works anytime, with or without `--link`)                                                             |
-| `/link-disconnect`  | Disconnect from Pi Link and suppress auto-reconnect (overrides `--link`)                                                 |
-
-### Examples
-
-```
-> /link
-⚡ Link: builder (hub) · 3 online
-  builder: idle (12s) · 45K/272K (17%)
-    cwd: ~/my-project
-  worker-1: thinking (3s) · ?/272K
-    cwd: ~/my-project
-  worker-2: tool:bash (5s) · 180K/272K (66%)
-    cwd: ~/other-project
-
-> /link-name orchestrator
-✓ Renamed to "orchestrator"
-
-> /link-name
-✓ Renamed to "my-session"
-
-> /link-disconnect
-✓ Disconnected from link
-
-> /link-connect
-✓ Joined link as "orchestrator" (3 online)
-```
-
-With no argument, `/link-name` adopts the Pi session name. `/link-connect` joins an existing hub if one is running; otherwise it starts the hub.
-
-**Name persistence:** `/link-name` saves your preferred name to the session. Resume later and it's restored automatically. If the name is taken, the hub assigns a variant (e.g., `"builder-2"`), but your preferred name stays saved for the next reconnect. See [Name Uniqueness & Persistence](#name-uniqueness--persistence) for details.
-
-See [Configuration](#configuration) for details on `--link`, `/link-connect`, and `/link-disconnect` behavior.
 
 ---
 
