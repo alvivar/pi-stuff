@@ -1,5 +1,5 @@
 {
-  "active": "pi-rules",
+  "active": "pi.claude.hack",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -345,18 +345,27 @@
     ],
     "pi.claude.hack": [
       {
-        "name": "opus@pi.claude.hack",
-        "icon": "tools",
+        "name": "archon@pi.claude.hack",
+        "icon": "organization",
+        "color": "terminal.ansiBrightWhite",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi.claude.hack"
+        ]
+      },
+      {
+        "name": "claude@pi.claude.hack",
+        "icon": "sparkle",
         "color": "terminal.ansiBrightMagenta",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi.claude.hack"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link claude@pi.claude.hack"
         ]
       },
       {
         "name": "gpt@pi.claude.hack",
-        "icon": "tools",
+        "icon": "copilot",
         "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
