@@ -15,6 +15,7 @@ Questions, ideas? There's a [pi-link thread](https://discord.com/channels/145680
 - [Quick Start](#quick-start)
 - [Walkthrough](#walkthrough)
 - [Configuration](#configuration)
+  - [Who is connected right now](#who-is-connected-right-now)
 - [LLM Tools](#llm-tools)
 - [Slash Commands](#slash-commands)
 - [Architecture](#architecture)
@@ -224,8 +225,8 @@ $ pi-link --status
 NAME          STATUS               CONTEXT          CWD
 opus@pi-link  idle (7m)            92K/272K (34%)   ~/my-project
 gpt@pi-link   tool:link_send (3s)  ?/272K           ~/my-project
-sol@pi-link   compacting (12s)     1.3M/2.0M (63%)  ~/other-project
 new@pi-link   ?                    ?                ?
+sol@pi-link   compacting (12s)     1.3M/2.0M (63%)  ~/other-project
 ```
 
 The hub is listed first, then clients sorted by name. A `?` means the hub could not report that field — for `new@pi-link` above, it has registered but has not yet sent its first status update. **`?` means unknown, not idle.** Reading it as idle is the mistake this command exists to prevent.
@@ -299,6 +300,8 @@ Two things may grow, and consumers must tolerate both:
 The two failure messages are deliberately distinct, so a script can tell *the link is down* from *this machine needs upgrading* without parsing anything else. Exit `2` covers both nothing listening and a listener that accepts the request but does not answer within two seconds — every timeout is exit `2`. Exit `1` covers a listener that responds but is not a hub speaking this contract: a pi-link 0.3.0 hub answers plain HTTP with `426 Upgrade Required`, so an out-of-date fleet lands here deterministically rather than looking like an outage.
 
 Exit `2` means no hub answered **at that instant**. When a hub exits, a surviving client promotes itself to replace it, which takes roughly 2–5 seconds — poll again before concluding the fleet is down.
+
+#### Notes
 
 `PI_LINK_PORT` changes only where the CLI looks; the extension always binds the hub to `9900`. It exists so tests can run a stub hub on a free port. The value is not validated — an unusable one simply fails the request and is reported back to you in the exit-`2` message.
 
