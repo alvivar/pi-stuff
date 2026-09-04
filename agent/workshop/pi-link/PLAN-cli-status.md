@@ -1,8 +1,12 @@
 # PLAN — Link status endpoint + `pi-link --status`
 
-> **Status:** Executable
+> **Status:** ARCHIVED 2026-08-28 — superseded by `PLAN-link-status.md`, re-derived from
+> first principles for the C2-ownership codebase (this plan predates the connection-
+> ownership refactor and the `compacting` status; its bootstrap-risk framing is stale:
+> ws 8.21.3 forwards `listening`/`error` from a provided HTTP server, so election
+> handlers need no move). Do not build from this file.
 > **Last aligned:** 2026-07-01
-> **Build from this?** Yes — design is owner-approved (option D, 2026-06-09); no open decisions. Keep the JSON contract minimal (terminals, cwd, status, context) — do **not** pre-bake model/thinking fields for the parked runtime-control idea.
+> **Build from this?** No — see `PLAN-link-status.md`. Keep the JSON contract minimal (terminals, cwd, status, context) — do **not** pre-bake model/thinking fields for the parked runtime-control idea.
 > **Gate:** `node test/cli-flags-test.mjs` + esbuild bundle check; manual `curl localhost:9900/status` + `pi-link --status`.
 > **Note:** the hub-bootstrap refactor in `index.ts` is the risky part; sequence *after* CLI-hardening so the parser is clean before adding a new exclusive `--status` mode.
 > **Summary:** plain HTTP `GET /status` on the hub's link port, consumed by a new `pi-link --status [--json]` mode. Spans `index.ts` (hub) + `bin/pi-link.mjs` (CLI).
