@@ -37,7 +37,7 @@
  * unaffected; this is documented hook behavior, not a bug of this extension.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // Standalone "pi" (any case), but not inside identifier-like contexts:
 //   - preceded by `-`, `/`, `\`, or `.`  (path segments, package names,
