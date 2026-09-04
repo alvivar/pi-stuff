@@ -585,8 +585,10 @@ function formatTokens(n) {
 }
 
 // `92K/272K (34%)`, or `?/272K` when the hub has a window but no token count.
+// Only reached for a validated payload, so `c` is null or a well-typed snapshot;
+// a non-positive window is still possible and still means nothing to report.
 function formatContext(c) {
-  if (!c || typeof c.window !== "number" || c.window <= 0) return UNKNOWN;
+  if (!c || c.window <= 0) return UNKNOWN;
   const window = formatTokens(c.window);
   if (typeof c.tokens !== "number") return `${UNKNOWN}/${window}`;
   return `${formatTokens(c.tokens)}/${window} (${Math.round((c.tokens / c.window) * 100)}%)`;
@@ -604,14 +606,7 @@ function formatAge(seconds) {
 // acting on it is the misreporting this command exists to end.
 function formatTerminalStatus(entry) {
   if (typeof entry.status !== "string") return UNKNOWN;
-  if (typeof entry.sinceSeconds !== "number") return entry.status;
   return `${entry.status} (${formatAge(entry.sinceSeconds)})`;
-}
-
-function linkPort() {
-  // Deliberately unvalidated: a bad value fails the fetch and is reported with
-  // the port in the message, which is the diagnosis.
-  return process.env.PI_LINK_PORT ?? 9900;
 }
 
 function failUnsupported() {
@@ -666,7 +661,9 @@ function isStatusPayload(payload) {
 }
 
 async function runStatus(state) {
-  const port = linkPort();
+  // Deliberately unvalidated: a bad value fails the fetch and is reported with
+  // the port in the message, which is the diagnosis.
+  const port = process.env.PI_LINK_PORT ?? 9900;
   // One deadline covers the whole exchange, headers and body alike, so it has to
   // be readable afterwards to tell a timeout from a malformed answer.
   const deadline = AbortSignal.timeout(2000);
