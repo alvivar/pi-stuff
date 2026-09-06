@@ -161,7 +161,9 @@ export default function (pi: ExtensionAPI) {
       rulesText = trimmed;
       pi.appendEntry("rules", { text: rulesText });
       updateWidget(ctx);
-      ctx.ui.notify(`Rules set (${rulesText.length} chars)`, "info");
+      // The transcript entry renderer already shows the full rules in the TUI.
+      if (ctx.mode !== "tui")
+        ctx.ui.notify(`Rules set (${rulesText.length} chars)`, "info");
       warnIfLarge(ctx, rulesText);
     },
   });
