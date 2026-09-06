@@ -16,7 +16,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Text, type Component } from "@earendil-works/pi-tui";
+import { Box, Text, type Component } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import * as crypto from "node:crypto";
 import { createServer, type Server as HttpServer } from "node:http";
@@ -1960,8 +1960,15 @@ export default function (pi: ExtensionAPI) {
       theme.fg("accent", `⚡ [${from}] `) +
       theme.fg("text", String(message.content));
     const content = new Text(text, 0, 0);
-    return options.expanded
-      ? content
-      : messagePreview(content, (s) => theme.fg("muted", s));
+    // The same panel Pi draws around extension messages by default: returning our own
+    // component bypasses the host's box, so a link message would otherwise sit unframed
+    // among framed ones. `outputPad` is the user's configured output padding.
+    const box = new Box(options.outputPad, 1, (t) => theme.bg("customMessageBg", t));
+    box.addChild(
+      options.expanded
+        ? content
+        : messagePreview(content, (s) => theme.fg("muted", s)),
+    );
+    return box;
   });
 }

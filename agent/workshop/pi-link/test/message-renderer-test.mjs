@@ -26,9 +26,13 @@ import { dirname, join } from "node:path";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX_URL = pathToFileURL(join(HERE, "..", "index.ts")).href;
 
-// A controlled stand-in for Pi's Text. Rows depend on the width it is rendered at,
-// so a single long logical line becomes several rows exactly as it would on screen.
-const TEXT_STUB = `
+// Controlled stand-ins for Pi's Text and Box. Text rows depend on the width they are
+// rendered at, so a single long logical line becomes several rows as it would on screen.
+// Box reproduces only the structure this extension depends on — the width it hands its
+// child, the padding rows, and invalidate delegation — and marks the background instead
+// of painting it. It is NOT a model of Pi's real ANSI background algorithm; block 8
+// exercises the genuine installed components.
+const TUI_STUB = `
 export class Text {
   constructor(text = "", paddingX = 1, paddingY = 1) {
     this.text = text;
@@ -51,6 +55,40 @@ export class Text {
     return rows;
   }
 }
+
+export class Box {
+  constructor(paddingX = 1, paddingY = 1, bgFn) {
+    this.paddingX = paddingX;
+    this.paddingY = paddingY;
+    this.bgFn = bgFn;
+    this.children = [];
+    this.childWidths = [];
+    this.invalidated = 0;
+  }
+  addChild(child) { this.children.push(child); }
+  invalidate() {
+    this.invalidated++;
+    for (const child of this.children) child.invalidate?.();
+  }
+  render(width) {
+    if (this.children.length === 0) return [];
+    // Mirrors Pi's Box: the child never sees the full width, only what padding leaves.
+    const contentWidth = Math.max(1, width - this.paddingX * 2);
+    const leftPad = " ".repeat(this.paddingX);
+    const childLines = [];
+    for (const child of this.children) {
+      this.childWidths.push(contentWidth);
+      for (const line of child.render(contentWidth)) childLines.push(leftPad + line);
+    }
+    if (childLines.length === 0) return [];
+    const bg = (line) => (this.bgFn ? this.bgFn(line) : line);
+    return [
+      ...Array.from({ length: this.paddingY }, () => bg("")),
+      ...childLines.map(bg),
+      ...Array.from({ length: this.paddingY }, () => bg("")),
+    ];
+  }
+}
 `;
 
 const STUBS = {
@@ -58,7 +96,7 @@ const STUBS = {
     export const VERSION = "0.84.2";
     export const keyHint = (id, description) => \`<\${id}:\${description}>\`;
   `,
-  "@earendil-works/pi-tui": TEXT_STUB,
+  "@earendil-works/pi-tui": TUI_STUB,
   typebox: `export const Type = {
     Object: () => ({}), String: () => ({}), Optional: (s) => s,
   };`,
@@ -81,13 +119,18 @@ registerHooks({
   },
 });
 
-const { Text } = await import("@earendil-works/pi-tui");
+const { Text, Box } = await import("@earendil-works/pi-tui");
 const createExtension = (await import(INDEX_URL)).default;
 
 // ── Harness ─────────────────────────────────────────────────────────────────
 
-// `fg` marks its role so styling is observable without asserting on real ANSI.
-const theme = { fg: (role, text) => `{${role}}${text}`, bold: (text) => text };
+// `fg`/`bg` mark their role so styling is observable without asserting on real ANSI.
+const theme = {
+  fg: (role, text) => `{${role}}${text}`,
+  bg: (role, text) => `{bg:${role}}${text}`,
+  bold: (text) => text,
+};
+const BG = "{bg:customMessageBg}";
 
 let renderer;
 createExtension({
@@ -103,11 +146,21 @@ createExtension({
   sendMessage() {},
 });
 
-const render = (content, { expanded = false, details, width = 40 } = {}) =>
-  renderer({ content, details, customType: "link" }, { expanded, outputPad: 0 }, theme).render(width);
+const component = (content, { expanded = false, details, outputPad = 0 } = {}) =>
+  renderer({ content, details, customType: "link" }, { expanded, outputPad }, theme);
 
-const component = (content, { expanded = false, details } = {}) =>
-  renderer({ content, details, customType: "link" }, { expanded, outputPad: 0 }, theme);
+// The renderer returns a Box, so `render` strips that frame: one background row above
+// and below, and outputPad columns of left padding. Every assertion below therefore
+// keeps speaking about CONTENT rows, exactly as it did before the panel was added —
+// which is also the point of the six-row budget: the frame sits outside it.
+const unframe = (rows, outputPad) =>
+  rows.slice(1, -1).map((row) => row.replace(BG, "").slice(outputPad));
+
+const render = (content, options = {}) =>
+  unframe(
+    component(content, options).render(options.width ?? 40),
+    options.outputPad ?? 0,
+  );
 
 const lines = (n, prefix = "line") =>
   Array.from({ length: n }, (_, i) => `${prefix}${i + 1}`).join("\n");
@@ -215,14 +268,14 @@ check("renderer: the extension registers a renderer for the link type", typeof r
 
   // The same component instance, queried twice: the second answer must be current.
   const c = component(single);
-  const first = c.render(100);
-  const second = c.render(20);
+  const first = unframe(c.render(100), 0);
+  const second = unframe(c.render(20), 0);
   check("4: the same component re-renders for a new width",
     JSON.stringify(first) !== JSON.stringify(second));
   check("4: each render reports the count for the width it was asked about",
     JSON.stringify(second) === JSON.stringify(narrow), second.join("|"));
   check("4: re-rendering at the original width restores the original answer",
-    JSON.stringify(c.render(100)) === JSON.stringify(first));
+    JSON.stringify(unframe(c.render(100), 0)) === JSON.stringify(first));
 }
 
 // ── 5. Invalidation and degenerate input ────────────────────────────────────
@@ -276,7 +329,90 @@ check("renderer: the extension registers a renderer for the link type", typeof r
     rows[0].includes("[opus@pi-link]"), rows[0]);
 }
 
-// ── 7. The same claims against the real installed Text, when available ──────
+// ── 7. The native panel around both states ─────────────────────────────
+
+{
+  check("7: the collapsed state is wrapped in a Box", component(lines(30)) instanceof Box);
+  check("7: the expanded state is wrapped in the same Box",
+    component(lines(30), { expanded: true }) instanceof Box);
+  // Tolerant of a missing frame, so losing the Box reports failed assertions rather
+  // than throwing out of the suite.
+  check("7: the Box holds exactly one child", component(lines(30)).children?.length === 1);
+}
+
+{
+  const framed = component(lines(3)).render(40);
+  check("7: the frame adds one row above and one below the content",
+    framed.length === 5, `got ${framed.length}`);
+  check("7: the padding rows are background, not content",
+    framed[0] === BG && framed[4] === BG, JSON.stringify([framed[0], framed[4]]));
+  check("7: every row carries the extension-message background",
+    framed.every((row) => row.startsWith(BG)));
+  check("7: the background is customMessageBg, not a tool state colour",
+    !framed.join("").match(/\{bg:(success|error|warning|toolBg)/), framed.join("|"));
+}
+
+{
+  // The frame sits outside the six-row budget: content is still six rows, and the
+  // panel adds its own rows on top of them.
+  const framed = component(lines(30)).render(40);
+  const content = unframe(framed, 0);
+  check("7: the budget still counts six CONTENT rows inside the frame",
+    content.slice(0, 6).join("|").includes("line6") && !content.slice(0, 6).join("|").includes("line7"));
+  check("7: the framed total exceeds the content rows by the padding",
+    framed.length === content.length + 2, `framed=${framed.length} content=${content.length}`);
+}
+
+{
+  // outputPad is the user's configured output padding and must reach the child.
+  const zero = component(lines(30), { outputPad: 0 });
+  zero.render(40);
+  check("7: with pad 0 the child receives the full width",
+    zero.childWidths?.[0] === 40, `got ${zero.childWidths?.[0]}`);
+
+  const padded = component(lines(30), { outputPad: 2 });
+  padded.render(40);
+  check("7: with pad 2 the child width is reduced by both sides",
+    padded.childWidths?.[0] === 36, `got ${padded.childWidths?.[0]}`);
+
+  const rows = padded.render(40);
+  check("7: padded content rows are indented by the pad",
+    rows[1].startsWith(`${BG}  `), JSON.stringify(rows[1]?.slice(0, 30)));
+
+  // A narrower child can push content across the preview threshold. That is correct:
+  // the budget counts rows as they actually wrap, so the hidden count follows the pad.
+  const hiddenNoPad = hidden(unframe(component(lines(30), { outputPad: 0 }).render(40), 0));
+  const hiddenPadded = hidden(unframe(padded.render(40), 2));
+  check("7: the hidden count is computed at the child's width",
+    Number.isInteger(hiddenNoPad) && Number.isInteger(hiddenPadded),
+    `nopad=${hiddenNoPad} padded=${hiddenPadded}`);
+}
+
+{
+  // Degenerate geometry must not throw: the child is still left a positive width and
+  // still renders. Visible width is not asserted here — the stub's `{bg:...}` marker is
+  // structural, not ANSI, so it is not evidence about terminal columns.
+  const narrow = component(lines(30), { outputPad: 1 });
+  const rows = narrow.render(3);
+  check("7: width 3 with pad 1 leaves the child a positive width",
+    narrow.childWidths?.[0] === 1, `got ${narrow.childWidths?.[0]}`);
+  check("7: a very narrow panel still renders rows", rows.length > 2);
+}
+
+{
+  // Invalidation must survive the extra layer: Box -> preview -> content and hint.
+  const c = component(lines(30));
+  c.render(40);
+  const before = Text.prototype.invalidate;
+  let invalidated = 0;
+  Text.prototype.invalidate = function patched() { invalidated++; return before.call(this); };
+  c.invalidate();
+  Text.prototype.invalidate = before;
+  check("7: invalidate reaches the content through the Box", invalidated === 2, `calls=${invalidated}`);
+  check("7: the Box itself is invalidated too", c.invalidated === 1);
+}
+
+// ── 8. The same claims against the real installed components, when available ──────
 
 const REAL_TUI = join(
   process.env.APPDATA ?? "",
@@ -285,25 +421,52 @@ const REAL_TUI = join(
 );
 
 if (existsSync(REAL_TUI)) {
-  const { Text: RealText } = await import(pathToFileURL(REAL_TUI).href);
+  const { Text: RealText, Box: RealBox } = await import(pathToFileURL(REAL_TUI).href);
   // Rebuild the seam over the real Text: same shape as the renderer's own call.
   const build = (text) => new RealText(text, 0, 0);
 
   const six = build(lines(6)).render(40);
   const seven = build(lines(7)).render(40);
-  check("7: real Text agrees that six lines are six visual rows", six.length === 6, `got ${six.length}`);
-  check("7: real Text agrees that seven lines are seven visual rows", seven.length === 7, `got ${seven.length}`);
+  check("8: real Text agrees that six lines are six visual rows", six.length === 6, `got ${six.length}`);
+  check("8: real Text agrees that seven lines are seven visual rows", seven.length === 7, `got ${seven.length}`);
 
   const wrapped = build("x".repeat(2000)).render(40);
-  check("7: real Text wraps one long logical line into many visual rows",
+  check("8: real Text wraps one long logical line into many visual rows",
     wrapped.length > 6, `got ${wrapped.length}`);
-  check("7: real Text yields more rows at a narrower width",
+  check("8: real Text yields more rows at a narrower width",
     build("x".repeat(2000)).render(20).length > wrapped.length);
-  check("7: real Text rows never exceed the requested width",
+  check("8: real Text rows never exceed the requested width",
     wrapped.every((r) => r.length <= 40 || r.replace(/\x1b\[[0-9;]*m/g, "").length <= 40));
-  console.log("\n  (block 7 ran against the installed pi-tui)");
+
+  // The real Box, composed exactly as the renderer composes it. This is the only
+  // check here that touches Pi's actual padding and background painting; the stub
+  // above deliberately models structure only.
+  const realPanel = (paddingX) => {
+    const box = new RealBox(paddingX, 1, (t) => `\x1b[48;5;236m${t}\x1b[49m`);
+    box.addChild(build(lines(3)));
+    return box;
+  };
+  const flat = realPanel(0).render(40);
+  check("8: real Box adds one padding row above and below",
+    flat.length === 5, `got ${flat.length}`);
+
+  // Width reduction is observed through the child, not asserted about ANSI bytes.
+  let seen;
+  const probe = { render(width) { seen = width; return ["probe"]; }, invalidate() {} };
+  const box = new RealBox(2, 1, undefined);
+  box.addChild(probe);
+  box.render(40);
+  check("8: real Box hands the child the padding-reduced width", seen === 36, `got ${seen}`);
+
+  let childInvalidated = false;
+  const invalidatable = { render: () => ["x"], invalidate() { childInvalidated = true; } };
+  const box2 = new RealBox(0, 1, undefined);
+  box2.addChild(invalidatable);
+  box2.invalidate();
+  check("8: real Box delegates invalidate to its child", childInvalidated);
+  console.log("\n  (block 8 ran against the installed pi-tui)");
 } else {
-  console.log("\n  (block 7 SKIPPED: installed pi-tui not found — stub-only evidence)");
+  console.log("\n  (block 8 SKIPPED: installed pi-tui not found — stub-only evidence)");
 }
 
 console.log(`\n\nPassed: ${pass}`);

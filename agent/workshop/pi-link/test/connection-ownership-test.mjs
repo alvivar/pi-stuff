@@ -75,7 +75,8 @@ const STUBS = {
     export const keyHint = (id, description) => description;`,
   "node:http": HTTP_STUB,
   http: HTTP_STUB,
-  "@earendil-works/pi-tui": `export class Text { constructor(text) { this.text = text; } }`,
+  "@earendil-works/pi-tui": `export class Text { constructor(text) { this.text = text; } }
+    export class Box { addChild() {} }`,
   typebox: `export const Type = {
     Object: () => ({}), String: () => ({}), Optional: (s) => s,
   };`,

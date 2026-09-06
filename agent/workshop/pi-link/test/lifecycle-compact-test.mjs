@@ -52,7 +52,8 @@ const STUBS = {
     export function __setVersion(v) { VERSION = v; }
     export const keyHint = (id, description) => description;
   `,
-  "@earendil-works/pi-tui": `export class Text { constructor(text) { this.text = text; } }`,
+  "@earendil-works/pi-tui": `export class Text { constructor(text) { this.text = text; } }
+    export class Box { addChild() {} }`,
   typebox: `export const Type = {
     Object: () => ({}), String: () => ({}), Optional: (s) => s,
   };`,
