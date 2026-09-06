@@ -17,7 +17,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -53,9 +53,11 @@ export default function (pi: ExtensionAPI) {
         ? preview + "..."
         : rulesText;
     // Factory form: theme.fg resolves at render time, so /theme recolors the widget.
-    // Text matches how the host renders string widgets, keeping output width-safe.
+    // One padded line, truncated by visible columns so wide chars and ANSI stay width-safe.
     ctx.ui.setWidget("pi-rules", (_tui, theme) => ({
-      render: (width) => new Text(theme.fg("dim", `⚙ ${text}`), 1, 0).render(width),
+      render: (width) => [
+        truncateToWidth(theme.fg("dim", ` ⚙ ${text}`), width, "...", true),
+      ],
       invalidate: () => {},
     }));
   }
