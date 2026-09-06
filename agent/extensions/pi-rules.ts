@@ -17,7 +17,11 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+  Text,
+  truncateToWidth,
+  wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -53,11 +57,29 @@ export default function (pi: ExtensionAPI) {
         ? preview + "..."
         : rulesText;
     // Factory form: theme.fg resolves at render time, so /theme recolors the widget.
-    // One padded line, truncated by visible columns so wide chars and ANSI stay width-safe.
     ctx.ui.setWidget("pi-rules", (_tui, theme) => ({
-      render: (width) => [
-        truncateToWidth(theme.fg("dim", ` ⚙ ${text}`), width, "...", true),
-      ],
+      render: (width) => {
+        // Wrapping degenerates at non-positive widths and would yield a second,
+        // blank row; keep the single empty row the host expects.
+        if (width <= 0) return [""];
+        const wrapped = wrapTextWithAnsi(theme.fg("dim", ` ⚙ ${text}`), width);
+        const overflows = wrapped.length > 2;
+        // Rejoining the remainder keeps the marker visible when a wrap lands exactly
+        // on `width`: that second line fits as-is and would hide the rest silently.
+        const lines = overflows
+          ? [wrapped[0], wrapped.slice(1).join(" ")]
+          : wrapped;
+        // Theming the ellipsis before truncateToWidth inserts it keeps the dots dim:
+        // it resets styling right before appending the marker verbatim.
+        return lines.map((line, i) =>
+          truncateToWidth(
+            line,
+            width,
+            overflows && i === 1 ? theme.fg("dim", "...") : "",
+            true,
+          ),
+        );
+      },
       invalidate: () => {},
     }));
   }
