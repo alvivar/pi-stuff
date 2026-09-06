@@ -12,10 +12,11 @@
 
 import {
   VERSION as PI_VERSION,
+  keyHint,
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, type Component } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import * as crypto from "node:crypto";
 import { createServer, type Server as HttpServer } from "node:http";
@@ -40,6 +41,8 @@ const CONNECT_HANDSHAKE_TIMEOUT_MS = 5_000;
 const FLUSH_DELAY_MS = 200;
 const BATCH_MAX_ITEMS = 20;
 const BATCH_MAX_CHARS = 16_000;
+// Visual rows of an incoming message kept while Pi's global expansion is off.
+const PREVIEW_ROWS = 6;
 
 // ─── Protocol ────────────────────────────────────────────────────────────────
 
@@ -149,6 +152,41 @@ function piVersionSupported(version: string): boolean {
     if (part !== MIN_PI_VERSION[i]) return part > MIN_PI_VERSION[i];
   }
   return prerelease === undefined; // exactly the floor: only the release qualifies
+}
+
+/**
+ * The first PREVIEW_ROWS rows of `content`, plus a hint when rows were dropped.
+ *
+ * The rows come from rendering `content` at the real width, not from splitting the
+ * raw string on newlines: one long logical line wraps into many visual rows, and
+ * the same message yields different rows in a narrow window. Rendering is Text's
+ * job here, cached by (text, width), so the preview stays a slice of the identical
+ * output the expanded view shows.
+ */
+function messagePreview(
+  content: Text,
+  dim: (text: string) => string,
+): Component {
+  const hint = new Text("", 0, 0);
+  return {
+    render(width: number): string[] {
+      const rows = content.render(width);
+      if (rows.length <= PREVIEW_ROWS) return rows;
+      // Rebuilt every render so a rebound key is never shown stale; it is one short
+      // line, and Text still caches the content rows, which are the expensive part.
+      hint.setText(
+        dim(`... (${rows.length - PREVIEW_ROWS} more lines, `) +
+          keyHint("app.tools.expand", "to expand") +
+          dim(")"),
+      );
+      // The budget covers content only, so the hint may wrap rather than be cut off.
+      return [...rows.slice(0, PREVIEW_ROWS), ...hint.render(width)];
+    },
+    invalidate(): void {
+      content.invalidate();
+      hint.invalidate();
+    },
+  };
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
@@ -1915,12 +1953,15 @@ export default function (pi: ExtensionAPI) {
 
   // ── Message renderer ─────────────────────────────────────────────────────
 
-  pi.registerMessageRenderer("link", (message, _options, theme) => {
+  pi.registerMessageRenderer("link", (message, options, theme) => {
     const from =
       (message.details as Record<string, unknown> | undefined)?.from ?? "link";
     const text =
       theme.fg("accent", `⚡ [${from}] `) +
       theme.fg("text", String(message.content));
-    return new Text(text, 0, 0);
+    const content = new Text(text, 0, 0);
+    return options.expanded
+      ? content
+      : messagePreview(content, (s) => theme.fg("muted", s));
   });
 }

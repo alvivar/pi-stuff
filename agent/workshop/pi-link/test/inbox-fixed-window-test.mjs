@@ -52,7 +52,8 @@ const HTTP_STUB = `
 `;
 
 const STUBS = {
-  "@earendil-works/pi-coding-agent": `export const VERSION = "0.84.2";`,
+  "@earendil-works/pi-coding-agent": `export const VERSION = "0.84.2";
+    export const keyHint = (id, description) => description;`,
   "node:http": HTTP_STUB,
   http: HTTP_STUB,
   "@earendil-works/pi-tui": `export class Text { constructor(text) { this.text = text; } }`,

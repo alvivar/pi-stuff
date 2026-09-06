@@ -50,6 +50,7 @@ const STUBS = {
   "@earendil-works/pi-coding-agent": `
     export let VERSION = "0.84.2";
     export function __setVersion(v) { VERSION = v; }
+    export const keyHint = (id, description) => description;
   `,
   "@earendil-works/pi-tui": `export class Text { constructor(text) { this.text = text; } }`,
   typebox: `export const Type = {
