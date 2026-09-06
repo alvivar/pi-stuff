@@ -123,6 +123,11 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (trimmed === "clear") {
+        // Nothing to clear: stay a no-op instead of persisting an empty change.
+        if (!rulesText) {
+          ctx.ui.notify("No rules set", "info");
+          return;
+        }
         rulesText = null;
         pi.appendEntry("rules", { text: null });
         updateWidget(ctx);
