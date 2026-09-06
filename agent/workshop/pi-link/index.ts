@@ -1528,8 +1528,18 @@ export default function (pi: ExtensionAPI) {
     return textResult("Not connected to link", { error: "not_connected" });
   }
 
+  // Collapsed one-line preview for the two outgoing tools. Whitespace is normalized so a
+  // multiline message stays on the tool's single preview line, then clipped to 60
+  // characters. The hint appears only when characters are actually hidden: expanding shows
+  // the original text, so collapsing whitespace alone is not something to advertise.
   function truncatePreview(text: string) {
-    return text.length > 60 ? text.slice(0, 60) + "..." : text;
+    const preview = text.replace(/\s+/g, " ");
+    return preview.length > 60
+      ? preview.slice(0, 60) +
+          "... (" +
+          keyHint("app.tools.expand", "to expand") +
+          ")"
+      : preview;
   }
 
   // Shared "target not found" result for the send/compact tools.
@@ -1604,10 +1614,12 @@ export default function (pi: ExtensionAPI) {
       return textResult(`${verb} ${target}`, { to: params.to });
     },
 
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const preview =
         typeof args.message === "string"
-          ? truncatePreview(args.message)
+          ? context.expanded
+            ? args.message
+            : truncatePreview(args.message)
           : "...";
       const text =
         theme.fg("toolTitle", theme.bold("link_send ")) +
@@ -1717,11 +1729,18 @@ export default function (pi: ExtensionAPI) {
       });
     },
 
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       let text = theme.fg("toolTitle", theme.bold("link_compact "));
       text += theme.fg("accent", String(args.to));
       if (typeof args.instructions === "string")
-        text += "\n  " + theme.fg("dim", truncatePreview(args.instructions));
+        text +=
+          "\n  " +
+          theme.fg(
+            "dim",
+            context.expanded
+              ? args.instructions
+              : truncatePreview(args.instructions),
+          );
       return new Text(text, 0, 0);
     },
 

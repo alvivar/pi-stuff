@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
-// Behavior tests for the incoming-message renderer: collapsed messages keep the
-// first six *visual* rows and gain a hint; expanded ones render exactly as before.
+// Behavior tests for this extension's two rendering seams: the incoming-message
+// renderer (collapsed messages keep the first six *visual* rows and gain a hint;
+// expanded ones render exactly as before) and the outgoing link_send / link_compact
+// tool-call renderers (collapsed to a normalized 60-character preview, expanded to the
+// original text).
 //
 // The renderer registered by the real extension is captured and called directly.
 // Pi's `Text` is stubbed with a controlled component whose `render(width)` returns
@@ -30,7 +33,7 @@ const INDEX_URL = pathToFileURL(join(HERE, "..", "index.ts")).href;
 // rendered at, so a single long logical line becomes several rows as it would on screen.
 // Box reproduces only the structure this extension depends on — the width it hands its
 // child, the padding rows, and invalidate delegation — and marks the background instead
-// of painting it. It is NOT a model of Pi's real ANSI background algorithm; block 8
+// of painting it. It is NOT a model of Pi's real ANSI background algorithm; block 9
 // exercises the genuine installed components.
 const TUI_STUB = `
 export class Text {
@@ -133,11 +136,14 @@ const theme = {
 const BG = "{bg:customMessageBg}";
 
 let renderer;
+const tools = new Map();
 createExtension({
   registerFlag() {},
   getFlag: () => false, // never connects: no socket is dialled, no port is bound
   on() {},
-  registerTool() {},
+  // Capture the production tool definitions so the outgoing renderers under test are the
+  // real registered ones, not a copy that could drift from the shipped code.
+  registerTool(definition) { tools.set(definition.name, definition); },
   registerCommand() {},
   registerMessageRenderer(type, fn) { if (type === "link") renderer = fn; },
   appendEntry() {},
@@ -412,7 +418,146 @@ check("renderer: the extension registers a renderer for the link type", typeof r
   check("7: the Box itself is invalidated too", c.invalidated === 1);
 }
 
-// ── 8. The same claims against the real installed components, when available ──────
+// ── 8. Outgoing tool calls: link_send and link_compact ─────────────────────
+
+// Each tool's own argument key and its established behavior for absent or non-string
+// input, so both are driven through one table of claims. link_send substitutes a "..."
+// placeholder; link_compact omits the preview line entirely.
+const OUTGOING = [
+  { tool: "link_send", key: "message", title: "link_send ", partialBody: "..." },
+  { tool: "link_compact", key: "instructions", title: "link_compact ", partialBody: null },
+];
+
+// The complete string these renderers produce under the marking theme above: header,
+// target, then the preview on its own indented line. Comparing against this locks the
+// whole body, so appended or dropped text cannot hide inside a substring match.
+const expectedCall = (title, body) =>
+  `{toolTitle}${title}{accent}peer` + (body === null ? "" : `\n  {dim}${body}`);
+
+// The third argument is Pi's ToolRenderContext. Only `expanded` is read by these
+// renderers; the rest of the real context is irrelevant to what they compute.
+// `width` only controls where the stub wraps. The preview limit is counted in
+// characters, never in visual rows, so checks about the limit render wide enough that
+// wrapping cannot manufacture or hide a boundary.
+const callRows = (tool, args, expanded = false, width = 200) =>
+  tools.get(tool).renderCall(args, theme, { expanded }).render(width);
+
+const callText = (tool, args, expanded = false, width = 200) =>
+  callRows(tool, args, expanded, width).join("\n");
+
+for (const { tool, key, title, partialBody } of OUTGOING) {
+  check(`8: ${tool} is registered with a renderCall`,
+    typeof tools.get(tool)?.renderCall === "function");
+
+  // — boundary: the limit counts NORMALIZED characters, not visual rows —
+  for (const [n, truncated] of [[59, false], [60, false], [61, true]]) {
+    const text = callText(tool, { to: "peer", [key]: "x".repeat(n) });
+    check(`8: ${tool} at ${n} normalized chars ${truncated ? "truncates" : "does not truncate"}`,
+      text.includes("...") === truncated, text.slice(-40));
+    check(`8: ${tool} at ${n} chars shows the hint only when truncated`,
+      text.includes("to expand") === truncated);
+  }
+
+  // The kept prefix is exactly the first 60 normalized characters — not merely "some"
+  // truncation. Without this, shortening the slice would go undetected.
+  const alphabet = "abcdefghij".repeat(10);
+  const clipped = callText(tool, { to: "peer", [key]: alphabet });
+  check(`8: ${tool} keeps exactly the first 60 normalized characters`,
+    clipped.includes(`${alphabet.slice(0, 60)}... (`) &&
+      !clipped.includes(alphabet.slice(0, 61)), clipped);
+
+  // — collapsed normalizes whitespace; expanded is byte-for-byte the original —
+  const multiline = "first line\n\n   second\tline\n  third";
+  const collapsed = callText(tool, { to: "peer", [key]: multiline });
+  check(`8: ${tool} collapsed puts the whole preview on one content line`,
+    collapsed.includes("first line second line third"), collapsed);
+  check(`8: ${tool} collapsed short whitespace-rich text gets no hint`,
+    !collapsed.includes("to expand"), collapsed);
+  // Equality, not `includes`: leading, trailing and internal whitespace are locked, and
+  // any text appended to the original would fail here.
+  const expandedMultiline = callText(tool, { to: "peer", [key]: multiline }, true, 1000);
+  check(`8: ${tool} expanded renders the original body and nothing more`,
+    expandedMultiline === expectedCall(title, multiline),
+    JSON.stringify(expandedMultiline));
+  check(`8: ${tool} collapsed and expanded differ for whitespace-rich text`,
+    collapsed !== callText(tool, { to: "peer", [key]: multiline }, true));
+
+  // A long original stays complete when expanded, with no ellipsis or hint.
+  const long = "y".repeat(500);
+  const full = callText(tool, { to: "peer", [key]: long }, true, 1000);
+  check(`8: ${tool} expanded renders all 500 characters and nothing more`,
+    full === expectedCall(title, long), full.slice(-40));
+
+  // — header and target survive both states —
+  for (const state of [false, true]) {
+    const text = callText(tool, { to: "peer", [key]: "z".repeat(100) }, state);
+    check(`8: ${tool} keeps its title when expanded=${state}`,
+      text.includes(`{toolTitle}${title}`), text.slice(0, 40));
+    check(`8: ${tool} keeps the target when expanded=${state}`,
+      text.includes("{accent}peer"), text.slice(0, 40));
+  }
+
+  // — the hint resolves through the configured binding, not a hardcoded key —
+  const hinted = callText(tool, { to: "peer", [key]: "w".repeat(100) });
+  check(`8: ${tool} hint resolves app.tools.expand through keyHint`,
+    hinted.includes("<app.tools.expand:to expand>"), hinted.slice(-50));
+  check(`8: ${tool} hint is wrapped in the plan's parentheses`,
+    hinted.includes("... (") && hinted.trimEnd().endsWith(")"), hinted.slice(-50));
+
+  // — streaming: missing and non-string arguments keep each tool's existing fallback —
+  // Asserting the exact output, not merely that nothing threw: a changed placeholder or
+  // a preview line invented for non-string input has to fail here.
+  for (const partial of [{ to: "peer" }, { to: "peer", [key]: 42 }, { to: "peer", [key]: null }]) {
+    for (const state of [false, true]) {
+      let rendered = null;
+      try { rendered = callText(tool, partial, state, 1000); } catch (e) { rendered = String(e); }
+      check(`8: ${tool} keeps its fallback for ${JSON.stringify(partial[key])} with expanded=${state}`,
+        rendered === expectedCall(title, partialBody), JSON.stringify(rendered));
+    }
+  }
+
+  // — the renderer must not mutate the arguments it is handed —
+  const args = { to: "peer", [key]: multiline };
+  const before = JSON.stringify(args);
+  callText(tool, args, false);
+  callText(tool, args, true);
+  check(`8: ${tool} does not mutate its args`, JSON.stringify(args) === before, before);
+
+  // — renderResult is untouched by expansion —
+  const definition = tools.get(tool);
+  const results = [
+    { content: [{ type: "text", text: "Sent to \"peer\"" }], details: { to: "peer" } },
+    { content: [{ type: "text", text: "Failed" }], details: { to: "peer", error: "not_delivered" } },
+  ];
+  for (const result of results) {
+    const snapshot = JSON.stringify(result);
+    const off = definition.renderResult(result, { expanded: false }, theme, {}).render(200).join("\n");
+    const on = definition.renderResult(result, { expanded: true }, theme, {}).render(200).join("\n");
+    check(`8: ${tool} renderResult ignores expansion (${result.details.error ?? "success"})`,
+      off === on, `${off} | ${on}`);
+    check(`8: ${tool} renderResult keeps its icon (${result.details.error ?? "success"})`,
+      off.includes(result.details.error ? "✗" : "✓"), off);
+    check(`8: ${tool} renderResult does not mutate the result`,
+      JSON.stringify(result) === snapshot);
+  }
+}
+
+{
+  // (link_compact's optional instructions are covered exactly by the fallback table
+  // above: the `{ to: "peer" }` case asserts header-only output in both states.)
+
+  // The incoming six-row preview must not have leaked into the tool path: a 10-line
+  // message collapses to ONE line here, not six.
+  const rows = callRows("link_send", { to: "peer", message: lines(10) });
+  check("8: the tool preview is one line, not the incoming six-row budget",
+    rows.length === 2, `rows=${rows.length}`);
+}
+
+// ── 9. The installed Text/Box assumptions the stubs above rely on ──────────────
+//
+// This block checks the generic pi-tui behavior both seams are built on — real wrapping,
+// padding and invalidation — against the genuine installed components. It does NOT
+// exercise the production outgoing renderCall seam; block 8 does that.
 
 const REAL_TUI = join(
   process.env.APPDATA ?? "",
@@ -427,15 +572,15 @@ if (existsSync(REAL_TUI)) {
 
   const six = build(lines(6)).render(40);
   const seven = build(lines(7)).render(40);
-  check("8: real Text agrees that six lines are six visual rows", six.length === 6, `got ${six.length}`);
-  check("8: real Text agrees that seven lines are seven visual rows", seven.length === 7, `got ${seven.length}`);
+  check("9: real Text agrees that six lines are six visual rows", six.length === 6, `got ${six.length}`);
+  check("9: real Text agrees that seven lines are seven visual rows", seven.length === 7, `got ${seven.length}`);
 
   const wrapped = build("x".repeat(2000)).render(40);
-  check("8: real Text wraps one long logical line into many visual rows",
+  check("9: real Text wraps one long logical line into many visual rows",
     wrapped.length > 6, `got ${wrapped.length}`);
-  check("8: real Text yields more rows at a narrower width",
+  check("9: real Text yields more rows at a narrower width",
     build("x".repeat(2000)).render(20).length > wrapped.length);
-  check("8: real Text rows never exceed the requested width",
+  check("9: real Text rows never exceed the requested width",
     wrapped.every((r) => r.length <= 40 || r.replace(/\x1b\[[0-9;]*m/g, "").length <= 40));
 
   // The real Box, composed exactly as the renderer composes it. This is the only
@@ -447,7 +592,7 @@ if (existsSync(REAL_TUI)) {
     return box;
   };
   const flat = realPanel(0).render(40);
-  check("8: real Box adds one padding row above and below",
+  check("9: real Box adds one padding row above and below",
     flat.length === 5, `got ${flat.length}`);
 
   // Width reduction is observed through the child, not asserted about ANSI bytes.
@@ -456,17 +601,17 @@ if (existsSync(REAL_TUI)) {
   const box = new RealBox(2, 1, undefined);
   box.addChild(probe);
   box.render(40);
-  check("8: real Box hands the child the padding-reduced width", seen === 36, `got ${seen}`);
+  check("9: real Box hands the child the padding-reduced width", seen === 36, `got ${seen}`);
 
   let childInvalidated = false;
   const invalidatable = { render: () => ["x"], invalidate() { childInvalidated = true; } };
   const box2 = new RealBox(0, 1, undefined);
   box2.addChild(invalidatable);
   box2.invalidate();
-  check("8: real Box delegates invalidate to its child", childInvalidated);
-  console.log("\n  (block 8 ran against the installed pi-tui)");
+  check("9: real Box delegates invalidate to its child", childInvalidated);
+  console.log("\n  (block 9 ran against the installed pi-tui)");
 } else {
-  console.log("\n  (block 8 SKIPPED: installed pi-tui not found — stub-only evidence)");
+  console.log("\n  (block 9 SKIPPED: installed pi-tui not found — stub-only evidence)");
 }
 
 console.log(`\n\nPassed: ${pass}`);
