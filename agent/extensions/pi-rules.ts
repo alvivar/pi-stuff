@@ -126,7 +126,8 @@ export default function (pi: ExtensionAPI) {
         rulesText = null;
         pi.appendEntry("rules", { text: null });
         updateWidget(ctx);
-        ctx.ui.notify("Rules cleared", "info");
+        // The transcript entry renderer already shows "⚙ Rules cleared" in the TUI.
+        if (ctx.mode !== "tui") ctx.ui.notify("Rules cleared", "info");
         return;
       }
 
