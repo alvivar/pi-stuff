@@ -1532,14 +1532,15 @@ export default function (pi: ExtensionAPI) {
   // multiline message stays on the tool's single preview line, then clipped to 60
   // characters. The hint appears only when characters are actually hidden: expanding shows
   // the original text, so collapsing whitespace alone is not something to advertise.
-  function truncatePreview(text: string) {
+  // Styling is applied per segment, like messagePreview above: keyHint ends with a
+  // foreground reset, so punctuation appended after it would render undimmed.
+  function truncatePreview(text: string, dim: (text: string) => string) {
     const preview = text.replace(/\s+/g, " ");
     return preview.length > 60
-      ? preview.slice(0, 60) +
-          "... (" +
+      ? dim(preview.slice(0, 60) + "... (") +
           keyHint("app.tools.expand", "to expand") +
-          ")"
-      : preview;
+          dim(")")
+      : dim(preview);
   }
 
   // Shared "target not found" result for the send/compact tools.
@@ -1615,17 +1616,18 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme, context) {
+      const dim = (text: string) => theme.fg("dim", text);
       const preview =
         typeof args.message === "string"
           ? context.expanded
-            ? args.message
-            : truncatePreview(args.message)
-          : "...";
+            ? dim(args.message)
+            : truncatePreview(args.message, dim)
+          : dim("...");
       const text =
         theme.fg("toolTitle", theme.bold("link_send ")) +
         theme.fg("accent", args.to) +
         "\n  " +
-        theme.fg("dim", preview);
+        preview;
       return new Text(text, 0, 0);
     },
 
@@ -1732,15 +1734,13 @@ export default function (pi: ExtensionAPI) {
     renderCall(args, theme, context) {
       let text = theme.fg("toolTitle", theme.bold("link_compact "));
       text += theme.fg("accent", String(args.to));
+      const dim = (t: string) => theme.fg("dim", t);
       if (typeof args.instructions === "string")
         text +=
           "\n  " +
-          theme.fg(
-            "dim",
-            context.expanded
-              ? args.instructions
-              : truncatePreview(args.instructions),
-          );
+          (context.expanded
+            ? dim(args.instructions)
+            : truncatePreview(args.instructions, dim));
       return new Text(text, 0, 0);
     },
 

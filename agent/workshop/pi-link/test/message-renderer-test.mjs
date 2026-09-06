@@ -97,7 +97,12 @@ export class Box {
 const STUBS = {
   "@earendil-works/pi-coding-agent": `
     export const VERSION = "0.84.2";
-    export const keyHint = (id, description) => \`<\${id}:\${description}>\`;
+    // Mirrors the installed keyHint, which is theme.fg("dim", keys) + theme.fg("muted",
+    // description); every installed theme.fg span opens a FOREGROUND SELECTOR and closes
+    // it with a bare foreground reset (\`\${ansi}\${text}\\x1b[39m\`). 90m stands in for the
+    // configured colour: what matters is that 39m ends it, which is why punctuation
+    // appended after a hint renders in the default foreground.
+    export const keyHint = (id, description) => \`\\x1b[90m<\${id}:\${description}>\\x1b[39m\`;
   `,
   "@earendil-works/pi-tui": TUI_STUB,
   typebox: `export const Type = {
@@ -385,13 +390,20 @@ check("renderer: the extension registers a renderer for the link type", typeof r
   check("7: padded content rows are indented by the pad",
     rows[1].startsWith(`${BG}  `), JSON.stringify(rows[1]?.slice(0, 30)));
 
-  // A narrower child can push content across the preview threshold. That is correct:
-  // the budget counts rows as they actually wrap, so the hidden count follows the pad.
-  const hiddenNoPad = hidden(unframe(component(lines(30), { outputPad: 0 }).render(40), 0));
-  const hiddenPadded = hidden(unframe(padded.render(40), 2));
-  check("7: the hidden count is computed at the child's width",
-    Number.isInteger(hiddenNoPad) && Number.isInteger(hiddenPadded),
-    `nopad=${hiddenNoPad} padded=${hiddenPadded}`);
+  // A narrower child wraps sooner, so the hidden count must follow the pad. lines(30) is
+  // useless here — its lines are short enough to occupy one row at either width.
+  // Fixture: 10 logical lines of 38 characters. The first also carries the 23-character
+  // attribution prefix (`{accent}` 8 + `⚡ [link] ` 9 + `{text}` 6), so it is 61 long.
+  //   child width 40 (pad 0): ceil(61/40)=2, plus 9 x ceil(38/40)=1  → 11 rows → 11-6 =  5
+  //   child width 36 (pad 2): ceil(61/36)=2, plus 9 x ceil(38/36)=2  → 20 rows → 20-6 = 14
+  // Counting at the panel width rather than the child width would report 5 for both.
+  const wrapping = Array.from({ length: 10 }, () => "x".repeat(38)).join("\n");
+  const hiddenNoPad = hidden(unframe(component(wrapping, { outputPad: 0 }).render(40), 0));
+  const hiddenPadded = hidden(unframe(component(wrapping, { outputPad: 2 }).render(40), 2));
+  check("7: at the full child width exactly 5 rows are hidden",
+    hiddenNoPad === 5, `got ${hiddenNoPad}`);
+  check("7: padding narrows the child, so exactly 14 rows are hidden",
+    hiddenPadded === 14, `got ${hiddenPadded}`);
 }
 
 {
@@ -434,6 +446,21 @@ const OUTGOING = [
 const expectedCall = (title, body) =>
   `{toolTitle}${title}{accent}peer` + (body === null ? "" : `\n  {dim}${body}`);
 
+// The role-marking theme above cannot express a reset, so it cannot see colour bleed at
+// all. The theme below preserves the installed foreground-select / foreground-reset
+// semantics: Theme.fg returns `${open}${text}\x1b[39m`, where the opener is a foreground
+// selector (`38;5;N` or `38;2;r;g;b`) and 39m resets foreground colour only, with no
+// re-open (dist/modes/interactive/theme/theme.js). The codes below stand in for the
+// configured theme colours — they are not the real bytes, and they must not be an
+// intensity attribute such as SGR 2, which 39m would not clear.
+const DIM = "\x1b[90m";
+const RESET = "\x1b[39m";
+const ansiTheme = {
+  fg: (role, text) => `${role === "dim" ? DIM : "\x1b[36m"}${text}${RESET}`,
+  bg: (_role, text) => text,
+  bold: (text) => text,
+};
+
 // The third argument is Pi's ToolRenderContext. Only `expanded` is read by these
 // renderers; the rest of the real context is irrelevant to what they compute.
 // `width` only controls where the stub wraps. The preview limit is counted in
@@ -466,8 +493,23 @@ for (const { tool, key, title, partialBody } of OUTGOING) {
     clipped.includes(`${alphabet.slice(0, 60)}... (`) &&
       !clipped.includes(alphabet.slice(0, 61)), clipped);
 
+  // — the punctuation around the hint stays dim, including the closing parenthesis —
+  const ansi = tools
+    .get(tool)
+    .renderCall({ to: "peer", [key]: "w".repeat(100) }, ansiTheme, { expanded: false })
+    .render(1000)
+    .join("\n");
+  check(`8: ${tool} opens one dim span over the preview text and its "... ("`,
+    ansi.includes(`${DIM}${"w".repeat(60)}... (`), JSON.stringify(ansi));
+  check(`8: ${tool} reopens dim for the closing parenthesis after the hint`,
+    ansi.includes(`${DIM})`), JSON.stringify(ansi));
+  check(`8: ${tool} leaves no punctuation stranded beyond the hint's reset`,
+    !ansi.includes(`${RESET})`), JSON.stringify(ansi));
+
   // — collapsed normalizes whitespace; expanded is byte-for-byte the original —
-  const multiline = "first line\n\n   second\tline\n  third";
+  // Leading and trailing whitespace are part of the fixture: total equality below is what
+  // stops the expanded branch from trimming or reindenting the caller's text.
+  const multiline = "\n \tfirst line\n\n   second\tline\n  third \t\n";
   const collapsed = callText(tool, { to: "peer", [key]: multiline });
   check(`8: ${tool} collapsed puts the whole preview on one content line`,
     collapsed.includes("first line second line third"), collapsed);
