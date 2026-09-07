@@ -51,6 +51,8 @@ const STUBS = {
     export let VERSION = "0.84.2";
     export function __setVersion(v) { VERSION = v; }
     export const keyHint = (id, description) => description;
+    // app.tools.expand is bound here; the unbound fallback is exercised in the renderer suite.
+    export const keyText = () => "ctrl+e";
   `,
   "@earendil-works/pi-tui": `export class Text { constructor(text) { this.text = text; } }
     export class Box { addChild() {} }`,

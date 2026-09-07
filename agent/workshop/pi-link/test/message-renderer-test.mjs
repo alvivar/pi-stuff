@@ -103,6 +103,13 @@ const STUBS = {
     // configured colour: what matters is that 39m ends it, which is why punctuation
     // appended after a hint renders in the default foreground.
     export const keyHint = (id, description) => \`\\x1b[90m<\${id}:\${description}>\\x1b[39m\`;
+    // The binding is mutable so one suite can move between bound, rebound and unbound
+    // without rebuilding anything: the renderer must resolve it on every render rather
+    // than snapshot it when the component is constructed. Unbound is the empty string,
+    // which is what the installed formatKeys returns for a keybinding with no keys.
+    let expandKeys = "ctrl+e";
+    export const setExpandKeys = (keys) => { expandKeys = keys; };
+    export const keyText = (id) => (id === "app.tools.expand" ? expandKeys : "ctrl+x");
   `,
   "@earendil-works/pi-tui": TUI_STUB,
   typebox: `export const Type = {
@@ -129,6 +136,9 @@ registerHooks({
 
 const { Text, Box } = await import("@earendil-works/pi-tui");
 const createExtension = (await import(INDEX_URL)).default;
+// The same stub module instance the extension imported, so moving the binding here is
+// exactly what a user rebinding or clearing app.tools.expand does.
+const { setExpandKeys } = await import("@earendil-works/pi-coding-agent");
 
 // ── Harness ─────────────────────────────────────────────────────────────────
 
@@ -654,6 +664,111 @@ if (existsSync(REAL_TUI)) {
   console.log("\n  (block 9 ran against the installed pi-tui)");
 } else {
   console.log("\n  (block 9 SKIPPED: installed pi-tui not found — stub-only evidence)");
+}
+
+// ── 10. The expansion hint follows the live app.tools.expand binding ────────
+//
+// keyText returns "" when the binding is cleared, and the native hint would then read
+// " to expand" with no key in it — an offer to press nothing. Both seams name the action
+// instead. Only the hint segment changes: budgets, counts and punctuation do not.
+
+const BOUND = "ctrl+e";
+const FALLBACK = "bind app.tools.expand to expand";
+const NATIVE = "<app.tools.expand:to expand>";
+
+// Always restores the bound default, so these blocks cannot leak into each other or
+// depend on the order they run in.
+const withBinding = (keys, fn) => {
+  setExpandKeys(keys);
+  try { return fn(); } finally { setExpandKeys(BOUND); }
+};
+
+{
+  const boundRows = withBinding(BOUND, () => render(lines(30)));
+  const reboundRows = withBinding("ctrl+alt+9", () => render(lines(30)));
+  const unboundRows = withBinding("", () => render(lines(30)));
+  const joined = (rows) => rows.join("");
+
+  check("10: incoming keeps the native hint while a key is bound",
+    joined(boundRows).includes(NATIVE) && !joined(boundRows).includes(FALLBACK));
+  check("10: incoming keeps the native hint after the key is rebound",
+    joined(reboundRows).includes(NATIVE) && !joined(reboundRows).includes(FALLBACK));
+  // Incoming passes theme.fg("muted", ...), so the fallback must arrive already styled
+  // by the caller's role function, not as a bare string the helper returned unstyled.
+  check("10: incoming names the action to take, in the caller's role",
+    joined(unboundRows).includes(`{muted}${FALLBACK}`), joined(unboundRows));
+  check("10: the unbound incoming hint offers no keyless native hint",
+    !joined(unboundRows).includes(NATIVE), joined(unboundRows));
+
+  // The fallback is a hint, not content: the budget and the count it reports are the
+  // same numbers the bound render produced.
+  check("10: the unbound hidden count is unchanged",
+    hidden(unboundRows) === 24 && hidden(boundRows) === 24,
+    `unbound=${hidden(unboundRows)} bound=${hidden(boundRows)}`);
+  check("10: the six content rows are byte-equal to the bound render",
+    JSON.stringify(unboundRows.slice(0, 6)) === JSON.stringify(boundRows.slice(0, 6)),
+    unboundRows.slice(0, 6).join("|"));
+}
+
+{
+  // One component, one width, three answers: a binding read at construction or cached
+  // after the first render would repeat a stale hint here.
+  const c = component(lines(30));
+  const first = withBinding(BOUND, () => unframe(c.render(40), 0).join(""));
+  const then = withBinding("", () => unframe(c.render(40), 0).join(""));
+  const again = withBinding("ctrl+alt+9", () => unframe(c.render(40), 0).join(""));
+
+  check("10: the same instance switches to the fallback when the key is cleared",
+    first.includes(NATIVE) && !first.includes(FALLBACK) &&
+      then.includes(FALLBACK) && !then.includes(NATIVE), then);
+  check("10: the same instance returns to the native hint when rebound",
+    again.includes(NATIVE) && !again.includes(FALLBACK), again);
+}
+
+for (const { tool, key, title } of OUTGOING) {
+  // 61 normalized characters: one past the threshold, so this is the truncated path.
+  const long = "y".repeat(61);
+  const unbound = withBinding("", () => callText(tool, { to: "peer", [key]: long }));
+  check(`10: ${tool} names the action to take, in the caller's role`,
+    unbound.includes(`{dim}${FALLBACK}`) && !unbound.includes(NATIVE), unbound);
+  check(`10: ${tool} still clips at 60 characters when unbound`,
+    unbound.includes(`${"y".repeat(60)}... (`) && !unbound.includes("y".repeat(61)), unbound);
+
+  // Exactly 60 characters and short whitespace-rich text hide nothing, so neither hint
+  // may appear — the fallback is not a licence to advertise an expansion that does
+  // nothing.
+  const exactly60 = "z".repeat(60);
+  check(`10: ${tool} offers no hint for 60 characters when unbound`,
+    withBinding("", () => callText(tool, { to: "peer", [key]: exactly60 })) ===
+      expectedCall(title, exactly60));
+  check(`10: ${tool} offers no hint for short whitespace-rich text when unbound`,
+    withBinding("", () => callText(tool, { to: "peer", [key]: "  a\n\n b \t c  " })) ===
+      expectedCall(title, " a b c "));
+
+  // Expanded output is the caller's bytes, fallback or not.
+  const raw = "\n \tfirst line\n\n   second\tline\n  third \t\n";
+  check(`10: ${tool} expanded is unchanged when unbound`,
+    withBinding("", () => callText(tool, { to: "peer", [key]: raw }, true)) ===
+      expectedCall(title, raw));
+
+  // Rebinding between calls must be visible on the next render, not the one after.
+  const definition = tools.get(tool);
+  const args = { to: "peer", [key]: long };
+  const before = withBinding("", () =>
+    definition.renderCall(args, theme, { expanded: false }).render(200).join("\n"));
+  const after = withBinding(BOUND, () =>
+    definition.renderCall(args, theme, { expanded: false }).render(200).join("\n"));
+  check(`10: ${tool} picks the binding up again on the next renderCall`,
+    before.includes(FALLBACK) && after.includes(NATIVE) && !after.includes(FALLBACK), after);
+
+  // The 00582f2 styling rule holds in the fallback state too: the fallback ends with a
+  // foreground reset exactly as a native hint does, so the ")" needs its own dim span.
+  const ansi = withBinding("", () =>
+    definition.renderCall(args, ansiTheme, { expanded: false }).render(1000).join("\n"));
+  check(`10: ${tool} reopens dim for the closing parenthesis when unbound`,
+    ansi.includes(`${DIM})`), JSON.stringify(ansi));
+  check(`10: ${tool} strands no punctuation beyond the fallback's reset when unbound`,
+    !ansi.includes(`${RESET})`), JSON.stringify(ansi));
 }
 
 console.log(`\n\nPassed: ${pass}`);
