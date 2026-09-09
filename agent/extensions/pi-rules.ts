@@ -20,6 +20,7 @@ import type {
 import {
   Text,
   truncateToWidth,
+  visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
@@ -27,6 +28,10 @@ import * as path from "node:path";
 
 const MAX_PREVIEW = 280;
 const WARN_SIZE = 20_000;
+const WIDGET_LINES = 3;
+const GEAR = " ⚙ ";
+/** Continuation rows indent by the gear's width so wrapped text stays in one column. */
+const INDENT = visibleWidth(GEAR);
 
 /** Payload persisted per `rules` entry; `null` marks an explicit clear. */
 type RulesData = { text: string | null };
@@ -62,20 +67,39 @@ export default function (pi: ExtensionAPI) {
         // Wrapping degenerates at non-positive widths and would yield a second,
         // blank row; keep the single empty row the host expects.
         if (width <= 0) return [""];
-        const wrapped = wrapTextWithAnsi(theme.fg("dim", ` ⚙ ${text}`), width);
-        const overflows = wrapped.length > 2;
+        let indent = width > INDENT ? INDENT : 0;
+        let wrapped = wrapTextWithAnsi(
+          theme.fg("dim", indent ? text : GEAR + text),
+          width - indent,
+        ).filter((line) => visibleWidth(line) > 0);
+        // A wide glyph may not fit the aligned text room. Fall back to wrapping the
+        // gear and text together so the final clamp cannot erase it silently.
+        if (wrapped.some((line) => visibleWidth(line) > width - indent)) {
+          indent = 0;
+          wrapped = wrapTextWithAnsi(theme.fg("dim", GEAR + text), width)
+            .filter((line) => visibleWidth(line) > 0);
+        }
+        const clippedAt = wrapped.findIndex((line) => visibleWidth(line) > width);
+        const overflows = wrapped.length > WIDGET_LINES || clippedAt >= 0;
         // Rejoining the remainder keeps the marker visible when a wrap lands exactly
-        // on `width`: that second line fits as-is and would hide the rest silently.
+        // on the row width, and collapses any unrenderable glyph into one marked row.
+        const lastStart = clippedAt >= 0
+          ? Math.min(clippedAt, WIDGET_LINES - 1)
+          : WIDGET_LINES - 1;
         const lines = overflows
-          ? [wrapped[0], wrapped.slice(1).join(" ")]
+          ? [...wrapped.slice(0, lastStart), wrapped.slice(lastStart).join(" ")]
           : wrapped;
         // Theming the ellipsis before truncateToWidth inserts it keeps the dots dim:
         // it resets styling right before appending the marker verbatim.
         return lines.map((line, i) =>
           truncateToWidth(
-            line,
+            (indent
+              ? i === 0
+                ? theme.fg("dim", GEAR)
+                : " ".repeat(indent)
+              : "") + line,
             width,
-            overflows && i === 1 ? theme.fg("dim", "...") : "",
+            overflows && i === lines.length - 1 ? theme.fg("dim", "...") : "",
             true,
           ),
         );
