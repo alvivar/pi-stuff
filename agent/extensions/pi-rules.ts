@@ -39,6 +39,10 @@ type RulesData = { text: string | null };
 export default function (pi: ExtensionAPI) {
   let rulesText: string | null = null;
 
+  function previewOmitsContent(text: string) {
+    return text.length > MAX_PREVIEW || text.includes("\n");
+  }
+
   function restoreRules(ctx: ExtensionContext) {
     const entries = ctx.sessionManager.getBranch();
     rulesText = null;
@@ -58,7 +62,7 @@ export default function (pi: ExtensionAPI) {
     }
     const preview = rulesText.split("\n")[0].slice(0, MAX_PREVIEW);
     const text =
-      rulesText.length > MAX_PREVIEW || rulesText.includes("\n")
+      previewOmitsContent(rulesText)
         ? preview + "..."
         : rulesText;
     // Factory form: theme.fg resolves at render time, so /theme recolors the widget.
@@ -203,10 +207,12 @@ export default function (pi: ExtensionAPI) {
         rulesText = text;
         pi.appendEntry("rules", { text: rulesText });
         updateWidget(ctx);
-        ctx.ui.notify(
-          `Rules loaded from ${resolved} (${rulesText.length} chars)`,
-          "info",
-        );
+        if (ctx.mode !== "tui" || previewOmitsContent(rulesText)) {
+          ctx.ui.notify(
+            `Rules loaded from ${resolved} (${rulesText.length} chars)`,
+            "info",
+          );
+        }
         warnIfLarge(ctx, rulesText);
         return;
       }
