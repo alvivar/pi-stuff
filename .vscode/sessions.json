@@ -1,5 +1,5 @@
 {
-  "active": "pi-rules",
+  "active": "pi-link",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -16,39 +16,39 @@
         ]
       },
       {
-        "name": "fable@pi-link",
-        "icon": "flame",
-        "color": "terminal.ansiBrightRed",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link fable@pi-link"
-        ]
-      },
-      {
-        "name": "opus@pi-link",
-        "icon": "sparkle",
+        "name": "designer@pi-link",
+        "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link opus@pi-link"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link designer@pi-link"
         ]
       },
       {
-        "name": "sol@pi-link",
-        "icon": "star-full",
-        "color": "terminal.ansiBrightYellow",
+        "name": "implementer@pi-link",
+        "icon": "tools",
+        "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-link"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link implementer@pi-link"
         ]
       },
       {
-        "name": "terra@pi-link",
-        "icon": "globe",
-        "color": "terminal.ansiGreen",
+        "name": "reviewer@pi-link",
+        "icon": "eye",
+        "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link terra@pi-link"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link reviewer@pi-link"
+        ]
+      },
+      {
+        "name": "compactor@pi-link",
+        "icon": "fold",
+        "color": "terminal.ansiCyan",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link compactor@pi-link"
         ]
       },
       {
@@ -72,7 +72,7 @@
       {
         "name": "test1@pi-link",
         "icon": "beaker",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test1@pi-link"
@@ -81,7 +81,7 @@
       {
         "name": "test2@pi-link",
         "icon": "beaker",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test2@pi-link"
@@ -90,7 +90,7 @@
       {
         "name": "test3@pi-link",
         "icon": "beaker",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test3@pi-link"
@@ -99,7 +99,7 @@
       {
         "name": "test4@pi-link",
         "icon": "beaker",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test4@pi-link"
