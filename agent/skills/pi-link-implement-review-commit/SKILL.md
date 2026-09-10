@@ -1,240 +1,216 @@
 ---
 name: pi-link-implement-review-commit
-description: Orchestrate a plan-driven implement→review→commit pipeline across multiple PI terminals over pi-link. Use when you are the ORCHESTRATOR coordinating other terminals (an implementer, a reviewer, a committer) to execute a written plan task-by-task — delegating self-contained work, gating each task on build/tests, managing each worker's context window, serializing sensitive or single-file edits, and routing all messages through yourself. This is the policy layer on top of pi-link-coordination (the mechanism). Not for writing code yourself, and not for one-off single-terminal messaging.
+description: Orchestrate a plan-driven implement→review→commit pipeline across PI terminals over pi-link. For the ORCHESTRATOR: delegate self-contained tasks, gate each on relevant evidence and independent review, serialize commits, and compact workers predictively at safe boundaries. Not for writing code yourself or one-off messaging. Requires pi-link-coordination for transport mechanics.
 ---
 
 # Implement → Review → Commit
 
-You are the **orchestrator**. You do not write or review code — ever — and you do
-not commit, except the §1 committer fold-in with explicit user permission. You
-route self-contained tasks between worker terminals, enforce gates, manage their
-context, and keep the pipeline acyclic and serialized.
+You are the **orchestrator**. Route work, enforce gates, manage context, and keep
+run state. Do not edit product code or perform its correctness review. You may
+read source to understand and plan; the independent reviewer owns the verdict.
+Plans and ledgers are yours to write. Commit only under the role exception below.
 
-This skill is **policy**. For link tool mechanics (link_send / link_compact /
-link_list, delivery, batching, callbacks) load the `pi-link-coordination` skill
-(listed in your available skills) and read it first.
+Load and read **pi-link-coordination first** for tool delivery, callbacks and
+remote compaction. These rules govern the workflow, not the transport.
 
-Worked examples (briefs from runs that went well) and the expected plan schema
-live next to this file — examples, not forms (§4):
+References (examples, not mandatory forms):
+[plan](templates/plan-schema.md) · [dispatch](templates/dispatch-brief.md) ·
+[review](templates/review-brief.md) · [commit](templates/commit-brief.md) ·
+[ledger](templates/ledger.md).
 
-- [templates/dispatch-brief.md](templates/dispatch-brief.md)
-- [templates/review-brief.md](templates/review-brief.md)
-- [templates/commit-brief.md](templates/commit-brief.md)
-- [templates/plan-schema.md](templates/plan-schema.md)
-- [templates/ledger.md](templates/ledger.md)
+## 1. Prepare and authorize the run
 
----
+1. Read a self-contained plan on disk: approved outcome, tasks in order, paths,
+   invariants, risks, verification and standing constraints. Repair an incomplete
+   plan before delegating; group coherent changes rather than making every
+   observation a task.
+2. Bind roles with `link_list`, using full terminal names and verifying cwd/repo.
+   Record bindings; do not start with an absent or ambiguous required role.
 
-## 0. Pre-flight (once, before any dispatch)
+   | Role | Responsibility |
+   | --- | --- |
+   | Implementer | Edits the task, self-runs its gate |
+   | Reviewer | Independently reviews the actual diff; must differ from implementer |
+   | Committer | Checks scope/staging hygiene and commits; does not re-review |
 
-1. **Read the plan.** It must be a self-contained file on disk (locations,
-   before/after, risk, verify steps, sequencing). See `templates/plan-schema.md`.
-   If the plan is not self-contained, fix that first — you delegate by passing a
-   path, not your context.
-2. **Bind roles** (see §1). Refuse to start if a required role is unbound or
-   ambiguous.
-3. **Draft the task→role→order todo**, including the per-task gate and which tasks
-   are serialized/sensitive. Open a ledger next to the plan (`LEDGER-<plan>.md`,
-   copied from `templates/ledger.md`).
-4. **Verify the baseline.** Dispatch the implementer to run the gate once
-   (build + tests) and read the worktree state (`git status --short --branch`)
-   before task 1. A red baseline makes every later gate lie about whose defect
-   it is, and pre-staged junk blocks the committer at the worst moment — both
-   are the user's to fix, before the run starts.
-5. **Agree the autonomy level, then HOLD for the user's explicit "go."** Present
-   the todo and ask: run-through (one global go for the whole plan) or
-   gate-per-task (the user approves each task at its HOLD, right before COMMIT)?
-   Record the answer in the ledger's `Autonomy:` field. Do not dispatch anything
-   until the user approves.
+   Use a separate committer by default. Only if none is available and the user
+   explicitly permits it may the orchestrator perform that role.
+3. Present task order and gates. Agree **run-through** (one go for the plan) or
+   **gate-per-task** (also require user approval immediately before each commit).
+   Record the explicit go before any execution dispatch, including baseline work.
+4. Open a ledger next to the plan (`LEDGER-<plan>.md`) or at another agreed absolute
+   path. It is temporary run state, never a product file and **never staged**.
+5. Dispatch the implementer to verify branch/HEAD, worktree and staged state, and
+   run the applicable baseline gate before edits. Unexpected staged changes or a
+   red baseline block implementation: report the facts; do not clean others' work
+   or silently repair the baseline.
 
----
+## 2. Run one task at a time
 
-## 1. Roles (parameters — bind via link_list, never hardcode)
-
-| Role         | Does                              | Notes                                                                                                                    |
-| ------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| orchestrator | you — route, gate, manage context | never writes/reviews code; commits only under the §1 committer fold-in exception                                         |
-| implementer  | edits code, self-runs the gate    |                                                                                                                          |
-| reviewer     | reviews diffs against the plan    | MUST differ from implementer (independence)                                                                              |
-| committer    | makes git commits                 | may fold into orchestrator only if no dedicated committer and the user permits you to commit (the single §3.8 exception) |
-
-Binding procedure:
-
-- `link_list` → resolve each role to a concrete `name@domain`.
-- **Disambiguate by cwd** — look-alike names in other workspaces are common; always
-  target the full name in the correct cwd.
-- Record the bindings in the ledger. Re-confirm with `link_list` if a worker goes
-  quiet (offline terminals do not queue messages).
-
----
-
-## 2. The pipeline loop (run per task, in plan sequence)
+The pipeline is **serial-only**. All worker communication routes through you;
+workers do not delegate to each other.
 
 ```
-for each task in plan (sequence order):
-  PRE-FLIGHT  task-boundary dispatches only (new IMPLEMENT, REVIEW, COMMIT):
-              link_list → if the worker's window may not fit the coming task,
-              link_compact it (idle only; "?" = just compacted = fresh window).
-              Never mid-task — §3.4.
-  IMPLEMENT   link_send(implementer) + full dispatch brief (§4)
-  WAIT        hold for DONE/BLOCKED
-  GATE        worker self-ran build+tests; a red/missing gate == BLOCKED → relay
-              failure details, re-IMPLEMENT (bounded: same cap as CONVERGE, then
-              escalate to the user)
-  REVIEW      link_send(reviewer) + review brief (§4)
-  WAIT        hold for APPROVE / CHANGES-NEEDED
-  CONVERGE    CHANGES-NEEDED → relay to implementer, loop; cap 2 iterations;
-              tie-break = implementer, except sensitive tasks → user (§3.7)
-  HOLD        gate-per-task autonomy only: present diff summary + review verdict
-              to the user; wait for their go before committing
-  COMMIT      link_send(committer) + commit brief
-              (templates/commit-brief.md); wait for DONE + hash
-  ADVANCE     record commit/hash/gate in ledger; next task
+PREPARE    check worker availability/context (§6); send self-contained brief
+IMPLEMENT  implementer reads plan against current source before editing;
+           contradictions → BLOCKED with proposed correction and affected behavior
+WAIT       end your turn; resume on the named DONE/BLOCKED callback
+GATE       required evidence passed? otherwise bounded repair or escalate (§5)
+REVIEW     send actual diff/new-file paths and material declarations to reviewer
+WAIT       end your turn; resume on APPROVE / CHANGES-NEEDED / BLOCKED
+CONVERGE   relay findings, repair and re-review within §5's cap
+HOLD       gate-per-task only: explain outcome/verdict and await user's commit go
+COMMIT     dispatch committer; wait for hash and final worktree status
+ADVANCE    record completion; assess context for next task
 ```
 
-**WAIT means end your turn.** The callback _is_ your next turn. A message's effect
-is decided by the worker's state when the message is delivered, not when you send
-it: if the worker is still running then, your message is steered into the run you
-are waiting on, alongside the brief that started it.
+**WAIT means end your turn**, not sleep or poll. A callback may request a specific
+unblock action; send an explicit continuation after resolving it. Do not send a
+second work brief while waiting for the first result.
 
-**Commit before the next IMPLEMENT.** Review reads the _uncommitted_ diff
-(`git diff -- <file>`), so committing each task is what keeps the next review
-diff single-task. Deferred or batched commits blur every subsequent review.
+**Commit before the next IMPLEMENT.** Each review covers that task's uncommitted
+changes, not a batch of tasks. Keep shared-file edits sequential; file collision
+is a serialization constraint, not automatically a sensitive correctness risk.
 
-The failure modes are almost all "a state was skipped or reordered" (e.g.,
-prompting a worker before its callback skips WAIT). Walk the states in order.
+## 3. Authority and changes during a run
 
----
+Every execution dispatch carries the user's go-signal in its body. Under
+run-through, the orchestrator may incorporate small, directly necessary
+corrections to achieve the approved outcome, including related documentation.
+They must not expand the approved external behavior or add dependencies, cost,
+destructive data operations, security changes or material risk. This is not
+permission for unrelated cleanup or new features in an already-approved file.
 
-## 3. Invariants (non-negotiable)
+Record these amendments in the plan/ledger, update the plan's task path list
+before edits and the committer's path list before dispatch, and have the reviewer
+evaluate them. Commit plan amendments with their
+implementation. **Changed outcomes or material risk require user ratification**;
+a worker declaration alone never authorizes expansion. Outside run-through,
+request approval for scope amendments before executing them.
 
-1. **Approval travels with the work.** Every dispatch that should execute carries
-   the user's go-signal in the body (e.g. `GO CONFIRMED — user approved with "<quote>"`).
-   Workers share none of your context; an approval you hold in your head is invisible
-   to them and they will silently stall. This is the most common stall.
-2. **Self-contained dispatch.** Every task message includes: task id, plan path,
-   scope (which findings/sections), the go-signal, gate commands, constraints
-   (no-commit / no-version-bump unless that IS the task), and the callback contract
-   (report DONE/BLOCKED to `<you>` via `link_send` with a diff
-   summary + gate results — **declaring any MATERIAL judgment call beyond the
-   brief's letter** (contract, data shape, error semantics, scope, test
-   strategy — anything a reviewer would evaluate differently if told), with its
-   rationale: an undeclared deviation is the one change review cannot target,
-   because nothing pinned it and nobody said it exists. **Declared deviations
-   then travel with the work into the review brief, verbatim** — relayed by
-   you, or the declaration terminates at the hub and reviewed-hardest never
-   happens. In a shared worktree, also state which pre-existing dirt is
-   expected and owned (plan, ledger, prior-task leftovers) — a worker cannot
-   infer whose the dirt is or whether it may clean it.
-3. **Gate is non-negotiable and worker-self-run.** Never trust "looks done." The
-   worker runs the build + tests and reports results; red or missing = BLOCKED.
-4. **Predictive context management.** Compact any worker whose window may not
-   fit the coming task — judge the fit BEFORE dispatching, not once the window
-   is already full (the implementer grows fastest). The hazard is Pi's
-   auto-compaction firing MID-TASK, which can shed the dispatch brief's details
-   at the worst moment; orchestrated compaction while the worker is idle
-   (`link_compact` blocks, then returns) exists to pre-empt exactly that.
-   Compact right before a large or sensitive task so it runs in a clean window.
-   Compaction is a TASK-BOUNDARY operation: never compact a worker between its
-   IMPLEMENT and that task's commit — a CONVERGE relay or gate-red retry needs
-   the very in-flight state compaction sheds; if the window truly can't fit the
-   fix, escalate to the user instead. Because dispatches are self-contained
-   (§3.2), the next brief re-supplies everything task-specific; the only
-   irrecoverable loss is what the worker learned that is NOT in the plan — aim
-   the compaction instructions at exactly that.
-5. **Serialize shared-resource edits.** One file / sensitive logic → strictly
-   sequential. Enter a sensitive task in a freshly compacted window, with its
-   invariants spelled out in both the implement and review briefs; sequence it
-   where risk dictates (often last — but the critical path may say otherwise).
-6. **Acyclic, hub-routed delegation.** You are always the relay. Workers never
-   message each other to close a loop: an accepted send does not wait for a reply,
-   so the protocol supplies no exit condition for a cycle.
-7. **Convergence has a backstop.** Cap review iterations at 2; if implementer and
-   reviewer can't agree, the implementer's final decision wins — record the
-   dissent in the ledger and move on. The pipeline must never deadlock on opinion.
-   This is a LIVENESS policy, not a correctness claim — the tie-break decides
-   who moves, not who is right; the recorded dissent is what preserves the
-   question for the user. Exception: on tasks marked sensitive/serialized (§3.5) a deadlock escalates to
-   the user instead — the tie-break is a bet, and sensitive code is where you
-   don't bet.
-8. **You stay hands-off.** Do not edit or review code yourself — ever. Do not
-   commit, except the §1 committer fold-in with the user's explicit permission.
-   Your neutrality is what makes the review independent and the constraints hold.
-   Hands-off applies to the CODE: plans and ledgers are yours to write, and
-   mid-run plan amendments are orchestrator work (user-ratified, committed
-   alongside the code that implements them).
-9. **The committer checks scope and hygiene, not correctness — never re-review.**
-   It verifies the staged diff matches the brief's path list and the worktree is
-   safe to commit. Correctness was settled at REVIEW; a committer that
-   re-litigates it adds a second, unaccountable review loop.
+An escalation to the user is self-contained: what was found, why a decision or
+permission is needed, the proposed action and recommendation, and what is paused
+or can continue. Do not make the user reconstruct worker messages.
 
----
+## 4. Briefs and evidence
 
-## 4. Dispatching
+A dispatch names the task, absolute plan/repo paths, expected branch/HEAD, allowed
+files, expected dirt and ownership (including staged state), go, gate, constraints
+and callback recipient and task id. Explicitly prohibit staging/committing outside the
+commit task and version/lockfile changes unless authorized.
 
-- **Implement / review / commit are dispatched with `link_send`** and answered by a
-  callback, which is another `link_send`. Nothing correlates the two but their text,
-  so the brief must name you as the recipient and state the DONE/BLOCKED contract.
-- **Untracked files are invisible to `git diff`.** A reviewer following the diff
-  command silently covers only modified files — route every new in-scope file
-  to the reviewer explicitly, by path.
-- Write the brief each task actually needs — the non-negotiables are §3.2's
-  (self-contained, go-signal, gate, callback contract), not any format. The
-  templates are worked examples from good runs: what generalizes is what their
-  asks _surface_ (per-finding confirmation, "confirm the reasoning", named
-  highest-risk checks), not their shape. Aim your asks at THIS task's real risks.
+Workers read the referenced plan and standing constraints. Do not paste the whole
+plan into each brief. Highlight only the few highest-risk invariants and any
+critical task-specific restrictions; preserve debugging-relevant facts.
 
----
+Require a concise result: outcome, changed paths, gate results and limitations,
+plus **material deviations or unpinned decisions** with rationale. Material means
+observable behavior, contract/data/error semantics, scope, risk or verification
+strategy that would affect review. Routine idiomatic choices and confirmations of
+already-pinned requirements are not a design diary. Operational blockers belong
+in the report without being relabelled design decisions.
 
-## 5. Failure taxonomy (diagnose, don't assume)
+**Relay material declarations to the reviewer verbatim.** Include the exact diff
+command and explicitly name untracked files to read: `git diff` does not show them.
+Prior approvals retained through compaction are completion records, not evidence
+for the current diff.
 
-| Symptom                                                        | Likely cause                                                          | Recovery                                                                                                                                                                                                   |
-| -------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No callback, worker **idle**, context grew                     | Worker ran a turn but withheld callback (often: waiting for approval) | `link_list` shows idle with a grown window — it ran and stopped. An approval you hold is not visible to it (§3.1)                                                                                          |
-| No callback, worker **busy**                                   | Still working                                                         | Its queued messages are invisible to you, and silence is indistinguishable from progress                                                                                                                   |
-| No callback, worker **absent** from list                       | Offline; messages were dropped (not queued)                           | Nothing is queued for it; a role bound to that name has no delivery until it reconnects                                                                                                                    |
-| Committer BLOCKED (staged junk / wrong branch / hook mutation) | Dirty shared worktree                                                 | Relay the exact `git status` to the user — worktree hygiene is the user's to fix, not a worker's                                                                                                           |
-| `link_compact` errors at its 3-min ceiling                     | The timeout bounds your wait only; nothing aborted the target          | The target may still be compacting. `link_list` shows a "?" or shrunken context once it finished                                                                                                            |
+The plan specifies **required verification and its coverage** for each task,
+separately from optional evidence. Use applicable builds/tests and task-relevant
+checks (for example blob identity, link checks or manual UI inspection). A command
+that does not exercise the changed surface cannot be its only correctness
+evidence. Do not add gates by rote or silently omit existing applicable tests.
 
-Idle + grown context is a logic hold, not a crash.
+The implementer self-runs the gate. Missing or failed **required** evidence blocks
+advancement. If a task deliberately relies on source inspection, declare that in
+the plan; it is not runtime validation. Manual checks require appropriate access
+and authorization. Optional checks that cannot run are reported, not called PASS.
+The reviewer verifies the evidence and states which surfaces remain unverified;
+neither worker may silently waive a required check.
 
----
+## 5. Findings and bounded convergence
 
-## 6. Ledger (observability)
+Reviewer reports findings first, confirms the named highest-risk properties, and
+may summarize the rest as "no findings". Use three dispositions, based on effect
+rather than whether the file was in the original scope:
 
-Keep a running ledger (`LEDGER-<plan>.md` next to the plan, copied from
-`templates/ledger.md`) so a long run stays auditable and
-survives your OWN compaction: role bindings, and per task — scope, implementer
-DONE summary, gate result, review verdict, commit hash, any dissent. Write each
-state transition when it happens (dispatched → callback → verdict → hash), not
-only at ADVANCE: the in-flight row ("task 3 at REVIEW, sent <when>") is exactly
-what lets you resume correctly if you compact mid-task. Compact YOURSELF only at
-an ADVANCE boundary, right after writing the ledger — the in-flight rows make
-mid-task recovery possible, not desirable.
+- **Must-fix:** blocks this task; verdict CHANGES-NEEDED (or BLOCKED if required
+  evidence/authority is missing). Give location, reason and actionable correction.
+- **Should-fix:** nonblocking; route to an authorized correction/later task or
+  report at run end. Include the proposed change and affected behavior so the
+  orchestrator can route it without performing another code review.
+- **Nit:** record-only; does not trigger convergence or automatic backlog work.
 
----
+APPROVE may include nonblocking findings and explicit coverage limitations.
+Record each routed finding's disposition so it is not lost between tasks.
 
-## 7. Out of scope / do not
+After initial implementation, allow at most **two repair rounds per task**,
+whether triggered by a failed gate or review findings. This is one shared budget;
+passing a gate or moving between stages does not reset it. Re-run required checks
+and obtain review of the resulting changes before commit.
 
-- Don't write or review code yourself; don't commit except under the explicit §1
-  committer fold-in.
-- Don't bump versions or touch lockfiles unless that is explicitly the task; git is
-  usually hand-managed by the user — delegate commits to the committer.
-- The pipeline is **serial-only**: one task in flight at a time. (Future work:
-  safe parallelism would need genuinely independent files/logic, separate
-  workers, commits still serialized, and per-worker callback tracking in the
-  ledger — none of which this loop expresses. Don't improvise it.)
-- Don't restate or fork pi-link mechanics — reference the companion skill.
-- Don't strip debugging-relevant detail from briefs to make them shorter; precision
-  beats brevity in a dispatch.
+For unresolved nonblocking preferences, the implementer's final choice wins;
+record the dissent. Never use that tie-break to ship a failed required gate or an
+unresolved correctness/security defect. When the cap is reached with a must-fix
+or required-evidence failure still open, stop the task and escalate to the user
+using §3's format. Escalate factual behavior disputes and sensitive correctness
+conflicts regardless of the task's original risk label. Do not let opinion loops
+stall the run indefinitely.
 
----
+## 6. Predictive context management
 
-## 8. Run end
+At ADVANCE and before each new stage dispatch, use `link_list` to assess the
+recipient's headroom. Estimate the coming work **including possible repairs and
+handoffs**, not just the next prompt. Use model/context information available
+from `link_list` or the worker. If the auto-compaction threshold is unknown, keep
+a conservative reserve rather than inventing a value; do not impose a universal
+percentage. A `?` immediately
+after successful compaction is fresh context, not a reason to compact again.
 
-When the last task's commit is recorded in the ledger:
+Compact an idle worker before it starts a task if headroom is doubtful, especially
+for large or sensitive work. Aim the summary at discoveries **not already in the
+plan**, plus standing constraints. Size tasks so a full review/repair cycle fits.
 
-1. **Final summary to the user** — tasks completed, commit hashes, gate results,
-   review verdicts, any dissents or skipped items.
-2. **Close the ledger** — mark the run complete, then dispose of it per the
-   delete-after-done convention (it was run-state, not documentation).
+Once a worker has begun its stage of a task, preserve its context through that
+task's commit: no compaction while it may need to repair or re-review. A reviewer
+or committer not yet engaged on that task may be compacted before its first
+stage dispatch. If an engaged worker cannot fit the remaining work, escalate
+rather than silently shedding in-flight state.
+
+Compact yourself only at a safe task boundary, after recording the commit and
+next state. Keep a brief context decision in the ledger when useful; no separate
+context-accounting table is required.
+
+## 7. Commit and run state
+
+Committer checks **scope and hygiene, not correctness**. Its brief must include
+explicit paths, expected branch/HEAD and dirt, review/gate outcome, commit message
+and these rules:
+
+- Inspect current status and the entire staged path list before staging.
+- Use explicit pathspecs; never `git add .`, `git add -A` or `git commit -a`.
+- Leave unrelated unstaged work alone. Block on out-of-scope staged changes,
+  unexpected branch/HEAD, merge/rebase, unauthorized partial staging, missing
+  paths, broad line-ending churn or hook mutation. Report whether a commit landed.
+- Do not push, amend, skip hooks, bump versions or touch lockfiles without explicit
+  authorization. Return hash, committed paths and post-commit status, or exact
+  failure details.
+
+Update the ledger at every transition, not only at completion: roles, task and
+stage, dispatch/callback, gate and uncovered surfaces, verdict, amendments,
+routed findings, dissent and commit hash. Record expected dirt; never treat the
+ledger as a reviewed or committable product artifact.
+
+After the last commit, report tasks/hashes, gate and review results, remaining
+limitations and routed/skipped items. Mark the run complete and delete its ledger.
+Do not delete other plans or prototypes merely because the run finished.
+
+## 8. Recovery
+
+| Observation | Action |
+| --- | --- |
+| No callback; worker idle with grown context | Check for an approval/context hold; restate authority and callback if needed |
+| Worker busy | Wait; silence is not failure |
+| Worker absent | Rebind/reconnect before sending; offline delivery is not queued |
+| Unexpected staged work, branch or hook mutation | Report exact status; do not reset or clean someone else's changes |
+| Compaction request times out | Timeout did not abort the target; check state before retrying or dispatching |

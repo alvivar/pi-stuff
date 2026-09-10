@@ -1,42 +1,37 @@
-# Expected plan schema
+# Plan contract
 
-The plan is the contract you delegate against. It must be **self-contained** so a
-worker can execute a task from the path alone. A good plan has:
+The plan is the context carrier for fresh workers. Keep it task-sized and
+self-contained; observations do not each need an ID, audit table or deliverable.
 
-## Header
+## Run header
 
-- What it is, what file(s), test baseline (e.g. "tests green: <cmd> → N/N").
-- Nature/risk overview (which items are defects vs. refactors).
-- Note that line numbers are approximate; re-locate by anchors.
+- Approved outcome and exclusions.
+- Absolute repository path, expected branch/HEAD and known baseline state.
+- Ordered tasks and allowed paths; standing constraints/permissions declared once.
+- Autonomy/go, or pending authorization; baseline verification to perform.
 
-## One section per finding/task
+## Each task
 
-Each with:
+- **Where:** paths and stable source anchors; line numbers are hints.
+- **Outcome:** what changes and what must remain true. Give before/after where it
+  clarifies the contract, not as a substitute for reading current source.
+- **Invariants:** for dependency internals, lifecycle and guards, pin behavior and
+  verification rather than guessing wiring. Implementer checks plan against
+  current source before editing and reports contradictions.
+- **Risk/dependencies:** distinguish shared-resource serialization from sensitive
+  correctness. Order by dependencies and risk; all implementation is serial.
+- **Verification:** required checks/commands with expected results and coverage;
+  optional checks and unverified surfaces separately. Use relevant builds/tests,
+  identity/link checks, manual evidence or explicitly declared source inspection
+  as appropriate. Identify required runtime access before dispatch.
 
-- **Where** — function/anchor + approximate line.
-- **Problem** — why it needs changing.
-- **Fix** — the precise change, ideally with before/after code.
-  - Where the change wires into **another system's internals** (its events, lifecycle,
-    guards), pin the **invariant** and how to verify it instead of the wiring. A plan
-    cannot verify internals it is not reading as it writes, so that is where its
-    confident errors concentrate — and the implementer, who is reading that source, is
-    positioned to get the wiring right.
-- **Risk** — none / low / medium / high (drives sequencing + compaction).
-- **Verify** — how to confirm (tests + any manual/reasoned check).
+Choose coherent tasks that fit an implement/review/repair cycle, one commit each.
+Reference finding IDs only where needed by a task. Do not duplicate source detail
+or turn every observed nit into scope.
 
-## Sequencing section
+## Changes during execution
 
-- Grouped passes, ordered low-risk → sensitive.
-- Sensitive / single-file-conflicting items called out to **serialize**, usually LAST.
-- The **gate commands** (build + test) stated once, applied after every pass.
-
-## Out-of-scope section (optional but valuable)
-
-- Things deliberately NOT done and why (e.g. "don't over-genericize X").
-- Info-only items (e.g. version drift) flagged for the maintainer, not executed.
-
-## Why this shape
-
-- You delegate by **passing the path**, not your context.
-- Anchors + before/after let an implementer in a fresh/compacted window act precisely.
-- Risk + sequencing drive the orchestration order and predictive compaction.
+Record permitted run-through corrections and explicit path changes before edits;
+retain required user ratification for changed outcomes or material risk under
+SKILL.md §3. Review amendments with their implementation. Run-state transitions
+belong in the ledger, not repeated throughout this plan.
