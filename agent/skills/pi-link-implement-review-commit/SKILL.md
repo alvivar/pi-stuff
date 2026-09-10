@@ -1,6 +1,6 @@
 ---
 name: pi-link-implement-review-commit
-description: Orchestrate a plan-driven implement→review→commit pipeline across PI terminals over pi-link. For the ORCHESTRATOR: delegate self-contained tasks, gate each on relevant evidence and independent review, serialize commits, and compact workers predictively at safe boundaries. Not for writing code yourself or one-off messaging. Requires pi-link-coordination for transport mechanics.
+description: Orchestrate a plan-driven implement→review→commit pipeline across PI terminals over pi-link. For the ORCHESTRATOR — delegate self-contained tasks, gate each on relevant evidence and independent review, serialize commits, and compact workers predictively at safe boundaries. Not for writing code yourself or one-off messaging. Requires pi-link-coordination for transport mechanics.
 ---
 
 # Implement → Review → Commit
