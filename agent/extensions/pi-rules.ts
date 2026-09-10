@@ -38,6 +38,8 @@ type RulesData = { text: string | null };
 
 export default function (pi: ExtensionAPI) {
   let rulesText: string | null = null;
+  let activeRulesEntryId: string | null = null;
+  let activeWidgetComplete = false;
 
   function previewOmitsContent(text: string) {
     return text.length > MAX_PREVIEW || text.includes("\n");
@@ -46,31 +48,43 @@ export default function (pi: ExtensionAPI) {
   function restoreRules(ctx: ExtensionContext) {
     const entries = ctx.sessionManager.getBranch();
     rulesText = null;
+    activeRulesEntryId = null;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i];
       if (entry.type === "custom" && entry.customType === "rules") {
         rulesText = (entry.data as RulesData | undefined)?.text ?? null;
+        if (rulesText) activeRulesEntryId = entry.id;
         break;
       }
     }
   }
 
   function updateWidget(ctx: ExtensionContext) {
+    activeWidgetComplete = false;
     if (!rulesText) {
       ctx.ui.setWidget("pi-rules", undefined);
       return;
     }
-    const preview = rulesText.split("\n")[0].slice(0, MAX_PREVIEW);
-    const text =
-      previewOmitsContent(rulesText)
-        ? preview + "..."
-        : rulesText;
+    const fullText = rulesText;
+    const omitsContent = previewOmitsContent(fullText);
+    const preview = fullText.split("\n")[0].slice(0, MAX_PREVIEW);
+    const text = omitsContent ? preview + "..." : fullText;
     // Factory form: theme.fg resolves at render time, so /theme recolors the widget.
-    ctx.ui.setWidget("pi-rules", (_tui, theme) => ({
+    ctx.ui.setWidget("pi-rules", (tui, theme) => ({
       render: (width) => {
+        const reportCompleteness = (complete: boolean) => {
+          if (activeWidgetComplete === complete) return;
+          activeWidgetComplete = complete;
+          // Transcript components render before above-editor widgets. Schedule the
+          // settled frame when this widget's actual width changes their visibility.
+          tui.requestRender();
+        };
         // Wrapping degenerates at non-positive widths and would yield a second,
         // blank row; keep the single empty row the host expects.
-        if (width <= 0) return [""];
+        if (width <= 0) {
+          reportCompleteness(false);
+          return [""];
+        }
         let indent = width > INDENT ? INDENT : 0;
         let wrapped = wrapTextWithAnsi(
           theme.fg("dim", indent ? text : GEAR + text),
@@ -95,7 +109,7 @@ export default function (pi: ExtensionAPI) {
           : wrapped;
         // Theming the ellipsis before truncateToWidth inserts it keeps the dots dim:
         // it resets styling right before appending the marker verbatim.
-        return lines.map((line, i) =>
+        const rendered = lines.map((line, i) =>
           truncateToWidth(
             (indent
               ? i === 0
@@ -107,6 +121,8 @@ export default function (pi: ExtensionAPI) {
             true,
           ),
         );
+        reportCompleteness(!omitsContent && !overflows);
+        return rendered;
       },
       invalidate: () => {},
     }));
@@ -139,12 +155,19 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
-  // Display-only: shows each /rules change inline in the transcript where it happened.
-  // Always the full text, collapsed or expanded — the widget is the summarized view.
+  // Display-only: retains every /rules change inline where it happened. The current
+  // entry yields to a complete active widget; every visible entry keeps the full text.
   pi.registerEntryRenderer<RulesData>("rules", (entry, _options, theme) => {
     const text = entry.data?.text;
     if (!text) return new Text(theme.fg("dim", "⚙ Rules cleared"), 1, 0);
-    return new Text(`${theme.fg("dim", "⚙")} ${text}`, 1, 0);
+    const component = new Text(`${theme.fg("dim", "⚙")} ${text}`, 1, 0);
+    return {
+      render: (width) =>
+        entry.id === activeRulesEntryId && activeWidgetComplete
+          ? []
+          : component.render(width),
+      invalidate: () => component.invalidate(),
+    };
   });
 
   pi.registerCommand("rules", {
@@ -181,6 +204,7 @@ export default function (pi: ExtensionAPI) {
           return;
         }
         rulesText = null;
+        activeRulesEntryId = null;
         pi.appendEntry("rules", { text: null });
         updateWidget(ctx);
         // The transcript entry renderer already shows "⚙ Rules cleared" in the TUI.
@@ -206,6 +230,7 @@ export default function (pi: ExtensionAPI) {
         }
         rulesText = text;
         pi.appendEntry("rules", { text: rulesText });
+        restoreRules(ctx);
         updateWidget(ctx);
         if (ctx.mode !== "tui" || previewOmitsContent(rulesText)) {
           ctx.ui.notify(
@@ -219,6 +244,7 @@ export default function (pi: ExtensionAPI) {
 
       rulesText = trimmed;
       pi.appendEntry("rules", { text: rulesText });
+      restoreRules(ctx);
       updateWidget(ctx);
       // The transcript entry renderer already shows the full rules in the TUI.
       if (ctx.mode !== "tui")
