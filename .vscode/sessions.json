@@ -307,21 +307,39 @@
         ]
       },
       {
-        "name": "claude@pi-rules",
-        "icon": "sparkle",
+        "name": "designer@pi-rules",
+        "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link claude@pi-rules"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link designer@pi-rules"
         ]
       },
       {
-        "name": "gpt@pi-rules",
-        "icon": "copilot",
-        "color": "terminal.ansiBrightGreen",
+        "name": "implementer@pi-rules",
+        "icon": "tools",
+        "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link gpt@pi-rules"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link implementer@pi-rules"
+        ]
+      },
+      {
+        "name": "reviewer@pi-rules",
+        "icon": "eye",
+        "color": "terminal.ansiBrightCyan",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link reviewer@pi-rules"
+        ]
+      },
+      {
+        "name": "compactor@pi-rules",
+        "icon": "fold",
+        "color": "terminal.ansiCyan",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link compactor@pi-rules"
         ]
       },
       {
