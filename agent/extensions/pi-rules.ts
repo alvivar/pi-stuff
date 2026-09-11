@@ -32,6 +32,17 @@ const WIDGET_LINES = 3;
 const GEAR = " ⚙ ";
 /** Continuation rows indent by the gear's width so wrapped text stays in one column. */
 const INDENT = visibleWidth(GEAR);
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function previewPrefix(text: string) {
+  const firstLine = text.split("\n", 1)[0];
+  let end = 0;
+  for (const { segment } of graphemeSegmenter.segment(firstLine)) {
+    if (end + segment.length > MAX_PREVIEW) break;
+    end += segment.length;
+  }
+  return firstLine.slice(0, end);
+}
 
 /** Payload persisted per `rules` entry; `null` marks an explicit clear. */
 type RulesData = { text: string | null };
@@ -67,7 +78,7 @@ export default function (pi: ExtensionAPI) {
     }
     const fullText = rulesText;
     const omitsContent = previewOmitsContent(fullText);
-    const preview = fullText.split("\n")[0].slice(0, MAX_PREVIEW);
+    const preview = previewPrefix(fullText);
     const text = omitsContent ? preview + "..." : fullText;
     // Factory form: theme.fg resolves at render time, so /theme recolors the widget.
     ctx.ui.setWidget("pi-rules", (tui, theme) => ({
@@ -230,7 +241,7 @@ export default function (pi: ExtensionAPI) {
         }
         rulesText = text;
         pi.appendEntry("rules", { text: rulesText });
-        restoreRules(ctx);
+        activeRulesEntryId = ctx.sessionManager.getLeafId();
         updateWidget(ctx);
         if (ctx.mode !== "tui" || previewOmitsContent(rulesText)) {
           ctx.ui.notify(
@@ -244,9 +255,9 @@ export default function (pi: ExtensionAPI) {
 
       rulesText = trimmed;
       pi.appendEntry("rules", { text: rulesText });
-      restoreRules(ctx);
+      activeRulesEntryId = ctx.sessionManager.getLeafId();
       updateWidget(ctx);
-      // The transcript entry renderer already shows the full rules in the TUI.
+      // The TUI already surfaces inline changes through the widget or transcript.
       if (ctx.mode !== "tui")
         ctx.ui.notify(`Rules set (${rulesText.length} chars)`, "info");
       warnIfLarge(ctx, rulesText);
