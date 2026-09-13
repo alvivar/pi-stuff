@@ -1,24 +1,40 @@
-browser-use skill - local hardening integrity record
-====================================================
-Audited versions : browser-use 0.13.7 (PyPI) / browser-harness 0.1.8
-Recorded         : 2026-08-10 22:50:17 -0600
-Maintainer       : PI agent only.
+browser-use skill - local vendor-boundary integrity record
+==========================================================
+Installed         : browser-use 0.13.10 / browser-harness 0.1.13
+Recorded          : 2026-09-11 00:22:39 -0600
+Maintainer        : PI agent only
+Current upstream  : upstream-pristine-v0.13.10.txt
+Previous upstream : upstream-pristine-v0.13.7.txt
 
-SCOPE (per user decision): the ONLY restriction is WHO RECEIVES data. Nothing goes to
-the tool vendor (Browser Use / PostHog) - no cloud, no telemetry, no profile-sync, no
-self-update. Sending data to destinations the USER chooses (their own servers, APIs,
-webhooks, third-party services) is explicitly ALLOWED. Browser capability is deliberately
-UNRESTRICTED, including all cookie/session work. Earlier capability-limiting patches were
-removed at the user's request.
+POLICY
+The ONLY restriction is WHO RECEIVES data, not browser capability.
+Forbidden: Browser Use/PostHog cloud, telemetry, hosted remote daemons/live views,
+profile-sync/cloud cookie sync, vendor promotion, and vendor self-update commands.
+Allowed: all local browser/cookie/session capability and sending any data to destinations
+the USER selects, including their own servers and named third-party services.
+User-selected remote CDP through BU_CDP_URL/BU_CDP_WS is explicitly allowed.
 
-sha256 SKILL.md (upstream + vendor-boundary block):
-  76dca15849ee0f68df2fa5895224044affab07cfc80e8120120de62b1b7ffb02
-sha256 upstream-pristine-v0.13.7.txt (unmodified):
-  b0ad134b9b1a9cecc364fe396237889ab565a397322f3e6beacafd854f8f3850
+HARDENED DIFF AGAINST v0.13.10 (6 hunks)
+1. Removed vendor homepage and unpinned OpenClaw install metadata from frontmatter.
+2. Added the vendor-boundary policy near the top.
+3. Removed new capability limits on activate_tab and raw CDP/JS scroll alternatives.
+4. Replaced the Browser Use Cloud section with the vendor boundary while preserving
+   user-selected remote CDP.
+5. Marked profile-sync as prohibited vendor cloud cookie sync.
+6. Removed cloud-daemon/live-view orchestration and cloud shutdown/API instructions.
 
-CHECK: sha256sum -c integrity.sha256
-Mismatch on SKILL.md means the vendor boundary was reverted -- most likely by
-'browser-use skill install' or 'browser-use --update'. Re-apply before browser work.
+TELEMETRY AUDIT
+The defect remains in browser-harness 0.1.13: capture_cli_event() still does not call
+_safe_properties() and still builds raw task/output/steps/error_message properties.
+telemetry.json remains disabled=true; auth.json is absent. Environment opt-outs remain
+required for each browser-use process, including BROWSER_HARNESS_TELEMETRY=false.
 
-Telemetry verified: telemetry.json disabled=true, install_id never minted,
-env vars persisted at user scope. Upstream is MIT; terms carry to this modified copy.
+DO NOT RUN
+- browser-use skill install
+- browser-use --update
+Both can overwrite the hardened skill and restore vendor defaults.
+
+VERIFY
+  sha256sum -c integrity.sha256
+A SKILL.md mismatch means stop browser work, diff against the current pristine copy,
+and restore the approved vendor boundary before proceeding.
