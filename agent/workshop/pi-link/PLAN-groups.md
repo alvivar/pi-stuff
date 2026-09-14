@@ -5,8 +5,8 @@
 > baseline when dispatching; the plan file itself was first committed at e83c3b7
 > and this is its revised text.
 > **Build from this?** Yes. Tasks are ordered; each is independently reviewable.
-> Design decisions are closed (owner + fable, with archon's feedback folded in);
-> scope reviewed once more against the owner's philosophy — see "Kept on purpose".
+> Scope follows the owner's simplicity constraints — see "Design constraints".
+> This plan does not authorize implementation; execution requires a separate GO.
 > **Summary:** A terminal whose name contains `@` belongs to the group named after
 > the first `@`. Its agent sees and can address only terminals of the same group. No
 > wire change, no new state, no new parameters; everything derives from names at
@@ -49,14 +49,13 @@ read-time filter as any client.
 
 **Where each rule is enforced.**
 
-- *Routing* — in the hub, authoritative, for `chat` and `compact_request` only: a
-  message whose `from` and `to` are in different groups is answered exactly like a
-  non-existent target (`Terminal "X" not found`). From the sender's domain, X does
-  not exist. The hub already overwrites `from` with the name it assigned.
-  The guard is untyped: it applies to every message `routeMessage` handles,
-  `compact_response` included (decision T3-D below). The hub routes responses by
-  `to` as today; the `id` correlation happens in the requester's `handleIncoming`,
-  not in routing, and nothing here verifies provenance.
+- *Routing* — in the hub, authoritative, for all three types handled by
+  `routeMessage`: `chat`, `compact_request` and `compact_response`. A message whose
+  `from` and `to` are in different groups follows the existing target-not-found
+  path. From the sender's domain, the target does not exist. The hub already
+  overwrites `from` with the name it assigned. Responses route by `to` as today;
+  `id` correlation happens in the requester's `handleIncoming`, not in routing,
+  and nothing here verifies provenance.
 - *Visibility* — at read time, locally: one `visibleTerminals()` lens applied
   wherever the agent or the user is shown the roster. `connectedTerminals` keeps the
   full roster; the lens never replaces it.
@@ -140,7 +139,7 @@ function uniqueName(requested: string): string {
 Persistence unchanged: hub-assigned variants are still not saved; reconnects still
 request the preferred name. README "Name Uniqueness" gains the grouped form (T6).
 
-### T3 — Hub refuses cross-group `chat` / `compact_request`
+### T3 — Hub refuses cross-group `chat`, `compact_request` and `compact_response`
 
 `routeMessage` (index.ts ~735) receives three types: `chat`, `compact_request`,
 `compact_response`. In the hub branch, **before** the `msg.to === terminalName`
@@ -153,19 +152,14 @@ const crossGroup = groupOf(msg.from) !== groupOf(msg.to);
 and treat `crossGroup` as "target not found": skip self-delivery and the
 `hubClientByName` lookup, fall into the existing error construction
 (`compact_response … reason: "not_found"` for requests, `error` "Terminal … not
-found" for chat). No new message, no new reason string.
+found" for chat or responses). No new message, no new reason string.
 
-**T3-D — decided: no `compact_response` exemption (owner, for less code).**
-A response crosses groups only if one party changed group mid-compaction. That
-rename is a `terminal_left` of the old name, which already resolves the
-requester's pending entry as `disconnected`; a response arriving later would find
-no pending entry and be ignored anyway. So the untyped guard cannot cause a hang
-or a wrong result. Its only observable effect in that rare case: the hub refuses
-the stray response and the renamed target sees an `error` "Terminal <requester>
-not found" toast — honest from its new group's point of view. The alternative
-(typing out responses) was one more condition with no behavioral gain; archon's
-conceptual preference for it ("a response is transport, not addressing") is
-recorded and not adopted.
+**Uniform guard.** Responses have no group exemption. Renaming a target already
+emits `terminal_left` for its old name and resolves pending requests to that name
+as `disconnected`; the group filter does not change that cleanup. A later
+cross-group response follows the existing target-not-found path: a responding
+client receives an `error` frame as a toast, while a response from the hub itself
+returns false without an extra toast. No new notification behavior is added.
 
 **Consequences.**
 - Stable clients never reach this path for `link_send`/`link_compact`: T4's
@@ -183,8 +177,9 @@ recorded and not adopted.
   today.
 - The hub's own agent is protected too: a client in another group cannot reach the
   hub's inbox by name.
-- A `compact_response` can still fail for the reasons it fails today (requester
-  gone, unknown name); the group guard adds or removes only the T3-D case.
+- A `compact_response` remains subject to existing routing failures (requester
+  gone, unknown name), and is also refused when its current `from` and `to`
+  belong to different groups.
 - Wire format unchanged.
 
 ### T4 — `visibleTerminals()` at every read site
@@ -200,9 +195,11 @@ function visibleTerminals(): string[] {
 }
 ```
 
-Apply it here, replacing reads of `connectedTerminals` meant for people or the
-model. These are all of them (archon audited the remaining reads: none other is
-UI-facing).
+Apply it at the following roster display sites, replacing reads of
+`connectedTerminals` meant for people or the model. In `link_list`, `/link` and
+`targetNotFound`, compute `const visible = visibleTerminals()` once per invocation
+and reuse it for text, counts, details or the membership test and suggestion.
+This is a local snapshot, not a persistent cache; do not filter again for each use.
 
 | Site | Anchor | Change |
 | --- | --- | --- |
@@ -229,9 +226,8 @@ They are infrastructure and must keep seeing every group.
 - Join/left toasts and the footer count reflect the group. A stranger joining is
   silent. The toast condition is the inline comparison
   `groupOf(msg.name) === groupOf(terminalName)`: no array is built just to answer
-  one yes/no. (`targetNotFound` legitimately does use
-  `visibleTerminals().includes(to)` — it needs the membership test and the
-  suggestion list from the same snapshot.)
+  one yes/no. `targetNotFound` instead uses `visible.includes(to)` and
+  `visible.join(", ")` from its one local snapshot.
 - Footer and welcome count are one token each; unfiltered they would say
   "8 terminals" while `link_list` shows 3.
 - Rename across groups needs no code: `/link-name a@g2` on a client reconnects and
@@ -247,10 +243,17 @@ The harness already exposes `notes` (via `notify`), `sent`/`receive` on the fake
 socket, `delivered`, `tool()`, `cmd()`. Its fake `compact()` invokes no callbacks,
 so compaction rejection is observed as a `not_found` frame, never as compact
 success. Do **not** export `groupOf` from production for tests; exercise the rule
-through rosters and collisions. Seven cases, ordered by mutation signal; each names
-the mutation it kills. Existing checks with `@`-free rosters must stay green
-untouched (sorting is not changed, so check 11 "hub first, then clients sorted by
-name" is unaffected) — that is a gate, not a new case.
+through rosters and collisions. The seven cases below protect distinct behavior;
+the named mutations explain their purpose, not a target count of checks or probes.
+Existing checks with `@`-free rosters must stay green untouched (sorting is not
+changed, so check 11 "hub first, then clients sorted by name" is unaffected) — that
+is a gate, not a new case.
+
+Keep tests fundamental: reuse the existing harness and small fixture tables, with
+no new test framework. Do not duplicate covered legacy behavior or expand into
+all combinations of names, roles and message types. Boundary names are table
+inputs, not separate test suites. Run targeted mutation probes only when they
+resolve a concrete coverage doubt; no additional mutations for evidence volume.
 
 1. **Client → hub, cross-group chat**: `a@g1` sends to the hub named `h@g2`; hub
    returns `error` "not found" and nothing reaches the hub's inbox. `delivered` is
@@ -283,11 +286,13 @@ name" is unaffected) — that is a gate, not a new case.
    roster members in case 5 so the lens agrees with the collision boundary. Four
    examples pin the boundary; they do not prove the invariant for every string,
    and the plan does not claim so.
-7. **Toasts**: `terminal_joined`/`terminal_left` for another group add nothing to
-   `notes`; same group does. Kills unfiltered toasts. (A hub-rename case was
-   considered and dropped: this plan changes no rename code, and "no cached group"
-   is a property of having no cache, recorded under Kept on purpose rather than
-   tested.)
+7. **Toasts and hub view after rename**: `terminal_joined`/`terminal_left` for
+   another group add nothing to `notes`; same group does. Kills unfiltered toasts.
+   With peers in both groups, the hub `h@g2` initially lists only itself and its
+   `g2` peers. Run `/link-name h@g1` on that same instance; its next `link_list`
+   must show itself under the new name and its `g1` peers, with no `g2` peers or
+   old self name in text or `details.terminals`. This tests the new lens's live
+   dependency on the current name and kills a group captured before rename.
 
 ### T6 — Documentation (no code for compatibility)
 
@@ -314,32 +319,18 @@ name" is unaffected) — that is a gate, not a new case.
 Move this plan to "Shipped / closed" in `PLAN-roadmap.md` with the commit list, and
 carry the Parked section below verbatim so it is not re-derived.
 
-## Kept on purpose (philosophy review, owner-approved)
+## Design constraints
 
-Every production line was re-justified against "simple, performant, readable,
-idiomatic, every line justified, abstractions only when essential":
-
-- Two helpers, no state, no parameter, no protocol message, no class. `groupOf`
-  exists for correctness (one boundary rule, five consumers — two boundary rules
-  is how `a@-2` happened); `visibleTerminals` exists because six read sites share
-  one filter.
-- The hub guard (T3) is kept because it makes isolation a property of the link.
-  It is the plan's one deliberate redundancy: `targetNotFound` already refuses
-  locally, the guard makes the refusal the link's, not the client's. It is untyped
-  (T3-D): the earlier claim that a `compact_response` exemption prevents a 180 s
-  hang was wrong (a rename already resolves the pending compaction as
-  `disconnected`) and was withdrawn; with it went the extra condition.
-- Rejected during the review: caching the own group (state a rename invalidates),
-  `sameGroup(a, b)` (a comparison of two `groupOf` reads better than a new name),
-  a `reachable(msg)` helper (inline is clearer), building `visibleTerminals()` for
-  the join/left toasts (one comparison answers them), receiver-side filtering
-  (compatibility code).
-- Trimmed: T5 from eleven cases to seven, then case 3's duplicate positive and
-  the hub-rename case (tests nothing this plan changes); T6 to one README
-  paragraph plus one Limitations row.
-- No defensive code anywhere: no try/catch, no input validation on names beyond
-  today's `normalizeName`, no fallbacks, no version checks, no normalization of
-  case or whitespace around `@`.
+- Two helpers only: `groupOf` owns the boundary rule; `visibleTerminals` shares
+  the roster filter across display sites. No new state, parameters, protocol
+  messages or classes.
+- Local target checks give immediate feedback; the hub guard enforces the same
+  group boundary during routing, for all three message types.
+- Read the current name when filtering; never cache its group. Keep group
+  comparisons inline for routing and toasts, without extra predicate helpers or
+  roster allocations just for toast eligibility.
+- No new try/catch, name validation beyond today's `normalizeName`, fallbacks,
+  version checks, or normalization of case or whitespace around `@`.
 
 ## Parked — resolve later, do not build now
 
