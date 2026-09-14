@@ -118,6 +118,10 @@ an A → B → C → A delegation chain.
   receiver's cwd, and relative commands resolve from the receiver's own cwd.
 - **Names are identities.** The hub suffixes collisions, so the name you remember
   may not be the name that is connected; `link_list` shows the current one.
+- **`@group` in a name limits your world.** The text after the first `@` is the
+  group: `link_list`, `link_send` and `link_compact` only see and reach terminals
+  of your own group, and names without `@` form one group of their own. To work
+  with another project's terminal you must share its group.
 - **Mixed-version meshes are unsupported.** Across the current protocol break, a
   message from a new sender can reach a 0.2.0 receiver as bare text — without the
   `[Link: N message(s) received]` header or the `From "name":` line — and nothing

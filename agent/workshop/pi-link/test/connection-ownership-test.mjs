@@ -950,6 +950,232 @@ const getStatus = (http) => {
   check("11: a failed bind never became the hub", (await t.role()) !== "hub");
 }
 
+// ── 12. Groups by name convention (`local@group`) ──────────────────────────
+//
+// The group is the text after the FIRST `@`, and "" for a plain name, so `@g` is an
+// ordinary addressable member of `g` and `a@` is plain. These cases pin the hub guard
+// for every routed type, the read-time roster lens, the collision boundary and the
+// toast/rename behavior. Isolation is over identities as they are now; `--status`
+// still reports every group and is not tested here.
+
+/** An established hub renamed to a chosen `local@group` name. */
+async function bootHubNamed(name) {
+  const hub = await bootHub();
+  await hub.t.cmd("link-name", name);
+  await tick();
+  return hub;
+}
+
+/** A hub-side client registered under `name`; the hub stamps `from` from it. */
+function register(server, name) {
+  const socket = fakeIncoming();
+  server.emit("connection", socket);
+  socket.receive({ type: "register", name });
+  return socket;
+}
+
+/** A client instance welcomed as `name` with a given roster and wire metadata. */
+async function bootClientNamed(name, terminals, extra = {}) {
+  const t = await boot({ link: true }).start();
+  await until(() => t.sockets().length === 1, "the startup dial");
+  t.sockets()[0].emit("open");
+  await tick();
+  t.sockets()[0].emit("message", Buffer.from(JSON.stringify({
+    type: "welcome", name, terminals, ...extra,
+  })));
+  await tick();
+  return t;
+}
+
+{
+  // The hub's own inbox sits behind the same guard, so the cross-group chat must not
+  // be self-delivered. `delivered` fills only on the deferred flush, so an immediate
+  // zero would prove nothing: a same-group chat in the same window is the control.
+  const { t, server } = await bootHubNamed("h@g2");
+  const foreign = register(server, "a@g1");
+  const peer = register(server, "c@g2");
+  await tick();
+  foreign.receive({ type: "chat", from: "a@g1", to: "h@g2", content: "cross-group" });
+  peer.receive({ type: "chat", from: "c@g2", to: "h@g2", content: "same-group" });
+  await new Promise((r) => setTimeout(r, 300));
+  const inbox = t.delivered.map((m) => m.content).join("\n");
+  check("12: a same-group chat reaches the hub's inbox within the flush window",
+    inbox.includes("same-group") && inbox.includes('From "c@g2"'), inbox);
+  check("12: a cross-group chat never reaches the hub's inbox",
+    !inbox.includes("cross-group"), inbox);
+  check("12: the cross-group sender is told the hub does not exist",
+    foreign.sent.some((f) => f.type === "error" && f.message === 'Terminal "h@g2" not found'),
+    JSON.stringify(foreign.sent));
+  check("12: the same-group sender gets no error",
+    peer.sent.every((f) => f.type !== "error"), JSON.stringify(peer.sent));
+}
+
+{
+  // Infrastructure is group-blind: the hub routes for a group it does not belong to.
+  const { server } = await bootHubNamed("h@g2");
+  const a = register(server, "a@g1");
+  const b = register(server, "b@g1");
+  await tick();
+  a.receive({ type: "chat", from: "a@g1", to: "b@g1", content: "hello" });
+  await tick();
+  check("12: same-group clients route through a hub of another group",
+    b.sent.some((f) => f.type === "chat" && f.from === "a@g1" && f.content === "hello"),
+    JSON.stringify(b.sent));
+  check("12: routing for a foreign group raises no error",
+    a.sent.every((f) => f.type !== "error"), JSON.stringify(a.sent));
+}
+
+{
+  // Cross-group between two clients: refused by the hub, invisible to the target.
+  const { server } = await bootHubNamed("h@g1");
+  const a = register(server, "a@g1");
+  const b = register(server, "b@g2");
+  await tick();
+  a.receive({ type: "chat", from: "a@g1", to: "b@g2", content: "nope" });
+  await tick();
+  check("12: a cross-group chat between clients is refused as not found",
+    a.sent.some((f) => f.type === "error" && f.message === 'Terminal "b@g2" not found'),
+    JSON.stringify(a.sent));
+  check("12: the cross-group target receives no chat",
+    b.sent.every((f) => f.type !== "chat"), JSON.stringify(b.sent));
+}
+
+{
+  // `compact_request` has its own error contract. The fake `compact()` invokes no
+  // callback, so an admitted request answers nothing and only announces itself —
+  // which is exactly the control that separates "refused" from "admitted".
+  const { t, server } = await bootHubNamed("h@g2");
+  const foreign = register(server, "a@g1");
+  const peer = register(server, "c@g2");
+  await tick();
+  t.notes.length = 0;
+  foreign.receive({ type: "compact_request", id: "req-x", from: "a@g1", to: "h@g2" });
+  await tick();
+  const refused = foreign.sent.find((f) => f.type === "compact_response");
+  check("12: a cross-group compact_request answers ok:false reason:not_found",
+    refused?.id === "req-x" && refused.ok === false &&
+      refused.reason === "not_found" && refused.to === "a@g1",
+    JSON.stringify(foreign.sent));
+  check("12: the refused compact_request starts no compaction on the hub",
+    noteCount(t, "requested compact") === 0, JSON.stringify(t.notes));
+  peer.receive({ type: "compact_request", id: "req-y", from: "c@g2", to: "h@g2" });
+  await tick();
+  check("12: a same-group compact_request is admitted and answers nothing yet",
+    noteCount(t, "requested compact") === 1 &&
+      peer.sent.every((f) => f.type !== "compact_response"),
+    `${JSON.stringify(t.notes)} ${JSON.stringify(peer.sent)}`);
+}
+
+{
+  // The lens filters the metadata the model reads, not just the rendered text, so
+  // status/cwd/context are populated for own and foreign names alike.
+  const roster = ["a@g1", "b@g1", "c@g2", "d", "@g1", "a@g@h"];
+  const since = Date.now() - 1000;
+  const wire = {
+    statuses: Object.fromEntries(roster.map((n) => [n, { kind: "idle", since }])),
+    cwds: Object.fromEntries(roster.map((n) => [n, `C:/${n}`])),
+    contexts: Object.fromEntries(roster.map((n) => [n, { tokens: 1, contextWindow: 100 }])),
+  };
+  const t = await bootClientNamed("a@g1", roster, wire);
+  const list = await t.tool("link_list");
+  const visible = ["a@g1", "b@g1", "@g1"];
+  // Read the names back off the bullets: a substring test would find the plain
+  // name "d" inside "idle" and pass for the wrong reason.
+  const listed = (text) => text.split("\n")
+    .filter((line) => line.startsWith("  \u2022 "))
+    .map((line) => line.slice(4).split("  ")[0]);
+  check("12: link_list text lists only the group, self marked",
+    JSON.stringify(listed(list.content[0].text)) ===
+      JSON.stringify(["a@g1 (you)", "b@g1", "@g1"]),
+    JSON.stringify(listed(list.content[0].text)));
+  check("12: details.terminals is the group in roster order",
+    JSON.stringify(list.details.terminals) === JSON.stringify(visible),
+    JSON.stringify(list.details.terminals));
+  check("12: status, cwd and context keys are exactly the visible names",
+    ["statuses", "cwds", "contexts"].every(
+      (key) => JSON.stringify(Object.keys(list.details[key]).sort()) ===
+        JSON.stringify([...visible].sort())),
+    JSON.stringify({ s: Object.keys(list.details.statuses), c: Object.keys(list.details.cwds), x: Object.keys(list.details.contexts) }));
+  const miss = await t.tool("link_send", { to: "c@g2", message: "x" });
+  check("12: a send to a foreign name fails locally and suggests only the group",
+    miss.details.error === "not_found" &&
+      miss.content[0].text === 'Terminal "c@g2" not found. Connected: a@g1, b@g1, @g1',
+    miss.content[0].text);
+  const plain = await bootClientNamed("d", roster, wire);
+  check("12: a plain name sees only the plain group",
+    JSON.stringify((await plain.tool("link_list")).details.terminals) === JSON.stringify(["d"]),
+    JSON.stringify((await plain.tool("link_list")).details.terminals));
+}
+
+{
+  // The collision suffix moves the local part, never the group. `@g` and `a@g@h`
+  // are the inputs that kill `lastIndexOf` and an `at > 0` boundary.
+  const { server } = await bootHubNamed("hub@x");
+  const collisions = [
+    ["archon@pi-link", "archon-2@pi-link"],
+    ["a@", "a-2@"],
+    ["@g", "-2@g"],
+    ["a@g@h", "a-2@g@h"],
+    ["builder", "builder-2"],
+  ];
+  for (const [requested, expected] of collisions) {
+    register(server, requested);
+    const second = register(server, requested);
+    await tick();
+    check(`12: a collision on "${requested}" suffixes the local part into "${expected}"`,
+      second.sent.find((f) => f.type === "welcome")?.name === expected,
+      JSON.stringify(second.sent.find((f) => f.type === "welcome")));
+  }
+}
+
+{
+  // Toasts follow the group of the name they announce.
+  const t = await bootClientNamed("a@g1", ["a@g1"]);
+  const socket = t.sockets()[0];
+  t.notes.length = 0;
+  socket.emit("message", Buffer.from(JSON.stringify({
+    type: "terminal_joined", name: "x@g2", terminals: ["a@g1", "x@g2"],
+  })));
+  socket.emit("message", Buffer.from(JSON.stringify({
+    type: "terminal_left", name: "x@g2", terminals: ["a@g1"],
+  })));
+  await tick();
+  check("12: another group's join and leave are silent",
+    t.notes.length === 0, JSON.stringify(t.notes));
+  socket.emit("message", Buffer.from(JSON.stringify({
+    type: "terminal_joined", name: "y@g1", terminals: ["a@g1", "y@g1"],
+  })));
+  socket.emit("message", Buffer.from(JSON.stringify({
+    type: "terminal_left", name: "y@g1", terminals: ["a@g1"],
+  })));
+  await tick();
+  check("12: the own group's join and leave are announced",
+    noteCount(t, '"y@g1" joined the link') === 1 &&
+      noteCount(t, '"y@g1" left the link') === 1, JSON.stringify(t.notes));
+}
+
+{
+  // The lens reads the current name: renaming the same hub instance moves its view.
+  const { t, server } = await bootHubNamed("h@g2");
+  register(server, "p@g1");
+  register(server, "q@g2");
+  await tick();
+  check("12: the hub sees itself and its own group before the rename",
+    JSON.stringify((await t.tool("link_list")).details.terminals) ===
+      JSON.stringify(["h@g2", "q@g2"]),
+    JSON.stringify((await t.tool("link_list")).details.terminals));
+  await t.cmd("link-name", "h@g1");
+  await tick();
+  const after = await t.tool("link_list");
+  check("12: after the rename the same instance sees its new group only",
+    JSON.stringify(after.details.terminals) === JSON.stringify(["h@g1", "p@g1"]) &&
+      after.details.self === "h@g1",
+    JSON.stringify(after.details));
+  check("12: neither the old self name nor the old group survives in the text",
+    !after.content[0].text.includes("h@g2") && !after.content[0].text.includes("q@g2"),
+    after.content[0].text);
+}
+
 // ── Teardown: every instance closes its own transports and timers ───────────
 
 for (const { t, ctx } of booted) await t.emit("session_shutdown", { reason: "quit" }, ctx);

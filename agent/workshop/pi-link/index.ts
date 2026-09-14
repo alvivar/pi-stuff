@@ -321,7 +321,7 @@ export default function (pi: ExtensionAPI) {
     const ui = getUi();
     if (!ui) return;
     const theme = ui.theme;
-    const count = connectedTerminals.length;
+    const count = visibleTerminals().length;
     const info =
       role === "disconnected"
         ? "link: offline"
@@ -403,6 +403,12 @@ export default function (pi: ExtensionAPI) {
   function normalizeName(name: string | undefined | null): string | undefined {
     const n = name?.trim().replace(/\s+/g, " ");
     return n ? n : undefined;
+  }
+
+  // Group by name convention: everything after the first `@`; plain names are group "".
+  function groupOf(name: string): string {
+    const at = name.indexOf("@");
+    return at === -1 ? "" : name.slice(at + 1);
   }
 
   // Latest custom session entry of a given type (last-write-wins), or undefined.
@@ -643,9 +649,14 @@ export default function (pi: ExtensionAPI) {
   function uniqueName(requested: string): string {
     const existing = allTerminalNames();
     if (!existing.has(requested)) return requested;
+    // Suffix the local part so a collision never changes the group (same boundary as groupOf).
+    const at = requested.indexOf("@");
+    const cut = at === -1 ? requested.length : at;
+    const local = requested.slice(0, cut);
+    const tail = requested.slice(cut);
     let i = 2;
-    while (existing.has(`${requested}-${i}`)) i++;
-    return `${requested}-${i}`;
+    while (existing.has(`${local}-${i}${tail}`)) i++;
+    return `${local}-${i}${tail}`;
   }
 
   function terminalList(): string[] {
@@ -736,11 +747,14 @@ export default function (pi: ExtensionAPI) {
     msg: ChatMsg | CompactRequestMsg | CompactResponseMsg,
   ): boolean {
     if (role === "hub") {
-      if (msg.to === terminalName) {
+      // Isolation is a property of the link: a target in another group does not
+      // exist from the sender's domain, for every type routeMessage carries.
+      const crossGroup = groupOf(msg.from) !== groupOf(msg.to);
+      if (!crossGroup && msg.to === terminalName) {
         handleIncoming(msg);
         return true;
       }
-      const targetWs = hubClientByName(msg.to);
+      const targetWs = crossGroup ? undefined : hubClientByName(msg.to);
       if (targetWs) {
         targetWs.send(JSON.stringify(msg));
         return true;
@@ -805,7 +819,7 @@ export default function (pi: ExtensionAPI) {
         }
         updateStatus();
         notify(
-          `Joined link as "${terminalName}" (${connectedTerminals.length} online)`,
+          `Joined link as "${terminalName}" (${visibleTerminals().length} online)`,
           "info",
         );
         pushStatus(true);
@@ -818,7 +832,8 @@ export default function (pi: ExtensionAPI) {
         if (role !== "hub" && msg.context)
           terminalContexts.set(msg.name, msg.context);
         updateStatus();
-        notify(`"${msg.name}" joined the link`, "info");
+        if (groupOf(msg.name) === groupOf(terminalName))
+          notify(`"${msg.name}" joined the link`, "info");
         break;
 
       case "terminal_left":
@@ -843,7 +858,8 @@ export default function (pi: ExtensionAPI) {
           }
         }
         updateStatus();
-        notify(`"${msg.name}" left the link`, "info");
+        if (groupOf(msg.name) === groupOf(terminalName))
+          notify(`"${msg.name}" left the link`, "info");
         break;
 
       // ── Status update from another terminal ──
@@ -1552,13 +1568,21 @@ export default function (pi: ExtensionAPI) {
       : dim(preview);
   }
 
+  // The agent's and the user's view of the roster: same group only. Routing never
+  // uses this — the hub routes over hubClients; this is a lens over connectedTerminals.
+  function visibleTerminals(): string[] {
+    const group = groupOf(terminalName);
+    return connectedTerminals.filter((n) => groupOf(n) === group);
+  }
+
   // Shared "target not found" result for the send/compact tools.
   // Returns null when the target is present, so callers can `if (miss) return miss;`.
   function targetNotFound(to: string) {
-    return connectedTerminals.includes(to)
+    const visible = visibleTerminals();
+    return visible.includes(to)
       ? null
       : textResult(
-          `Terminal "${to}" not found. Connected: ${connectedTerminals.join(", ")}`,
+          `Terminal "${to}" not found. Connected: ${visible.join(", ")}`,
           { to, error: "not_found" },
         );
   }
@@ -1759,8 +1783,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "link_list",
     label: "Link List",
-    description: "List all Pi terminals currently connected to the link.",
-    promptSnippet: "List connected Pi terminals on the link",
+    description: "List the Pi terminals in your group currently connected to the link.",
+    promptSnippet: "List connected Pi terminals in your group",
     parameters: Type.Object({}),
 
     async execute() {
@@ -1769,7 +1793,8 @@ export default function (pi: ExtensionAPI) {
       const statuses: Record<string, string> = {};
       const cwds: Record<string, string> = {};
       const contexts: Record<string, ContextSnapshot> = {};
-      const list = connectedTerminals
+      const visible = visibleTerminals();
+      const list = visible
         .map((name) => {
           const status = getStatusFor(name);
           const statusStr = status ? formatStatus(status) : "";
@@ -1788,7 +1813,7 @@ export default function (pi: ExtensionAPI) {
         .join("\n");
 
       return textResult(`Connected terminals:\n${list}`, {
-        terminals: connectedTerminals,
+        terminals: visible,
         statuses,
         cwds,
         contexts,
@@ -1842,7 +1867,8 @@ export default function (pi: ExtensionAPI) {
         _ctx.ui.notify("Link: not connected", "warning");
         return;
       }
-      const lines = connectedTerminals.map((name) => {
+      const visible = visibleTerminals();
+      const lines = visible.map((name) => {
         const status = getStatusFor(name);
         const statusStr = status ? formatStatus(status) : "";
         const cwd = getCwdFor(name);
@@ -1854,7 +1880,7 @@ export default function (pi: ExtensionAPI) {
         return line;
       });
       _ctx.ui.notify(
-        `Link: ${terminalName} (${role}) · ${connectedTerminals.length} online\n${lines.join("\n")}`,
+        `Link: ${terminalName} (${role}) · ${visible.length} online\n${lines.join("\n")}`,
         "info",
       );
     },

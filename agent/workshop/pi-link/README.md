@@ -532,6 +532,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.                                                                          |
 | 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                                                                     |
 | 7   | **Callbacks are conventional**            | Async work results are uncorrelated messages, not protocol responses. A send carries no request identifier, nothing correlates a reply to it, and a callback exists only because the receiver chose to send one. |
+| 8   | **Groups isolate attention, not access**  | No auth: any process may pick any group. `pi-link --status` shows all groups; their updates transit the wire and are stored locally. Isolation needs one version everywhere; upgrade and restart together.       |
 
 ---
 
@@ -617,6 +618,8 @@ Client A            Hub              Client B
 The hub enforces unique terminal names via a `uniqueName()` function. If `"builder"` is already taken, the next terminal requesting that name is assigned `"builder-2"`, then `"builder-3"`, and so on.
 
 Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
+
+**Groups (`local@group`):** a name containing `@` puts the terminal in the group named after the **first** `@` - `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h`, and a name without `@` (or ending in one, like `a@`) belongs to the single implicit group of plain names. `link_list`, `link_send` and `link_compact` see and address only terminals of your own group, and `/link` and the footer count the same way; the hub still routes for every group, and `pi-link --status` deliberately shows all of them. Collisions suffix the local part only, so a deduped name never changes group: `builder` becomes `builder-2`, `archon@pi-link` becomes `archon-2@pi-link`.
 
 **Persistence:** `/link-name` saves the preferred name to the session via `pi.appendEntry("link-name", { name })`. On session resume, the saved name is restored and requested from the hub. Startup naming (`pi-link <name>`, `pi --link-name <name>`) persists the same way - hub-assigned variants like `"builder-2"` are not saved. On reconnect, the terminal always requests the preferred name, not the last runtime name.
 

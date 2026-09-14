@@ -1,9 +1,8 @@
 # PLAN — Groups by name convention (`local@group`)
 
 > **Status:** Approved by owner — ready to build (no open decisions)
-> **Last aligned:** HEAD e83c3b7 (product at fbb56b1, post-0.4.1). Re-base the
-> baseline when dispatching; the plan file itself was first committed at e83c3b7
-> and this is its revised text.
+> **Last aligned:** HEAD c2dc9f6 (product at fbb56b1, post-0.4.1). The G1
+> baseline passed at this HEAD; reverify the snapshot before implementation.
 > **Build from this?** Yes. Tasks are ordered; each is independently reviewable.
 > Scope follows the owner's simplicity constraints — see "Design constraints".
 > This plan does not authorize implementation; execution requires a separate GO.
@@ -94,6 +93,88 @@ address it back.*
   invisible to the sender" toast. Both are handled by one README sentence:
   isolation holds only when every terminal runs the same version; upgrade and
   restart together.
+
+## Execution and verification
+
+Owner authorized **run-through** with "Go, run through!": implement, independently
+review and commit G1, then do the same for G2. T1–T7 below are ordered steps, not
+seven separately shipped changes. No release or live-mesh operations are authorized.
+
+- Repository: `C:/Users/andre/.pi`; product: `C:/Users/andre/.pi/agent/workshop/pi-link`.
+- Preflight snapshot: branch `master`, HEAD
+  `c2dc9f6a8d2677c19774775e705003ecc58bfbe2`, ahead 5, staging empty. The only
+  pre-existing worktree change is this owner-approved plan, edited by the
+  orchestrator. The implementer must verify this snapshot before edits; unexpected
+  staged work or a red baseline blocks implementation.
+- Roles: `implementer@pi-link`, independent `reviewer@pi-link`, and
+  `committer@.pi`, all reporting cwd `C:/Users/andre/.pi`. Reconfirm before each
+  stage; cwd alone is not proof of branch/repository identity.
+- Temporary run state: `C:/Users/andre/.pi/agent/workshop/pi-link/LEDGER-groups.md`.
+  Never stage it. This tracked plan is retained, with amendments committed alongside
+  the implementation; it is not disposable run state.
+
+### G1 — Groups, tests and documentation (T1–T6)
+
+Allowed product-relative paths: `index.ts`, `test/connection-ownership-test.mjs`,
+`README.md`, `skills/pi-link-coordination/SKILL.md`, `CHANGELOG.md` and
+`PLAN-groups.md` (orchestrator-owned plan amendments only). No new product files.
+
+**Required baseline and post-edit gate**, from the product directory:
+
+```sh
+node --check bin/pi-link.mjs
+node test/cli-flags-test.mjs
+node test/lifecycle-compact-test.mjs
+node test/connection-ownership-test.mjs
+node test/inbox-fixed-window-test.mjs
+node test/message-renderer-test.mjs
+node "C:/Users/andre/AppData/Roaming/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/esbuild/bin/esbuild" index.ts --bundle --platform=node --format=esm --packages=external --outfile=<unique-temp-file>
+```
+
+Delete and verify removal of the temporary bundle. Report actual suite counts,
+failures, exit codes and native renderer block RAN/SKIPPED, not an inherited total.
+Run `git diff --check`, inspect the complete staged path list and worktree scope,
+and byte-check that each modified file retains its existing newline convention
+(CRLF in production files; this plan currently uses LF). Do not normalize files.
+
+Coverage: the connection harness exercises the new routing/visibility/collision
+and rename cases in T5; lifecycle/inbox/renderer suites protect existing behavior;
+CLI fixtures protect unchanged wrapper/status behavior; esbuild checks bundling.
+Source/diff inspection must additionally verify every T4 display site, unchanged
+infrastructure, the all-three-types guard, and documentation accuracy. This source
+inspection is required evidence for surfaces not directly exercised by T5; it is
+not runtime validation. Tests remain fixture/model evidence; the native renderer
+block proves only installed Text/Box assumptions, not extension UI integration.
+
+**Optional evidence:** targeted read-only mutation probes only to resolve a
+concrete coverage doubt. No mutation quota. Live UI/mesh checks remain unverified
+and require separate owner authorization; they are not silently counted as passed.
+
+### G2 — Record completion (T7)
+
+Start only after the approved G1 commit. Allowed product-relative paths:
+`PLAN-roadmap.md` and `PLAN-groups.md` (completion header only). Record the verified
+G1 hash under Shipped / closed, distinguishing code completion from npm publication;
+copy this plan's Parked entries verbatim. Retain both plans and unrelated backlog.
+
+Required gate: inspect the referenced commit and its paths with git, check that the
+completion text matches G1's actual gate/review/limitations, verify the Parked copy
+against this plan, preserve each file's newline convention, and run
+`git diff --check` plus status/staged-scope checks. Independent documentation review
+is required. Do not rerun code suites for this documentation-only task.
+
+### Standing execution constraints
+
+Serial implement → review → commit; two repair rounds maximum per task, shared
+between gate and review repairs. Report material deviations or unpinned decisions
+with rationale; the orchestrator relays them verbatim to the reviewer. Missing
+required evidence blocks advancement. No worker-to-worker delegation.
+
+No staging or committing except by the committer, using exact authorized paths.
+No version/lockfile changes, dependencies, install, Pi launch/reload, live hub/port
+9900 probes, `test1–4`, push, amend, tag, merge or publish. The canonical isolated
+CLI fixtures above are permitted; `wire-dup-register-probe.mjs` is not part of this
+gate. Use `/dev/null`, never `NUL`. No unrelated cleanup or additional features.
 
 ## Tasks
 
@@ -204,7 +285,7 @@ This is a local snapshot, not a persistent cache; do not filter again for each u
 | Site | Anchor | Change |
 | --- | --- | --- |
 | `link_list` tool | `registerTool({ name: "link_list"` | iterate `visibleTerminals()`; `details.terminals/statuses/cwds/contexts` contain visible names only |
-| `link_list` description | same | "List all Pi terminals…" is no longer true — say "terminals in your group" |
+| `link_list` description and `promptSnippet` | same | say "terminals in your group" consistently in both model-facing descriptions |
 | `/link` command | `registerCommand("link"` | list and "N online" over `visibleTerminals()` |
 | `targetNotFound` | ~1558 | membership test **and** the `Connected: …` suggestion over `visibleTerminals()` |
 | `updateStatus` footer | ~324 | `count = visibleTerminals().length` |
@@ -310,9 +391,10 @@ resolve a concrete coverage doubt; no additional mutations for evidence volume.
   one bullet — `@group` in your name limits `link_list`, `link_send` and
   `link_compact` to that group; to reach another project's terminal you must share
   its group.
-- **CHANGELOG**: implementer drafts the entry under *Unreleased*. Version header,
-  release target and bump are the owner's (0.4.1 is not yet published; the
-  behavior change to mixed-`@` fleets suggests a minor, owner decides).
+- **CHANGELOG**: create `## Unreleased` above the existing 0.4.1 section and draft
+  the groups entry there. No version number or date for this heading. Preserve
+  the existing 0.4.1 header/date and release notes; release target and version
+  bump remain the owner's decision.
 
 ### T7 — Roadmap (after commits are approved, not before)
 

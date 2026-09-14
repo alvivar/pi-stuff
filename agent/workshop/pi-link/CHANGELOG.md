@@ -6,6 +6,24 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
+## Unreleased
+
+### Added
+
+- **A terminal named `local@group` sees and reaches only its own group.** The group is the text after the **first** `@` — `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h` — and every name without an `@`, or ending in one like `a@`, belongs to the single implicit group of plain names, which behaves exactly as before among themselves. `link_list` lists only that group and reports status, cwd and context for nobody else, `/link` and the footer count the same way, join and leave toasts stay silent for strangers, and `link_send`/`link_compact` to a name outside the group fail with the same `not found` result a typo gets, suggesting only your own group. The hub enforces the boundary while routing too, for chat, compaction requests and compaction responses alike: from the sender's side a terminal of another group simply does not exist. Nothing new is stored or sent — the rule is read from names at the moment it is used, so renaming a terminal with `/link-name` moves it between groups as soon as the new name takes effect — at once on the hub, and on the next welcome for a client, whose rename reconnects first. No group is reserved or privileged.
+
+### Changed
+
+- **A colliding name is deduped on its local part, so it can no longer change group.** The hub used to hand a second `archon@pi-link` the name `archon@pi-link-2`, which belongs to the invented group `pi-link-2`; it now assigns `archon-2@pi-link`. Plain names are unaffected (`builder` still becomes `builder-2`), and the boundary is the same first `@` the grouping rule uses, so `a@` becomes `a-2@` and `@g` becomes `-2@g`.
+
+### Compatibility
+
+- **Isolation holds only when every terminal runs the same version; upgrade and restart together.** There is no compatibility code. Against an old hub a new client filters its own view and its own sends, but the hub does not refuse cross-group traffic, so a terminal of another group can still deliver a message or start a compaction on it. Against a new hub an old client still sees everyone and its cross-group send is refused by the hub, arriving as the already-documented invisible routing failure.
+
+- **Groups isolate attention, not access.** There is no authentication, any process may register under any name and therefore any group, `pi-link --status` still reports every terminal on the machine on purpose, and other groups' status, cwd and context updates still transit the shared wire and are stored locally — they are simply never shown. Nothing is revoked retroactively either: a message already queued before a rename is still delivered, and a compaction already admitted still runs.
+
+---
+
 ## 0.4.1 — 2026-09-07
 
 ### Added
