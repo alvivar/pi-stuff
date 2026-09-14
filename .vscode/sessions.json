@@ -106,12 +106,12 @@
         ]
       },
       {
-        "name": "committer@.pi",
+        "name": "committer@pi-link",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-link"
         ]
       },
       {
@@ -172,12 +172,12 @@
         ]
       },
       {
-        "name": "committer@.pi",
+        "name": "committer@pi-dock",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-dock"
         ]
       },
       {
@@ -211,12 +211,12 @@
         ]
       },
       {
-        "name": "committer@.pi",
+        "name": "committer@pi-bugs",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-bugs"
         ]
       },
       {
@@ -277,12 +277,12 @@
         ]
       },
       {
-        "name": "committer@.pi",
+        "name": "committer@pi-chrome",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-chrome"
         ]
       },
       {
@@ -343,12 +343,12 @@
         ]
       },
       {
-        "name": "committer@.pi",
+        "name": "committer@pi-rules",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-rules"
         ]
       },
       {
@@ -391,12 +391,12 @@
         ]
       },
       {
-        "name": "committer@.pi",
+        "name": "committer@pi.claude.hack",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi.claude.hack"
         ]
       },
       {
@@ -439,12 +439,12 @@
         ]
       },
       {
-        "name": "committer@.pi",
+        "name": "committer@claude-code-provider",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@.pi"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@claude-code-provider"
         ]
       },
       {
