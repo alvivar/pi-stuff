@@ -123,6 +123,40 @@ commits versions.**
   surfaced during the gates: a failed or cancelled compaction is reported to the user
   but never to extensions, which is why the deadline has to exist at all.
 
+- **Groups by name convention (`local@group`)** (2026-09-14) — **CODE COMPLETE, not
+  released and not live-validated.** A terminal whose name contains `@` belongs to
+  the group named after the **first** `@`; its agent sees and can address only
+  terminals of the same group. `groupOf` owns the boundary rule, `visibleTerminals()`
+  is the read-time lens at the eight display sites, `uniqueName` suffixes the local
+  part only (`archon-2@pi-link`, never a phantom `pi-link-2` group), and the hub
+  refuses cross-group `chat`, `compact_request` and `compact_response` through the
+  existing target-not-found paths. No wire change, no new state, parameters or
+  persisted data; plain names keep today's behavior among themselves. Commit
+  `74e732fc52c5a47f82e915684b4fe9df02d5f272` (`74e732f`), plan retained as
+  `PLAN-groups.md`.
+  Suite 436→462 (+26 checks in the existing connection harness): 108 CLI-flags,
+  45 lifecycle-compact, 134 connection-ownership, 25 inbox-fixed-window, 150
+  message-renderer, all green, plus `node --check` and an esbuild bundle. Reviewed
+  independently to APPROVE with no open findings, after one documentation repair
+  round (README storage/restart wording, changelog rename-timing claim).
+  **Evidence limits, deliberately recorded:** the footer and welcome counts, the
+  `/link` command, delivery to the literal name `@g`, the untouched infrastructure
+  (`allTerminalNames`, `hubBroadcast`, `hubClientByName`, `/status` payload) and the
+  `compact_response` guard are verified by source inspection only. All runtime
+  evidence is fixture/model — in-process stubs, no port bound, no socket dialled;
+  the renderer's native block proves installed pi-tui Text/Box assumptions, not
+  extension UI integration. The code was never installed, launched or reloaded, and
+  no live mesh was exercised.
+  **Not shipped:** CHANGELOG carries a new `## Unreleased` section (0.4.1's header,
+  date and text untouched); no version or lockfile bump, no npm publish. Release
+  and live validation remain the owner's call.
+  Explicitly out of scope by decision — do not re-propose without new evidence:
+  compatibility code for mixed-version meshes (isolation holds only when every
+  terminal runs the same version; upgrade and restart together), interpreting a
+  target as a group selector or any fan-out, per-group rosters or filtered
+  join/left on the wire, receiver-side filtering in `handleIncoming`, and any new
+  tool parameter, setting or persisted state.
+
 ## Open work (priority-ranked)
 
 None — the backlog is empty. Next candidates live under Parked and in the
@@ -146,6 +180,18 @@ deferred `REPORT-*.md` files below; each carries its own status header.
   (these mutate a peer's cost/quality — consent is warranted, unlike compact).
 - **`PLAN-monitor.md`** — opt-in traffic-copy supervision mode. No demand;
   increases model usage/noise. Self-contained, ready if a use case appears.
+
+Carried verbatim from `PLAN-groups.md` (groups by name convention), parked there:
+
+- **Root / global agent.** A terminal that sees and addresses every group. It must
+  preserve symmetry (workers must see root to reply), so it is an explicit
+  exception to `groupOf(a) === groupOf(b)`, not a group. Decided only when a
+  concrete workflow needs it. Note: with the adopted rule `@g` is an ordinary
+  member of `g` with an empty local part, so no name form is reserved for root.
+  Until then the human observer is `pi-link --status`.
+- **`--status <group>` filter.** Derivable by eye from the `@`; not worth a flag.
+- **Grouped ordering in `--status`.** Cosmetic; only surface that shows several
+  groups at once.
 
 ## What we explicitly decided NOT to build
 

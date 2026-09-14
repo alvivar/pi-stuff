@@ -1,16 +1,22 @@
 # PLAN — Groups by name convention (`local@group`)
 
-> **Status:** Approved by owner — ready to build (no open decisions)
-> **Last aligned:** HEAD c2dc9f6 (product at fbb56b1, post-0.4.1). The G1
-> baseline passed at this HEAD; reverify the snapshot before implementation.
-> **Build from this?** Yes. Tasks are ordered; each is independently reviewable.
-> Scope follows the owner's simplicity constraints — see "Design constraints".
-> This plan does not authorize implementation; execution requires a separate GO.
+> **Status:** Completed — implemented, reviewed and committed as `74e732f`.
+> **Last aligned:** HEAD `74e732fc52c5a47f82e915684b4fe9df02d5f272` (G1, T1–T6).
+> **Build from this?** No — historical record of a completed implementation. The
+> tasks below describe work already shipped into the tree; read the code, not this
+> plan, for current behavior.
 > **Summary:** A terminal whose name contains `@` belongs to the group named after
 > the first `@`. Its agent sees and can address only terminals of the same group. No
 > wire change, no new state, no new parameters; everything derives from names at
 > read time. Isolation is for the agent's attention and addressing — it is not
 > security, and it is not preserved across mixed versions (documentation only).
+> G1 closed with the full suite at 462/0 (436→462, +26 checks in the existing
+> harness) and an independent review approving it with no open findings, after one
+> documentation repair round. Evidence is fixture/model and source inspection only:
+> the footer and welcome counts, `/link`, delivery to the literal name `@g`, the
+> untouched infrastructure and the `compact_response` guard were read, not run, and
+> no live UI or mesh was exercised. The code is committed but never installed or
+> released — CHANGELOG holds an `## Unreleased` section, with no version bump.
 
 ## Why
 
