@@ -146,18 +146,25 @@ replace the others with a link or a clause.
 - **3.1 Hub promotion** — said in Architecture › Hub Promotion (~488), Troubleshooting
   › Hub promotion loses state (~520), Limitations #3 (~532), Internals › Connection
   Lifecycle (~663+). **Owner:** Internals › Hub Promotion (after lot 2). Limitations
-  #3 stays as the one-line decision. Troubleshooting entry becomes two sentences:
-  what you see (names may get a `-2`, in-flight messages are gone, 2–5 s gap) and
-  the link. Also fix the wording: "terminal names may be lost" → "a terminal that
-  held a hub-assigned variant like `builder-2` may come back under its preferred
-  name, or vice versa" — on reconnect every terminal requests its saved preferred
-  name, not its last runtime name (that sentence already exists at ~630).
+  #3 stays as the one-line decision, but replace its imprecise name-loss rationale:
+  "Reconnect order can change which terminal holds a hub-assigned suffix; in-flight
+  messages can be lost." Troubleshooting keeps the symptom and the link, not an
+  absolute message-loss claim or a guaranteed failover bound. Scope the name example
+  to a terminal that rejoins the winner as a client: it re-registers with its saved
+  preferred name rather than its prior runtime variant, so `builder-2` may return
+  as `builder`, or vice versa. The promotion winner instead takes `startHub()`;
+  absent the pending-rename exception, it retains its runtime identity and does not
+  register. Do not say that nothing survives the gap: the old hub transfers no
+  shared roster or routing state to its successor, but surviving local state such
+  as the inbox remains. These distinctions must survive the shortened explanation.
 - **3.2 Port 9900** — Configuration (~305), Architecture (~470), Troubleshooting ›
   Port 9900 (~498), Limitations #2 (~531), `--status` Notes (~444). **Owner:**
   Limitations #2 (the decision) and Troubleshooting (the symptom). Delete the
   Configuration sentence (lot 2.2); the Architecture mention survives as part of
-  the topology text in Internals; the `--status` Note keeps only the `PI_LINK_PORT`
-  scope sentence.
+  the topology text in Internals; the `--status` Note keeps the `PI_LINK_PORT`
+  scope sentence and the user-visible consequence of an unusable value (exit `2`).
+  Drop the stub-hub testing rationale, not that consequence or the unrelated Notes
+  paragraphs on trust boundaries and flag passthrough.
 - **3.3 The compaction delivery gate** — `link_compact` bullets (~226–229),
   `link_list` status prose (~196–198), Troubleshooting › no reply (~508), Internals ›
   Inbox twice (~711 and ~713). **Owner:** Internals › Inbox, merged into one
@@ -180,7 +187,10 @@ replace the others with a link or a clause.
   printability checks; a pi-link 0.3.0 hub (which answers `426`) is one possible
   cause. Reword to: "means something answered but the response did not
   pass the CLI's checks — for example, a pi-link 0.3.0 hub, which predates the
-  endpoint". Keep the "updating is not enough on its own" sentence.
+  endpoint". Keep the "updating is not enough on its own" sentence. Apply the same
+  narrowing to the identical over-claim in CLI › Exit codes prose, so it does not
+  contradict Troubleshooting. Preserve the exit-code table, literal messages and
+  the `426 Upgrade Required` example.
 
 **Check:** each of the four facts has one owning paragraph; other mentions are
 reminders that prevent a real error, not restatements.

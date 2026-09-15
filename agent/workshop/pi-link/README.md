@@ -161,7 +161,7 @@ Send a message to one other terminal. The sender returns immediately.
 | `to`      | `string` | Target terminal name |
 | `message` | `string` | Message content      |
 
-When a message reaches the target terminal, it enters the receiver's inbox. Messages arriving close together may be delivered in one batch. The first message sets a delay of about 200ms; later messages do not extend it, so continuous traffic still gets delivered regularly. Each batch arrives as one `[Link: N message(s) received]` block, in arrival order, with each message under a `From "name":` header.
+When a message reaches the target terminal, it enters the receiver's inbox. Messages arriving close together are usually delivered as one batch, in arrival order, each batch one `[Link: N message(s) received]` block, with every message under a `From "name":` header. The batching window, the size caps that can split a batch and what can hold one back are in [Inbox](#inbox).
 
 The receiver's state is read when that batch is delivered, not when it is sent. If the receiver is still running then, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. Otherwise it starts a turn. There is no way to send without entering the receiver's reasoning.
 
@@ -192,7 +192,7 @@ Pi can run tools in parallel, and does by default. `tool:<name>` then names the 
 
 `thinking` means work Pi has not settled yet, which is more than an LLM call: an automatic retry, an automatic compaction and a queued continuation all happen after `agent_end` and inside the same run, and the terminal reports `thinking` through all of them until Pi reports the run settled.
 
-Only a manual compaction shows `compacting`. An automatic (threshold or overflow) compaction never shows it — it is not gated, so it reports `thinking` like the rest of the run it belongs to. A manual compaction also runs briefly before the gate rises, and reads as whatever preceded it until it does.
+Only a manual compaction shows `compacting`; while it does, messages to that terminal are held — see [Inbox](#inbox).
 
 Durations are computed at render time from a `since` timestamp - no timer traffic over the wire. Terminals that just joined with no status data yet render as blank, not fake idle.
 
@@ -411,13 +411,13 @@ Everything above is what the hub sends. The CLI checks less: before printing, it
 | `2` | No hub answered | `No link hub running on :9900.` |
 | `1` | Usage error, or an answer the table cannot print | `Link hub does not support /status — update pi-link and restart terminals.` |
 
-The two failure messages are deliberately distinct, so a script can tell *no usable answer* from *an answer this CLI cannot read* without parsing anything else. Exit `2` covers both nothing listening and a listener that accepts the request but does not answer within two seconds — every timeout is exit `2`. Exit `1` covers a listener that responds with something the table cannot read — the usual case being that it is not a hub speaking this contract: a pi-link 0.3.0 hub answers plain HTTP with `426 Upgrade Required`, so an out-of-date fleet lands here deterministically rather than looking like an outage.
+The two failure messages are deliberately distinct, so a script can tell *no usable answer* from *an answer this CLI cannot read* without parsing anything else. Exit `2` covers both nothing listening and a listener that accepts the request but does not answer within two seconds — every timeout is exit `2`. Exit `1` covers a listener that responds with something the table cannot read — for example a pi-link 0.3.0 hub, which answers plain HTTP with `426 Upgrade Required`, so an out-of-date fleet lands here deterministically rather than looking like an outage.
 
 Exit `2` means no hub answered **at that instant**. When a hub exits, a surviving client promotes itself to replace it, which takes roughly 2–5 seconds — poll again before concluding the fleet is down.
 
 #### Notes
 
-`PI_LINK_PORT` changes only where the CLI looks; the extension always binds the hub to `9900`. It exists so tests can run a stub hub on a free port. The value is not validated — an unusable one simply fails the request and is reported back to you in the exit-`2` message.
+`PI_LINK_PORT` changes only where the CLI looks; the extension always binds the hub to `9900`. The value is not validated — an unusable one simply fails the request and is reported back to you in the exit-`2` message.
 
 The endpoint is bound to `127.0.0.1` with no authentication, the same trust boundary as the WebSocket surface it shares a port with: any process on this machine can already connect to the link.
 
@@ -471,7 +471,7 @@ A successful send is not a confirmation. On a client it means the message was ha
 
 ### `pi-link --status` reports no hub, or an unsupported one
 
-The two messages mean different things. `No link hub running on :9900.` (exit `2`) means nothing answered — either the link is genuinely down, or you caught it during the 2–5 second window while a client promotes itself to hub, so poll again before believing it. `Link hub does not support /status — update pi-link and restart terminals.` (exit `1`) means something did answer but is not a hub speaking this contract — usually a pi-link 0.3.0 hub, which predates the endpoint. Updating is not enough on its own: the running terminals keep the old hub alive until they restart. See [`--status`: who is connected right now](#--status-who-is-connected-right-now).
+The two messages mean different things. `No link hub running on :9900.` (exit `2`) means nothing answered — either the link is genuinely down, or you caught it during the 2–5 second window while a client promotes itself to hub, so poll again before believing it. `Link hub does not support /status — update pi-link and restart terminals.` (exit `1`) means something answered but the response did not pass the CLI's checks — for example, a pi-link 0.3.0 hub, which predates the endpoint. Updating is not enough on its own: the running terminals keep the old hub alive until they restart. See [`--status`: who is connected right now](#--status-who-is-connected-right-now).
 
 ### Terminals don't see each other
 
@@ -482,7 +482,7 @@ The two messages mean different things. `No link hub running on :9900.` (exit `2
 
 ### Hub promotion loses state
 
-When the hub goes down and a client promotes itself, terminal names and in-flight messages from the old hub session may be lost. All surviving clients reconnect and re-register. This is by design - see [Limitations](#limitations--design-decisions).
+When the hub exits, a surviving client promotes itself in roughly 2–5 seconds; messages in flight during that gap can be lost, and a terminal that reconnects as a client after running as a hub-assigned variant like `builder-2` may come back under its preferred name, or vice versa. This is by design — see [Hub Promotion](#hub-promotion) for how promotion works and [Limitations](#limitations--design-decisions) for the decision behind it.
 
 ---
 
@@ -492,7 +492,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                                                                      |
 | 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                                                                              |
-| 3   | **Race-based hub promotion**              | Non-deterministic. Terminal names and in-flight ephemeral messages can be lost during promotion. Simple but imperfect.                                                                                           |
+| 3   | **Race-based hub promotion**              | Non-deterministic. Reconnect order can change which terminal holds a hub-assigned suffix; in-flight messages can be lost. Simple but imperfect.                                                                  |
 | 4   | **No offline backlog**                    | A definitely absent target is rejected, and nothing is stored for later delivery. A terminal that reconnects receives no messages it missed while offline.                                                       |
 | 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.                                                                          |
 | 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                                                                     |
@@ -570,6 +570,8 @@ Only **one attempt runs at a time**, across both steps. Startup, a retry and `/l
 When the hub disconnects, clients detect the WebSocket close event, enter `"disconnected"` state, and call `scheduleReconnect()`. The **first terminal to retry** becomes the new hub via the same initialize-or-fallback flow.
 
 There is **no explicit leader election** - promotion is race-based.
+
+The old hub transfers no shared roster or routing state to its successor: every terminal drops the snapshots it held for the network that went away - names, statuses, working directories and context - while its own local state, the inbox included, survives. Clients wait the same randomized 2-5 second backoff before retrying, so promotion usually lands in that window rather than within a guaranteed bound, and messages in flight while no hub is listening can be lost. Survivors that rejoin the winner as clients re-register with their saved preferred name rather than their prior runtime name (see [Name Uniqueness & Persistence](#name-uniqueness--persistence)), so a terminal that was `builder-2` may come back as `builder`, or take the suffix this time. The winner does not re-register at all: it starts the hub keeping the identity it was already running under, unless a `/link-name` rename was in flight when the old hub vanished, which it then adopts.
 
 ### Protocol
 
