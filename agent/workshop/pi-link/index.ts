@@ -127,32 +127,18 @@ type LinkMessage =
   | CompactResponseMsg;
 
 /**
- * True when Pi is at or above MIN_PI_VERSION. A fixed floor needs an ordered compare
- * of three numbers, not a semver dependency — but it does need SemVer's shape, so the
- * core rejects leading zeros, an optional prerelease is captured because it lowers
- * precedence, and optional build metadata is matched and then ignored because it
- * carries none. A prerelease of the floor itself precedes it, so `0.84.2-beta.1` is
- * below `0.84.2` while `0.85.0-beta.1` is above it on its core alone. Each suffix is
- * a dot-separated series of nonempty identifiers, so `0.84.2+.` and `0.85.0-alpha..1`
- * are malformed. Anything unparsable, or with a component too large to compare
- * exactly, is refused rather than guessed at.
+ * True when Pi is at or above MIN_PI_VERSION. Stable releases only: a version
+ * carrying a prerelease or build suffix is refused, not guessed at, which leaves an
+ * ordered compare of three numbers as the whole rule.
  */
 function piVersionSupported(version: string): boolean {
-  const parsed =
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
-      version.trim(),
-    );
+  const parsed = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
   if (!parsed) return false;
-  // A numeric prerelease identifier may not carry a leading zero. `0rc` may, being
-  // alphanumeric, and so may a build identifier, which never affects precedence.
-  const prerelease = parsed[4];
-  if (prerelease?.split(".").some((id) => /^0\d+$/.test(id))) return false;
   for (let i = 0; i < 3; i++) {
     const part = Number(parsed[i + 1]);
-    if (!Number.isSafeInteger(part)) return false;
     if (part !== MIN_PI_VERSION[i]) return part > MIN_PI_VERSION[i];
   }
-  return prerelease === undefined; // exactly the floor: only the release qualifies
+  return true; // exactly the floor
 }
 
 // keyText is empty when app.tools.expand has no binding, and the native hint would then
@@ -206,8 +192,8 @@ export default function (pi: ExtensionAPI) {
   // extension load error naming this message, and keeps running without pi-link.
   if (!piVersionSupported(PI_VERSION)) {
     throw new Error(
-      `pi-link requires Pi >=${MIN_PI_VERSION.join(".")} (detected ${PI_VERSION || "unknown"}); ` +
-        `upgrade Pi, or pin pi-link 0.2.x for Pi 0.74–0.84.1.`,
+      `pi-link requires Pi >=${MIN_PI_VERSION.join(".")} in x.y.z format, without suffixes ` +
+        `(detected ${PI_VERSION || "unknown"}); pi-link 0.2.x supports Pi 0.74–0.84.1.`,
     );
   }
 

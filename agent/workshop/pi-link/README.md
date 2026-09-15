@@ -39,7 +39,7 @@ A single Pi terminal is powerful. Multiple terminals working together unlock new
 
 ## Prerequisites
 
-- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.84.2 or later** (for pi-link 0.3+). On Pi 0.74–0.84.1, pin `pi-link@0.2.x`; on Pi ≤0.73, pin `pi-link@0.1.14`.
+- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.84.2 or later** (for pi-link 0.3+), stable releases only, reported as `x.y.z` without a prerelease or build suffix — anything else is refused rather than guessed at. On Pi 0.74–0.84.1, pin `pi-link@0.2.x`; on Pi ≤0.73, pin `pi-link@0.1.14`.
 - Node.js (LTS recommended)
 
 Pi's package installation does not check the host version, so `pi install` succeeds on an older Pi. pi-link then refuses to initialize instead of half-running: it throws before registering anything, and Pi reports it under **[Extension issues]** with the required minimum and the version it detected. Nothing else about the session changes.

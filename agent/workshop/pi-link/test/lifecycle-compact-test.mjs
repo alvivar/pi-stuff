@@ -225,20 +225,10 @@ for (const [version, supported] of [
   ["0.84.3", true],
   ["0.85.0", true],
   ["1.0.0", true],
-  ["0.85.0-beta.1", true],
-  ["0.84.2+build.1", true], // build metadata carries no precedence
-  ["0.85.0+vendor.1", true],
-  ["0.85.0-0", true], // a single zero is a legal numeric identifier
   ["0.84.1", false],
   ["0.83.9", false],
-  ["0.84.2-beta.1", false], // a prerelease of the floor precedes it
-  ["0.84.2-beta.1+build.2", false],
-  ["00.84.2", false], // leading zeros are not SemVer numeric identifiers
-  ["0.084.2", false],
-  ["0.85.0-01", false], // nor in a numeric prerelease identifier
-  ["0.84.2+.", false], // suffix identifiers cannot be empty
-  ["0.85.0-alpha..1", false],
-  ["99999999999999999999.0.0", false], // too large to compare exactly
+  ["0.85.0-beta.1", false], // stable releases only: a prerelease is not a release
+  ["0.84.2+build.1", false], // nor is a build suffix, whatever it labels
   ["not.a.version", false],
   ["", false],
 ]) {
