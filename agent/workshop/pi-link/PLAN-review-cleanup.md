@@ -6,14 +6,16 @@
 > **Origin:** fable's full review of `index.ts`, `bin/pi-link.mjs` and the five test
 > suites, cross-checked by archon (REVIEW FEEDBACK). Every item below is one both
 > reviewers agree on, or one the owner decided after hearing both positions.
-> **Gate at baseline:** 462/462 across the five suites, no port bound.
+> **Gate at baseline:** 462/462 across the five suites. No use of the live mesh
+> on port 9900: CLI fixtures use isolated servers on ephemeral loopback ports;
+> the ownership harness simulates the transport in memory.
 
 ## Summary
 
 Four independent lots. **A** removes lines that defend against nothing reachable.
-**B** merges the two per-role roster map sets into one and, in doing so, fixes a
-latent bug that today only sleeps (stale peer metadata surviving a client→hub
-promotion). **C** narrows the Pi version check to stable releases, an owner
+**B** merges the two per-role roster map sets into one, discarding snapshots on
+client connection loss so the refactor does not reuse stale metadata after a
+client→hub promotion. **C** narrows the Pi version check to stable releases, an owner
 decision. **D** narrows the `--status` payload validation to the fields the CLI
 consumes, an owner decision. One test moves from a fixed sleep to the harness's
 wait. No wire change, no new state, no new parameters anywhere.
@@ -34,9 +36,10 @@ tests only when fundamental.
   is reading own valid data, not mixed-version wire. Tests 1 and 6c stay.
 - **Pi support is stable releases only** (`x.y.z`). Prereleases and build metadata
   are refused with a message naming the accepted format (lot C).
-- **`--status` validates consumed fields only**; the shape invariants that draw
-  nothing (hub-first order, `terminals[0].name === hub`, numeric `port`, non-empty
-  list) are dropped, and `--json` therefore no longer guarantees them (lot D).
+- **`--status` validates consumed fields only**; checks of shape invariants that
+  draw nothing (hub-first order, `terminals[0].name === hub`, numeric `port`,
+  non-empty list) are dropped. A successful `--json` invocation no longer
+  certifies them; the hub's payload contract remains unchanged (lot D).
 
 ---
 
@@ -50,7 +53,7 @@ reviewers. Remove the line and its comment; add nothing.
 | A1 | `captureContext` ~374 | Delete `if (typeof ctx.getContextUsage !== "function") return undefined; // older Pi` | `getContextUsage` exists in the 0.84.2 floor (verified in the tarball); anything older is refused at load. |
 | A2 | `formatContext` ~451 | `if (!c) return "";` — drop `\|\| c.contextWindow <= 0` and its comment | The only producer, `captureContext`, already refuses `contextWindow <= 0`. Same version everywhere. |
 | A3 | `agent_start` ~1477 | Delete `activeTools.clear(); // defensive: …` | Pi emits `agent_end` on normal, error and abort endings and forbids overlapping runs (archon read pi-agent-core 0.85.1); `agent_end` ~1528 already clears and always precedes. Keep the `agent_end` clear. |
-| A4 | `terminal_left` ~847–858 and `disconnect` ~1339–1346 | In both synchronous loops: `cleanupPendingCompact(id); pending.resolve(…)` using the entry already in hand; drop `const p = …; if (p)` / `const pending = …; if (pending)` | The entry was just read from the map; cleanup cannot miss it. Do **not** change `cleanupPendingCompact`'s return type and do not add `!`: the timeout, abort and `!delivered` callers still need the null check. |
+| A4 | `terminal_left` ~847–858 and `disconnect` ~1339–1346 | Use `for (const [id, pending] of pendingCompactResponses)` in both synchronous loops; `disconnect()` currently iterates a copy of the keys and must switch to entries. Then `cleanupPendingCompact(id); pending.resolve(…)`; drop the second lookup result and its guard. | Deleting the current Map entry during iteration is valid; there is no `await` between capturing and using it. Do **not** change `cleanupPendingCompact`'s return type, add another `get` or add `!`: the timeout, abort and `!delivered` callers still need the null check. |
 | A5 | `connection-ownership-test.mjs` ~1000 (groups case 1) | Replace `await new Promise((r) => setTimeout(r, 300));` with `await until(() => t.delivered.length > 0, "the flush");` | The two `receive` calls are synchronous before the flush; waiting for the delivery is the relevant synchronization. Keep both assertions as they are: the same-group content **and** sender present, the cross-group content absent, on the same batch. |
 
 Not in scope for A5: the other `setTimeout(r, 300)` at ~518 (case 6, pre-existing)
@@ -65,37 +68,40 @@ are removed in lot A).
 
 ### Fact
 
-`terminalStatuses/terminalCwds/terminalContexts` (~253–256) and
-`hubTerminalStatuses/hubTerminalContexts/hubTerminalCwds` (~264–266) never hold
-data in the same role: on the hub the client set is always empty (welcome only
-reaches clients; hub `status_update` never passes `handleIncoming`;
-`terminal_joined` writes under `role !== "hub"`), on a client the hub set is always
-empty. The split costs three role-branching getters (~458–475), six clears in
+The getters select `terminalStatuses/terminalCwds/terminalContexts` (~253–256)
+when running as a client and `hubTerminalStatuses/hubTerminalContexts/hubTerminalCwds`
+(~264–266) when running as a hub. The inactive set is not necessarily empty:
+client snapshots can survive a promotion without being used by the hub getters.
+The split costs three role-branching getters (~458–475), six clears in
 `disconnect()` (~1366–1371), two role conditions in `terminal_joined`/`terminal_left`
 (~831–845), and in hub `register` two early `set`s of the newcomer (~985–986) plus
 three `name !== clientName` filters (~995, ~1000, ~1006) so the newcomer is not
 handed its own metadata in `welcome`.
 
-### Latent bug this lot fixes (archon's counterexample, verified)
+### Regression the merge must prevent
 
 The client socket's spontaneous `close` (~1220–1232) resets `ws`, `role` and
 `connectedTerminals` but **not** the three client maps; `startHub` does not clear
-them either. Path: client loses its hub → reconnect → wins the election → hub with
-the previous network's metadata still populated. Today it sleeps under the
-role-branching getters. With one map set it would become authoritative: `welcome`
-would carry stale snapshots, and `/status` would report a stale status for a
-re-registering name before its first `status_update` — the false inventory the
-endpoint exists to remove. So the merge **requires** B1.
+them either. Path: client loses its hub → reconnect → wins the election. The
+current hub getters ignore those old client snapshots. A merge without clearing
+would make them authoritative: `welcome` would carry stale snapshots and `/status`
+would report stale metadata for a re-registering name before its first update.
+
+Archon verified this sequence with the existing harness and in-memory source
+variants: current code reports unknown metadata correctly; a merge without B1
+reuses old status/cwd/context; adding B1 restores the current behavior. No product
+files were modified and no live mesh was used. B1 is therefore required to prevent
+a regression introduced by the refactor, not a separately shipped bugfix.
 
 ### Tasks
 
 - **B1. Clear on client close.** In the `close` handler ~1226, next to
-  `connectedTerminals = [];`, clear the three maps. This is the fix regardless of
-  the merge; it is what makes "state is reset on role change" true.
+  `connectedTerminals = [];`, clear the three maps. This discards the previous
+  connection's snapshots before reconnect or promotion can reuse the unified set.
 - **B2. One set.** Keep `terminalStatuses`, `terminalCwds`, `terminalContexts`
   (names and comments: "other terminals"). Delete the `hubTerminal*` trio. The hub
-  writes them in `hubHandleClient` (`status_update` ~1036–1037 and `close`
-  ~1068–1071); the client writes them in `handleIncoming`.
+  writes status updates in `hubHandleClient` (~1036–1037); both roles apply
+  membership metadata changes in `handleIncoming` through B4–B6.
 - **B3. Getters without a role branch.** `getStatusFor/getCwdFor/getContextFor`
   become `name === terminalName ? <local truth> : map.get(name) ?? null`.
 - **B4. `terminal_joined`/`terminal_left` without role conditions.** Drop the
@@ -136,11 +142,16 @@ Then a socket registers as `p` **without** `cwd` or `context`. Assert:
 Then a second socket registers as `r` **with** `cwd` and `context`; assert `r`'s
 `welcome` does not contain `r`'s own cwd/context (B5), and that a later `link_list`
 on the hub shows `r`'s cwd (self-delivery wrote it). Positive control: after `r`
-sends one `status_update`, `/status` reports it.
+sends one `status_update`, `/status` reports it. In the same block, close `r`'s
+socket and register a new socket as `r` without metadata. Assert that its `welcome`
+has no old `r` entry in the three snapshots and `/status` reports no status or cwd
+and `context: null`. Merely checking that the disconnected row disappears would
+not prove cleanup: the roster could exclude it while the maps retain its data.
 
 This kills: a merge without B1 (stale `q`/`p` survive), a `register` that inserts
-metadata before building `welcome` (own cwd echoed), and a dropped self-delivery
-write (hub never learns `r`'s cwd).
+metadata before building `welcome` (own cwd echoed), a dropped self-delivery write
+(hub never learns `r`'s cwd), and missing cleanup after B6 moves deletion to
+`terminal_left` (reusing `r` inherits old metadata). No extra harness or matrix.
 
 **Gate:** all five suites green; block 11's "hub first, then clients sorted by
 name" and every existing welcome/roster assertion unchanged.
@@ -152,24 +163,27 @@ name" and every existing welcome/roster assertion unchanged.
 Fact: the npm registry lists zero prerelease versions of
 `@earendil-works/pi-coding-agent`. `piVersionSupported` (~140–159) pays for full
 SemVer (prerelease precedence, build metadata, leading zeros, `isSafeInteger`) plus
-a ten-line docblock, and suite A of `lifecycle-compact-test.mjs` (~221–262) spends
-21 cases on it, 12 of them on suffix grammar.
+a ten-line docblock, and suite A of `lifecycle-compact-test.mjs` (~221–262) includes
+many suffix-grammar cases that the narrower contract no longer needs.
 
 - **C1.** Replace with: match `^(\d+)\.(\d+)\.(\d+)$` on `version.trim()`, compare
   the three numbers in order against `MIN_PI_VERSION`. Anything else is refused.
   Docblock: two or three lines — "stable releases only; a prerelease or build
   suffix is refused, not guessed at".
 - **C2.** Error message (~208–211): it must not say "upgrade" to a version that may
-  be newer. Wording: `pi-link requires a stable Pi release >=0.84.2 (detected
-  ${PI_VERSION || "unknown"}); pi-link 0.2.x supports Pi 0.74–0.84.1.` Keep the
-  throw as the first statement of the factory.
-- **C3.** Suite A: keep exactly the floor, one below on each component, one above
-  on each component, one malformed, the empty string, and **one suffixed version
-  refused** (`0.85.0-beta.1 → false`) so the contract is pinned. Keep the second
-  check that the error names the floor and the detected version. Drop the grammar
-  rows.
-- **C4.** README: where the floor is stated, add "stable releases only" in the same
-  sentence. No new section.
+  be newer. Wording: `pi-link requires Pi >=0.84.2 in x.y.z format, without suffixes
+  (detected ${PI_VERSION || "unknown"}); pi-link 0.2.x supports Pi 0.74–0.84.1.`
+  Build metadata can belong to a stable SemVer release, so "stable" alone would
+  not explain its rejection. Keep the throw as the first statement of the factory.
+- **C3.** Suite A: keep the floor; below-floor minor and patch; above-floor major,
+  minor and patch; one malformed input; the empty string; and two suffix refusals:
+  `0.85.0-beta.1 → false` and `0.84.2+build.1 → false`. These pin the two restrictions
+  without retaining a grammar matrix. There is no valid major below the floor's
+  zero: do not invent a negative major as an ordering case. Keep the checks that
+  refusal precedes all registrations and the error names the floor and detected
+  version. Drop the other grammar rows.
+- **C4.** README: where the floor is stated, add "stable releases only, in x.y.z
+  format without suffixes" in the same sentence. No new section.
 
 **Gate:** suite A count drops; every other suite unchanged.
 
@@ -187,9 +201,10 @@ goes for the rest.
 
 - **D1. Keep** (these are read by the renderer or `formatTerminalStatus`/
   `formatContext`): `payload.terminals` is an array; each entry is a non-array
-  object with `name` string; if `status` is present it is a non-empty string and
-  `sinceSeconds` is a number (the pair rule is what `formatTerminalStatus` relies
-  on); `cwd`, if present, is a string; `context` is `null` or `{tokens: number|null,
+  object with `name` string; `status` and `sinceSeconds` are either both present or
+  both absent. When present, `status` is a non-empty string and `sinceSeconds` is
+  a number; preserve the pair check in both directions. `cwd`, if present, is a
+  string; `context` is `null` or `{tokens: number|null,
   window: number}`.
 - **D2. Drop**: `payload.hub` string check, `payload.port` number check, the
   non-empty-list rule, the `role` per-index check (`hub` first, `client` after) and
@@ -206,10 +221,12 @@ goes for the rest.
   named hub, non-numeric `port`. Where a removed fixture was the only coverage of
   the *accepted* path, move it to the accepted side (e.g. an empty list now
   renders an empty table).
-- **D5.** README `--status --json` paragraph (~376–390): drop any sentence that
-  promises hub-first order or `terminals[0].name === hub` as a contract; state
-  that `--json` writes the hub's body verbatim and the CLI checks only what it
-  prints. If no such promise exists in the text, no change.
+- **D5.** README `--status` / scripting documentation: preserve the hub's payload
+  description, including hub-first order, sorted clients and the structural fields.
+  The producer is unchanged. Clarify that `--json` writes the response body
+  verbatim and the CLI validates the fields needed for its table, not the remaining
+  structural invariants. A successful CLI exit no longer certifies those invariants;
+  do not present weaker validation as a changed wire contract.
 
 **Gate:** suite J count drops; `--status` table output for the existing valid
 fixture byte-identical.
@@ -219,15 +236,20 @@ fixture byte-identical.
 ## Order and commits
 
 1. **Lot A** — smallest, no decisions, warms the gate.
-2. **Lot B** — B1 first as its own hunk (it is a fix), then the merge; one commit
-   with the new test block.
+2. **Lot B** — B1 and the merge together; one refactor commit with the new test
+   block. B1 prevents a regression from the merge, not a current behavior bug.
 3. **Lot C**, then **Lot D** — independent of each other; either order.
-4. CHANGELOG under Unreleased, one line per lot: fix (B1), refactor (B), change
-   (C: stable-only floor), change (D: `--json` invariants no longer checked).
-   Version and publish are the owner's.
 
-Each lot: full gate before commit. Review by fable after each lot or after all,
-owner's choice.
+Before each dispatch, pin the current HEAD, exact allowed paths and required gate.
+For each lot: implement, run the full gate, obtain independent review by fable,
+resolve findings, then commit before starting the next lot. Do not defer review
+until after the commits.
+
+Include the relevant Unreleased changelog update in each lot's commit, not as a
+final catch-up step. Describe A/B as simplification or refactoring, not a `Fixed`
+entry for B1; C changes accepted Pi versions and D changes CLI validation. Keep
+notes concise: no forced entry per micro-adjustment, and related refactoring notes
+may be consolidated. Version and publication remain the owner's decisions.
 
 ## Out of scope
 
