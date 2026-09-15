@@ -233,6 +233,69 @@ fixture byte-identical.
 
 ---
 
+## Authorized run
+
+Owner go: **"Implementer, reviewer y committer son los aprobados. Designer queda
+fuera hasta que yo lo use personalmente. Contexto saludable entre turnos 200k.
+Go, run through!"**
+
+- Mode: run-through, serial A → B → C → D; no separate owner approval before each
+  commit. Material changes or unresolved required gates still require escalation.
+- Roles: `implementer@pi-link`, `reviewer@pi-link`, `committer@pi-link`.
+  Designer/Fable is not a participant in this run. Archon coordinates and owns
+  plan/ledger updates; workers do not delegate to each other.
+- Repository: `C:/Users/andre/.pi`; product: `agent/workshop/pi-link`.
+  Starting branch/HEAD: `master`, `8dc5d86fbd4b56d36a8504c1304c39b5f8eaca4f`.
+  Worktree and index were clean before this execution addendum. Earlier review
+  amendments are already committed in that HEAD, not pre-existing dirt.
+- Context: use the owner's 200K healthy-context reference between stages, keeping
+  reserve for repairs and handoffs. Compact before engagement when needed, not an
+  engaged worker before its task's commit. Fresh post-compaction `?` is not a hold.
+
+### Exact task paths
+
+Paths below are relative to the product directory. Each commit includes its
+relevant `CHANGELOG.md` update. Only Archon edits this plan; authorized execution
+amendments to it accompany the affected implementation commit (this addendum in A).
+
+| Lot | Implementer may edit |
+|---|---|
+| A | `index.ts`, `test/connection-ownership-test.mjs`, `CHANGELOG.md` |
+| B | `index.ts`, `test/connection-ownership-test.mjs`, `CHANGELOG.md` |
+| C | `index.ts`, `test/lifecycle-compact-test.mjs`, `README.md`, `CHANGELOG.md` |
+| D | `bin/pi-link.mjs`, `test/cli-flags-test.mjs`, `README.md`, `CHANGELOG.md` |
+
+Temporary run state: `LEDGER-review-cleanup.md` beside this plan; never stage it,
+remove it when the run closes, and retain this tracked plan. No version/lockfile,
+dependency, installation, reload, publication or live-mesh work is authorized.
+
+### Required verification for every lot
+
+The implementer checks branch/HEAD, full worktree and staged state, then runs the
+baseline before edits. Unexpected staging or a red baseline blocks edits. Run the
+same full gate after changes, from `C:/Users/andre/.pi/agent/workshop/pi-link`:
+
+```sh
+node --check bin/pi-link.mjs
+node test/cli-flags-test.mjs
+node test/lifecycle-compact-test.mjs
+node test/connection-ownership-test.mjs
+node test/inbox-fixed-window-test.mjs
+node test/message-renderer-test.mjs
+git diff --check
+```
+
+Report each command's result and suite counts, not just an aggregate. Ownership
+loads the real TypeScript extension with simulated transports; lifecycle covers
+the compatibility gate and compact handling; inbox covers batching; renderer
+covers rendering seams; CLI covers flag/status behavior with isolated subprocesses
+and ephemeral HTTP fixtures. Report whether the installed native pi-tui block ran;
+its availability-dependent evidence is not a live Pi UI or full SDK E2E test.
+A1/A3's API/lifecycle assumptions also require reviewer source inspection of the
+supported Pi contract, not a claim that the stub suites prove Pi's own lifecycle.
+Preserve each lot's additional assertions and evidence requirements above. No new
+live checks or dependency downloads are required. Record coverage limitations.
+
 ## Order and commits
 
 1. **Lot A** — smallest, no decisions, warms the gate.
@@ -241,8 +304,8 @@ fixture byte-identical.
 3. **Lot C**, then **Lot D** — independent of each other; either order.
 
 Before each dispatch, pin the current HEAD, exact allowed paths and required gate.
-For each lot: implement, run the full gate, obtain independent review by fable,
-resolve findings, then commit before starting the next lot. Do not defer review
+For each lot: implement, run the full gate, obtain independent review by
+`reviewer@pi-link`, resolve findings, then commit before starting the next lot. Do not defer review
 until after the commits.
 
 Include the relevant Unreleased changelog update in each lot's commit, not as a

@@ -997,7 +997,7 @@ async function bootClientNamed(name, terminals, extra = {}) {
   await tick();
   foreign.receive({ type: "chat", from: "a@g1", to: "h@g2", content: "cross-group" });
   peer.receive({ type: "chat", from: "c@g2", to: "h@g2", content: "same-group" });
-  await new Promise((r) => setTimeout(r, 300));
+  await until(() => t.delivered.length > 0, "the flush");
   const inbox = t.delivered.map((m) => m.content).join("\n");
   check("12: a same-group chat reaches the hub's inbox within the flush window",
     inbox.includes("same-group") && inbox.includes('From "c@g2"'), inbox);

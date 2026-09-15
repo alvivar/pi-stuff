@@ -371,7 +371,6 @@ export default function (pi: ExtensionAPI) {
 
   function captureContext(): ContextSnapshot | undefined {
     if (!ctx) return undefined;
-    if (typeof ctx.getContextUsage !== "function") return undefined; // older Pi
     const usage = ctx.getContextUsage();
     if (!usage) return undefined;
     if (usage.contextWindow <= 0) return undefined; // no real context to report
@@ -448,7 +447,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function formatContext(c: ContextSnapshot | null | undefined): string {
-    if (!c || c.contextWindow <= 0) return ""; // guard against bad wire data
+    if (!c) return "";
     const window = formatTokens(c.contextWindow);
     if (c.tokens === null) return `?/${window}`;
     const percent = Math.round((c.tokens / c.contextWindow) * 100);
@@ -846,15 +845,13 @@ export default function (pi: ExtensionAPI) {
         // Fail any pending compact request to the departed terminal
         for (const [id, pending] of pendingCompactResponses) {
           if (pending.targetName === msg.name) {
-            const p = cleanupPendingCompact(id);
-            if (p) {
-              p.resolve(
-                textResult(`Terminal "${msg.name}" disconnected`, {
-                  to: msg.name,
-                  error: "disconnected",
-                }),
-              );
-            }
+            cleanupPendingCompact(id);
+            pending.resolve(
+              textResult(`Terminal "${msg.name}" disconnected`, {
+                to: msg.name,
+                error: "disconnected",
+              }),
+            );
           }
         }
         updateStatus();
@@ -1336,13 +1333,11 @@ export default function (pi: ExtensionAPI) {
     // Runs before role is cleared, so peers still get a final status; more to the
     // point, the local gate record stays honest for the reconnect.
     syncCompactionStatus();
-    for (const id of [...pendingCompactResponses.keys()]) {
-      const pending = cleanupPendingCompact(id);
-      if (pending) {
-        pending.resolve(
-          textResult("Link disconnected", { error: "disconnected" }),
-        );
-      }
+    for (const [id, pending] of pendingCompactResponses) {
+      cleanupPendingCompact(id);
+      pending.resolve(
+        textResult("Link disconnected", { error: "disconnected" }),
+      );
     }
 
     // Close client connection
@@ -1474,7 +1469,6 @@ export default function (pi: ExtensionAPI) {
     // compaction, agent_start clears this flag, and delivery reopens into a
     // compaction that is still rebuilding context.
     setCompacting(false);
-    activeTools.clear(); // defensive: a run cannot begin owing tools from the last one
     if (statusIdentity(deriveStatus()) !== before) stateSince = Date.now();
     pushStatus();
   });
