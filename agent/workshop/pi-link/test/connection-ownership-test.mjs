@@ -1176,6 +1176,74 @@ async function bootClientNamed(name, terminals, extra = {}) {
     after.content[0].text);
 }
 
+// ── 13. One roster map set: nothing survives the network it came from ───────
+
+{
+  // A client welcomed with a fully populated network, which then goes away and
+  // leaves it as the hub. Dropping the roster would not prove cleanup: the maps
+  // are what `welcome` and `/status` actually read.
+  const since = Date.now() - 5_000;
+  const t = await bootClientNamed("c", ["c", "p", "q"], {
+    statuses: { p: { kind: "thinking", since }, q: { kind: "idle", since } },
+    cwds: { p: "C:/old-p", q: "C:/old-q" },
+    contexts: { p: { tokens: 1, contextWindow: 10 }, q: { tokens: 2, contextWindow: 20 } },
+  });
+  peerClose(t.sockets()[0]);
+  await until(() => t.sockets().length === 2, "the reconnect dial", RECONNECT_CEILING_MS);
+  failDial(t.sockets()[1]);
+  await until(() => t.servers().length === 1, "the hub attempt");
+  const server = t.servers()[0];
+  const http = t.httpServers()[0];
+  http.emit("listening");
+  await tick();
+  check("13: the client that lost its hub is promoted", (await t.role()) === "hub");
+
+  // `p` registers again, this time with nothing to report.
+  const p = register(server, "p");
+  await tick();
+  const pWelcome = p.sent.find((f) => f.type === "welcome");
+  const carriesOld = (record) => ["p", "q"].some((name) => name in (record ?? {}));
+  check("13: the promoted hub welcomes p with no snapshot from the lost network",
+    !carriesOld(pWelcome.statuses) && !carriesOld(pWelcome.cwds) &&
+      !carriesOld(pWelcome.contexts), JSON.stringify(pWelcome));
+  const pRow = getStatus(http).body.terminals.find((e) => e.name === "p");
+  check("13: /status reports p as unknown, not as its previous self",
+    !("status" in pRow) && !("cwd" in pRow) && pRow.context === null, JSON.stringify(pRow));
+
+  // `r` registers with metadata: its own snapshot must not be echoed back to it,
+  // and the hub must still learn it — through its own `terminal_joined` delivery.
+  const r = fakeIncoming();
+  server.emit("connection", r);
+  r.receive({
+    type: "register", name: "r", cwd: "C:/r", context: { tokens: 3, contextWindow: 30 },
+  });
+  await tick();
+  const rWelcome = r.sent.find((f) => f.type === "welcome");
+  check("13: the newcomer's own cwd and context are absent from its welcome",
+    !("r" in rWelcome.cwds) && !("r" in rWelcome.contexts), JSON.stringify(rWelcome));
+  const listed = await t.tool("link_list");
+  check("13: the hub records the newcomer's cwd from its own join delivery",
+    listed.details.cwds.r === "C:/r", JSON.stringify(listed.details));
+  r.receive({ type: "status_update", status: { kind: "thinking", since } });
+  await tick();
+  check("13: a status reported to the hub is read back from the one map set",
+    getStatus(http).body.terminals.find((e) => e.name === "r")?.status === "thinking",
+    JSON.stringify(getStatus(http).body.terminals));
+
+  // The same name reconnects with nothing to report: the old entries are gone.
+  r.close();
+  await tick();
+  const r2 = register(server, "r");
+  await tick();
+  const r2Welcome = r2.sent.find((f) => f.type === "welcome");
+  check("13: a re-registering name inherits nothing from its previous connection",
+    !("r" in r2Welcome.statuses) && !("r" in r2Welcome.cwds) && !("r" in r2Welcome.contexts),
+    JSON.stringify(r2Welcome));
+  const r2Row = getStatus(http).body.terminals.find((e) => e.name === "r");
+  check("13: /status reports the reconnected name as unknown",
+    !("status" in r2Row) && !("cwd" in r2Row) && r2Row.context === null, JSON.stringify(r2Row));
+}
+
 // ── Teardown: every instance closes its own transports and timers ───────────
 
 for (const { t, ctx } of booted) await t.emit("session_shutdown", { reason: "quit" }, ctx);

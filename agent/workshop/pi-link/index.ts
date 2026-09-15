@@ -261,9 +261,6 @@ export default function (pi: ExtensionAPI) {
   // never closes a server it was handed. Nulled wherever `wss` is.
   let hubHttpServer: HttpServer | null = null;
   const hubClients = new Map<WebSocket, string>(); // ws → terminal name
-  const hubTerminalStatuses = new Map<string, LinkStatus>(); // hub-authoritative
-  const hubTerminalContexts = new Map<string, ContextSnapshot>(); // hub-authoritative
-  const hubTerminalCwds = new Map<string, string>(); // hub-authoritative (excludes self)
 
   // Client state
   let ws: WebSocket | null = null;
@@ -456,19 +453,16 @@ export default function (pi: ExtensionAPI) {
 
   function getStatusFor(name: string): LinkStatus | null {
     if (name === terminalName) return deriveStatus();
-    const map = role === "hub" ? hubTerminalStatuses : terminalStatuses;
-    return map.get(name) ?? null;
+    return terminalStatuses.get(name) ?? null;
   }
 
   function getCwdFor(name: string): string | null {
     if (name === terminalName) return currentCwd || null;
-    if (role === "hub") return hubTerminalCwds.get(name) ?? null;
     return terminalCwds.get(name) ?? null;
   }
 
   function getContextFor(name: string): ContextSnapshot | null {
     if (name === terminalName) return captureContext() ?? null;
-    if (role === "hub") return hubTerminalContexts.get(name) ?? null;
     return terminalContexts.get(name) ?? null;
   }
 
@@ -827,9 +821,8 @@ export default function (pi: ExtensionAPI) {
       // ── Membership updates ──
       case "terminal_joined":
         connectedTerminals = msg.terminals;
-        if (role !== "hub" && msg.cwd) terminalCwds.set(msg.name, msg.cwd);
-        if (role !== "hub" && msg.context)
-          terminalContexts.set(msg.name, msg.context);
+        if (msg.cwd) terminalCwds.set(msg.name, msg.cwd);
+        if (msg.context) terminalContexts.set(msg.name, msg.context);
         updateStatus();
         if (groupOf(msg.name) === groupOf(terminalName))
           notify(`"${msg.name}" joined the link`, "info");
@@ -838,10 +831,8 @@ export default function (pi: ExtensionAPI) {
       case "terminal_left":
         connectedTerminals = msg.terminals;
         terminalStatuses.delete(msg.name);
-        if (role !== "hub") {
-          terminalCwds.delete(msg.name);
-          terminalContexts.delete(msg.name);
-        }
+        terminalCwds.delete(msg.name);
+        terminalContexts.delete(msg.name);
         // Fail any pending compact request to the departed terminal
         for (const [id, pending] of pendingCompactResponses) {
           if (pending.targetName === msg.name) {
@@ -978,30 +969,23 @@ export default function (pi: ExtensionAPI) {
       if (msg.type === "register") {
         if (clientName) return; // already registered — ignore duplicate
         clientName = uniqueName(msg.name);
+        // The socket must be in hubClients before terminalList(), or the newcomer
+        // is missing from its own roster. Its metadata is deliberately not stored
+        // yet: the maps below must not echo the newcomer's own snapshot back to it.
         hubClients.set(clientWs, clientName);
-        if (msg.cwd) hubTerminalCwds.set(clientName, msg.cwd);
-        if (msg.context) hubTerminalContexts.set(clientName, msg.context);
         const list = terminalList();
-        connectedTerminals = list;
-        updateStatus();
 
         // Confirm to the new client (include status + cwd snapshots)
         const statuses: Record<string, LinkStatus> = {};
         statuses[terminalName] = deriveStatus(); // hub's own status
-        for (const [name, status] of hubTerminalStatuses) {
-          if (name !== clientName) statuses[name] = status;
-        }
+        for (const [name, status] of terminalStatuses) statuses[name] = status;
         const cwds: Record<string, string> = {};
         if (currentCwd) cwds[terminalName] = currentCwd; // hub's own cwd
-        for (const [name, cwd] of hubTerminalCwds) {
-          if (name !== clientName) cwds[name] = cwd;
-        }
+        for (const [name, cwd] of terminalCwds) cwds[name] = cwd;
         const contexts: Record<string, ContextSnapshot> = {};
         const hubContext = captureContext();
         if (hubContext) contexts[terminalName] = hubContext; // hub's own context
-        for (const [name, c] of hubTerminalContexts) {
-          if (name !== clientName) contexts[name] = c;
-        }
+        for (const [name, c] of terminalContexts) contexts[name] = c;
         clientWs.send(
           JSON.stringify({
             type: "welcome",
@@ -1013,7 +997,8 @@ export default function (pi: ExtensionAPI) {
           } satisfies WelcomeMsg),
         );
 
-        // Notify everyone else (include joiner's cwd + context)
+        // Notify everyone else (include joiner's cwd + context). The hub's own
+        // self-delivery is what records the newcomer's metadata and roster.
         const joined: TerminalJoinedMsg = {
           type: "terminal_joined",
           name: clientName,
@@ -1030,9 +1015,9 @@ export default function (pi: ExtensionAPI) {
 
       // Status update — store and fan out to other clients only (not back to hub)
       if (msg.type === "status_update") {
-        hubTerminalStatuses.set(clientName, msg.status);
-        if (msg.context) hubTerminalContexts.set(clientName, msg.context);
-        else if (msg.context === null) hubTerminalContexts.delete(clientName);
+        terminalStatuses.set(clientName, msg.status);
+        if (msg.context) terminalContexts.set(clientName, msg.context);
+        else if (msg.context === null) terminalContexts.delete(clientName);
         const normalized: StatusUpdateMsg = {
           type: "status_update",
           name: clientName,
@@ -1063,12 +1048,9 @@ export default function (pi: ExtensionAPI) {
       const name = hubClients.get(clientWs);
       if (!name) return; // already removed (e.g. via disconnect) — ignore stale event
       hubClients.delete(clientWs);
-      hubTerminalStatuses.delete(name);
-      hubTerminalContexts.delete(name);
-      hubTerminalCwds.delete(name);
       const list = terminalList();
-      connectedTerminals = list;
-      updateStatus();
+      // Self-delivery of this frame drops the departed terminal's metadata and
+      // refreshes the hub's own roster.
       const left: TerminalLeftMsg = {
         type: "terminal_left",
         name,
@@ -1221,6 +1203,11 @@ export default function (pi: ExtensionAPI) {
         if (disposed) return;
         role = "disconnected";
         connectedTerminals = [];
+        // Drop this connection's snapshots: a reconnect — or a promotion to hub —
+        // must not serve metadata from the network that just went away.
+        terminalStatuses.clear();
+        terminalCwds.clear();
+        terminalContexts.clear();
         updateStatus();
 
         if (!manuallyDisconnected) {
@@ -1359,11 +1346,8 @@ export default function (pi: ExtensionAPI) {
     role = "disconnected";
     connectedTerminals = [];
     terminalStatuses.clear();
-    hubTerminalStatuses.clear();
     terminalContexts.clear();
-    hubTerminalContexts.clear();
     terminalCwds.clear();
-    hubTerminalCwds.clear();
     lastPushedStatus = null;
     updateStatus();
 
