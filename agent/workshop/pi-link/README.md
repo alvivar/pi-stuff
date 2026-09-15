@@ -105,25 +105,27 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi 
 **Terminal 1** - rename it:
 
 ```
-> /link-name builder
-✓ Renamed to "builder"
+> /link-name builder@demo
+✓ Renamed to "builder@demo"
 ```
+
+The `@demo` part is a group: terminals see and address only names in their own group, so a third terminal named `builder` would not appear here.
 
 **Terminal 2** - rename it too:
 
 ```
-> /link-name researcher
-✓ Reconnecting, requesting "researcher" (hub may assign a different name if taken)...
+> /link-name researcher@demo
+✓ Reconnecting, requesting "researcher@demo" (hub may assign a different name if taken)...
 ```
 
 `/link-name` reconnects under the new name, so wait for Terminal 2 to come back before checking. **Back in Terminal 1**, both names are now visible:
 
 ```
 > /link
-⚡ Link: builder (hub) · 2 online
-  builder: idle (5s) · 45K/272K (17%)
+⚡ Link: builder@demo (hub) · 2 online
+  builder@demo: idle (5s) · 45K/272K (17%)
     cwd: ~/my-project
-  researcher: idle (12s) · 80K/272K (29%)
+  researcher@demo: idle (12s) · 80K/272K (29%)
     cwd: ~/my-project
 ```
 
@@ -132,7 +134,7 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi 
 In Terminal 1, type a normal prompt:
 
 ```
-> Use link_send to ask "researcher" to summarize README.md, then report DONE with the summary back to builder
+> Use link_send to ask "researcher@demo" to summarize README.md, then report DONE with the summary back to builder@demo
 ```
 
 Terminal 1 calls `link_send` and returns immediately. The message enters Terminal 2's reasoning — steered into its current run if it is working, or starting a turn if it is idle. Terminal 2 completes the assignment, then sends a conventional `DONE` callback. That callback enters Terminal 1 the same way, where the result can be presented or used for follow-up work.
@@ -168,11 +170,11 @@ Each send has exactly one recipient; there is no fan-out.
 
 `link_send` never returns the receiver's eventual work result. A reply is an ordinary later `link_send`, uncorrelated with the message that prompted it: there is no request ID, no automatic response, and no delivery receipt for completed work.
 
-Targets are pre-validated against the local terminal list to catch definite typos or offline names. Sending to yourself is rejected. For a client, a successful send means the message was handed to its connection to the hub. It does not confirm that the hub routed it or that the receiver saw it — see [Message Routing](#message-routing--error-handling).
+Targets are pre-validated against the terminals in your group, so a definite typo, an offline name and a name outside your group all fail the same way. Sending to yourself is rejected. For a client, a successful send means the message was handed to its connection to the hub. It does not confirm that the hub routed it or that the receiver saw it — see [Message Routing](#message-routing--error-handling).
 
 ### `link_list`
 
-Lists all connected terminals with role info, status, working directory, context usage, and self-identification. Takes no parameters. Your own status and context are read when you run `link_list`; for other terminals, you see their most recently reported values, which may be slightly behind.
+Lists the connected terminals in your [group](#configuration), with role info, status, working directory, context usage, and self-identification. Takes no parameters. Your own status and context are read when you run `link_list`; for other terminals, you see their most recently reported values, which may be slightly behind.
 
 Each terminal reports its current working directory on connect. `link_list` shows the full absolute path.
 
@@ -229,7 +231,7 @@ Ask another terminal to compact its context window and wait up to 300 seconds fo
 - **A cancelled compaction does not reopen delivery by itself** — pi-link cannot observe the cancellation. The target may keep reporting `compacting` and hold messages without notifying the sender until its next agent run, a later successful compaction, or the 300-second backstop.
 - **Caller abort** — if the call is aborted before the request is sent, the target does nothing. After the request is sent, aborting only stops the caller from waiting; it does not cancel the target's work.
 - Each call targets one terminal; independent calls can run concurrently.
-- Any connected terminal can request compaction on another; link participants are cooperating peers.
+- Any terminal can request compaction on another **in its group**; link participants are cooperating peers.
 
 ---
 
@@ -238,7 +240,7 @@ Ask another terminal to compact its context window and wait up to 300 seconds fo
 | Command             | Purpose                                                                                                                  |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `/link`             | Show link status (name, role, online count, agent status, context usage, and cwd per terminal)                           |
-| `/link-name [name]` | Rename and save as this session's preferred link name. With no argument, adopts the Pi session name. Restored on resume. |
+| `/link-name [name]` | Rename and save as this session's preferred link name. With no argument, adopts the Pi session name. Restored on resume. A name with `@` also sets your group. |
 | `/link-connect`     | Connect to Pi Link (works anytime, with or without `--link`)                                                             |
 | `/link-disconnect`  | Disconnect from Pi Link and suppress auto-reconnect (overrides `--link`)                                                 |
 
@@ -282,6 +284,7 @@ Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, a fre
 **Naming concepts**
 
 - **link name** — identity used on the network (visible in `link_list`, `/link`, and messages).
+- **group** — the text after the first `@` in a link name, compared exactly. `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h`, and a name without `@` (or ending in one, like `a@`) belongs to the single implicit group of plain names. Comparison is **case-sensitive**: `a@Team` and `a@team` are different groups. `link_list`, `link_send`, `link_compact`, `/link` and the footer see only your own group; the hub still routes for every group, and `pi-link --status` shows all of them. Renaming with `/link-name` moves you.
 - **Pi session name** — identity Pi gives the session itself; lives in the session JSONL's latest `session_info` entry.
 - **saved link name** — the link name persisted to the session, restored on resume. Set by `/link-name`, `pi-link <name>`, or `pi --link-name <name>`.
 - **`--link-name` flag vs `/link-name` command** — same concept (the link name) at different times (startup vs mid-session).
@@ -513,6 +516,7 @@ The two messages mean different things. `No link hub running on :9900.` (exit `2
 
 ### Terminals don't see each other
 
+- Compare the part after `@`, exactly as spelled: `archon@pi-link` and `builder` are in different [groups](#configuration), and so are `a@Team` and `a@team`; they are invisible to each other by design. `pi-link --status` shows every group and settles it.
 - Verify both terminals are on the same machine (the link only works on `127.0.0.1`).
 - Run `/link` in each terminal to check status.
 - Ensure port 9900 isn't blocked or occupied by a non-link process.
@@ -534,7 +538,7 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 | 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.                                                                          |
 | 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                                                                     |
 | 7   | **Callbacks are conventional**            | Async work results are uncorrelated messages, not protocol responses. A send carries no request identifier, nothing correlates a reply to it, and a callback exists only because the receiver chose to send one. |
-| 8   | **Groups isolate attention, not access**  | No auth: any process may pick any group. `pi-link --status` shows all groups; their updates transit the wire and are stored locally. Isolation needs one version everywhere; upgrade and restart together.       |
+| 8   | **Groups isolate attention, not access**  | No auth: any process may pick any group, and `pi-link --status` shows all groups. Isolation needs one version everywhere; upgrade and restart together.                                                          |
 
 ---
 
@@ -621,7 +625,7 @@ The hub enforces unique terminal names via a `uniqueName()` function. If `"build
 
 Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 
-**Groups (`local@group`):** a name containing `@` puts the terminal in the group named after the **first** `@` - `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h`, and a name without `@` (or ending in one, like `a@`) belongs to the single implicit group of plain names. `link_list`, `link_send` and `link_compact` see and address only terminals of your own group, and `/link` and the footer count the same way; the hub still routes for every group, and `pi-link --status` deliberately shows all of them. Collisions suffix the local part only, so a deduped name never changes group: `builder` becomes `builder-2`, `archon@pi-link` becomes `archon-2@pi-link`.
+**Groups (`local@group`):** see [Configuration](#configuration) for the rule a user needs. Internally, the hub serves every group over one set of connections; for the targeted traffic it handles, `routeMessage()` treats a target in another group as not found. Collisions suffix the local part only, so a deduped name never changes group: `builder` becomes `builder-2`, `archon@pi-link` becomes `archon-2@pi-link`.
 
 **Persistence:** `/link-name` saves the preferred name to the session via `pi.appendEntry("link-name", { name })`. On session resume, the saved name is restored and requested from the hub. Startup naming (`pi-link <name>`, `pi --link-name <name>`) persists the same way - hub-assigned variants like `"builder-2"` are not saved. On reconnect, the terminal always requests the preferred name, not the last runtime name.
 
