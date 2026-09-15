@@ -277,7 +277,7 @@ const compactRequest = ({ client, self }, id = "r1") =>
 
 {
   // 3. Idle but a manual compaction holds the gate -> busy. This raises the real
-  // gate, including its 180s deadline; the shutdown at the end of the file is what
+  // gate, including its 300s deadline; the shutdown at the end of the file is what
   // clears it, and the process exiting on its own is the proof.
   let calls = 0;
   const hub = await boot({ compact: () => { calls++; } });
@@ -381,7 +381,7 @@ const compactRequest = ({ client, self }, id = "r1") =>
 }
 
 // Shut every booted instance down through the real lifecycle. Without this the
-// manual gate raised in B3 holds a 180-second deadline, and the process only exits
+// manual gate raised in B3 holds a 300-second deadline, and the process only exits
 // on its own once every instance has cleaned up its timers and sockets.
 for (const { api, ctx } of booted) await api.emit("session_shutdown", {}, ctx);
 

@@ -23,6 +23,8 @@ const INDEX_URL = pathToFileURL(
 // The values the extension ships with; asserted against, never redefined.
 const FLUSH_DELAY_MS = 200;
 const BATCH_MAX_ITEMS = 20;
+const COMPACT_TIMEOUT_MS = 300_000;
+const OLD_COMPACT_TIMEOUT_MS = 180_000; // the deadline these budgets replaced
 
 // ── Stubs for the modules Pi provides ───────────────────────────────────────
 
@@ -155,6 +157,7 @@ const booted = [];
 function boot() {
   const handlers = new Map();
   const commands = new Map();
+  const tools = new Map();
   const notes = [];
   const delivered = [];
 
@@ -166,7 +169,7 @@ function boot() {
       list.push(handler);
       handlers.set(event, list);
     },
-    registerTool() {},
+    registerTool(tool) { tools.set(tool.name, tool); },
     registerCommand(name, options) { commands.set(name, options); },
     registerMessageRenderer() {},
     appendEntry() {},
@@ -196,6 +199,8 @@ function boot() {
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
+    // The registered tool, invoked exactly as Pi invokes it.
+    tool: (name, params = {}) => tools.get(name).execute("probe", params),
     sockets: () => wsStub.sockets.slice(socketBase),
   };
   booted.push(t);
@@ -229,6 +234,11 @@ function check(label, ok, detail = "") {
 
 // Tolerant of a missing delivery, so a regression reports a failed assertion
 // instead of throwing out of the suite.
+// The gate's own observable: `compacting` has precedence over every other status
+// a terminal derives, so the last status it published names the gate's state.
+const gateStatus = (t) =>
+  [...t.socket.sent].reverse().find((f) => f.type === "status_update")?.status?.kind;
+
 const blocks = (delivery) => (delivery?.message?.content ?? "").split("\n\n").slice(1);
 const senders = (delivery) => blocks(delivery).map((b) => b.match(/^From "([^"]+)":/)?.[1]);
 const bodies = (delivery) => blocks(delivery).map((b) => b.split("\n").slice(1).join("\n"));
@@ -358,17 +368,93 @@ const bodies = (delivery) => blocks(delivery).map((b) => b.split("\n").slice(1).
     JSON.stringify(t.delivered.map((d) => bodies(d))));
 }
 
-// ── 5. Shutdown cancels the pending window and drops the queue ──────────────
+// ── 5. The gate's fallback deadline is five minutes ───────────────────────
+
+{
+  // A manual compaction with no observable ending: the gate stands well past the
+  // three-minute deadline it used to have, and only its own fallback clears it.
+  // Held messages alone cannot date the release — delivery is a separate 200ms
+  // window — so the gate itself is read from the status the terminal publishes,
+  // which `compactionGated()` decides.
+  const t = await establishedClient();
+  t.chat("peer", "held");
+  await t.emit("session_before_compact", { reason: "manual" });
+  const raised = clockNow;
+  check("5: raising the gate publishes `compacting`",
+    gateStatus(t) === "compacting", JSON.stringify(t.socket.sent));
+
+  await advance(OLD_COMPACT_TIMEOUT_MS);
+  check("5: the gate still holds at the old three-minute deadline",
+    gateStatus(t) === "compacting" && t.delivered.length === 0 &&
+      clockNow - raised === OLD_COMPACT_TIMEOUT_MS,
+    `status=${gateStatus(t)} delivered=${t.delivered.length} elapsed=${clockNow - raised}`);
+
+  await advance(COMPACT_TIMEOUT_MS - OLD_COMPACT_TIMEOUT_MS - 1); // one tick short of 300s
+  check("5: and one millisecond before the new one",
+    gateStatus(t) === "compacting" && t.delivered.length === 0 &&
+      clockNow - raised === COMPACT_TIMEOUT_MS - 1,
+    `status=${gateStatus(t)} delivered=${t.delivered.length} elapsed=${clockNow - raised}`);
+
+  await advance(1); // the fallback fires
+  check("5: the fallback clears the gate exactly at five minutes, delivering nothing yet",
+    gateStatus(t) === "idle" && t.delivered.length === 0,
+    `status=${gateStatus(t)} delivered=${JSON.stringify(t.delivered)}`);
+  await advance(FLUSH_DELAY_MS);
+  check("5: the held message then goes out through a normal batching window",
+    t.delivered.length === 1 && bodies(t.delivered[0]).join(",") === "held",
+    JSON.stringify(t.delivered));
+}
+
+// ── 6. The remote request waits five minutes, then reports what it waited ────
+
+{
+  // A dispatched `link_compact` whose target never answers. The wait is the
+  // caller's alone: it ends with a timeout result, not with a cancellation.
+  const t = await establishedClient();
+  t.socket.emit("message", Buffer.from(JSON.stringify({
+    type: "welcome", name: "me", terminals: ["me", "peer"],
+  })));
+  await settle();
+
+  let settled = null;
+  t.tool("link_compact", { to: "peer" }).then((result) => { settled = result; });
+  await settle();
+  const dispatched = clockNow;
+  check("6: the request goes out on the wire and the call keeps waiting",
+    settled === null && t.socket.sent.some((f) => f.type === "compact_request" && f.to === "peer"),
+    JSON.stringify(t.socket.sent));
+
+  await advance(OLD_COMPACT_TIMEOUT_MS);
+  check("6: it is still pending at the old three-minute deadline",
+    settled === null && clockNow - dispatched === OLD_COMPACT_TIMEOUT_MS,
+    `elapsed=${clockNow - dispatched} settled=${JSON.stringify(settled)}`);
+
+  await advance(COMPACT_TIMEOUT_MS - OLD_COMPACT_TIMEOUT_MS - 1);
+  check("6: and one millisecond before the new one",
+    settled === null && clockNow - dispatched === COMPACT_TIMEOUT_MS - 1,
+    `elapsed=${clockNow - dispatched} settled=${JSON.stringify(settled)}`);
+
+  await advance(1);
+  const text = settled?.content?.[0]?.text ?? "";
+  check("6: at five minutes the caller resolves with the timeout result",
+    settled?.details?.error === "timeout" && settled?.details?.to === "peer",
+    JSON.stringify(settled));
+  check("6: the message reports the budget it actually waited, and that nothing was aborted",
+    text === 'Compact request to "peer" timed out after 300s; the target may still be compacting.',
+    JSON.stringify(text));
+}
+
+// ── 7. Shutdown cancels the pending window and drops the queue ──────────────
 
 {
   const t = await establishedClient();
   t.chat("peer", "never delivered");
   await advance(60); // window armed, deadline not reached
   await t.emit("session_shutdown", { reason: "quit" });
-  check("5: shutdown leaves no timer of ours pending", pending.size === 0,
+  check("7: shutdown leaves no timer of ours pending", pending.size === 0,
     `pending=${JSON.stringify([...pending.values()].map((timer) => timer.at))}`);
   await advance(FLUSH_DELAY_MS * 10);
-  check("5: nothing is delivered after shutdown", t.delivered.length === 0,
+  check("7: nothing is delivered after shutdown", t.delivered.length === 0,
     JSON.stringify(t.delivered));
 }
 

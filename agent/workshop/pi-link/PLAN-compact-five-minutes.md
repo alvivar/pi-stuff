@@ -1,9 +1,9 @@
 # PLAN — Five-minute compaction limits
 
-> Status: Authorized; role binding before execution.
+> Status: Implemented.
 > Repository: C:/Users/andre/.pi
 > Product: C:/Users/andre/.pi/agent/workshop/pi-link
-> Branch / starting HEAD: master / da6a7be1c77cbdc36e10ecfe678be5fbbc6e5f41
+> Branch / starting HEAD: master / 1836dcd4df538d3144c5dd9a584670acbdf55eae
 
 ## Outcome and authority
 
@@ -14,24 +14,30 @@ compaction gate's fallback deadline. No new configuration or split constants.
 
 The owner supplied the implement-review-commit skill and explicitly authorized
 this plan with "Go, run through!". Mode: run-through through the single commit,
-with mandatory baseline/self-gate and independent review. Bind all three roles
-before dispatching implementation. No deployment authority is included.
+with mandatory baseline/self-gate and independent review. All three roles independently
+confirmed identity/repo and availability. No deployment authority is included.
+
+The owner separately instructed committer to commit this plan, producing plan-only
+1836dcd4df538d3144c5dd9a584670acbdf55eae (parent da6a7be). After the metadata mismatch
+paused this run, owner explicitly ratified that new baseline with
+"Confirmo, go run though!". Preserve that commit; implementation remains one task.
 
 Pre-plan inspection found a clean worktree/index and master synchronized with
-origin/master. The new plan is orchestrator-owned expected dirt; a temporary
-LEDGER-compact-five-minutes.md is opened for this authorized run and never staged.
+origin/master. The committed plan's authorization/baseline updates are orchestrator-owned expected
+dirt; temporary LEDGER-compact-five-minutes.md is opened for this run and never staged.
 
 ## Roles and context
 
-Proposed roles, all visible idle in C:/Users/andre/.pi:
+Verified roles, each independently confirmed identity, cwd/git root C:/Users/andre/.pi,
+master at the new baseline, empty staged state and availability:
 - Implementer: implementer@pi-link (~106K/1M).
 - Independent reviewer: reviewer@pi-link (~150K/272K).
 - Committer: committer@pi-link (~23K/272K).
 - Orchestrator: archon@pi-link (~75K/272K).
 
-Before execution, independently confirm each worker's own identity, cwd, git root,
-branch and HEAD. Cwd from link_list is a hint, not repository proof. Designer is
-excluded. No work is delegated to test terminals or oreja terminals.
+Role binding is complete. Recheck branch/HEAD and expected dirt before each stage.
+Cwd from link_list alone is not repository proof. Designer is excluded. No work is
+delegated to test terminals or oreja terminals.
 
 Use the owner's 200K healthy-context reference and preserve repair/handoff reserve.
 Reassess before each stage. This is one narrow task, not a new broad source review.
@@ -161,8 +167,20 @@ At most two shared repair rounds after initial implementation, across gate/revie
 Must-fix or required-evidence failure after the cap blocks/escalates. Should-fix
 is nonblocking and explicitly routed; nit is record-only. No opinion loop.
 
-Before review, update this plan with authorized amendments and implementation
-completion; put run transitions and review/commit records in the temporary ledger.
+Implementation completed without scope amendments or material deviations. Baseline
+444/0; initial post-change 453/0. Independent review found that delivery absence
+alone did not establish the exact local gate boundary. One test-only repair now
+observes the last emitted status: compacting just before the deadline, idle at it,
+with delivery still deferred through normal batching. Final post-repair gate454/0
+(inbox25→35, all other suite counts unchanged), CLI syntax and diff checks exit0;
+installed native renderer block9 ran. The two controlled-clock blocks use minimal
+registered-tool harness support and the existing wire-status observable.
+Optional isolated-copy probes: old-value reversion failed five checks before the
+repair; local fallback minus1ms now fails one check, plus1ms fails two. No shared
+source was mutated by probes. Production bytes remain CRLF and this plan LF.
+Runtime/UI/performance limitations above remain in force. Independent re-review
+must verify the repair and required evidence before commit; review/commit records
+belong in the temporary ledger.
 Committer checks scope/hygiene, not correctness. Explicit paths only; no git add
 ./-A, commit -a, amend, skipped hooks, unrelated staged files or hook mutation.
 Commit this retained plan with the six product/doc/test files; never the ledger.

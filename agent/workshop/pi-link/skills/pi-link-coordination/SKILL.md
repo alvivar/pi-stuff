@@ -68,13 +68,13 @@ notification and never reaches the sending model.
 A terminal reported as `compacting` receives nothing until its gate clears. The
 messages wait and are delivered afterwards. A cancelled compaction has no ending
 pi-link can see, so they wait for the terminal's next agent run, a later
-successful compaction, or a three-minute deadline — whichever comes first. The
+successful compaction, or a five-minute deadline — whichever comes first. The
 sender is told nothing meanwhile.
 
 ### `link_compact`
 
 Asks another terminal to compact its context and waits for a result, with a
-three-minute ceiling. A target accepts only when Pi reports its session idle and no
+five-minute ceiling. A target accepts only when Pi reports its session idle and no
 manual compaction holds its gate; anything else declines rather than being
 interrupted, so a target reading `thinking` for a retry or an automatic compaction
 declines exactly as one mid-turn does. Optional `instructions` focus the summary.

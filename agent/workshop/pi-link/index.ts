@@ -34,7 +34,7 @@ import { WebSocket, WebSocketServer } from "ws";
 const MIN_PI_VERSION = [0, 84, 2];
 
 const DEFAULT_PORT = 9900;
-const COMPACT_TIMEOUT_MS = 180_000;
+const COMPACT_TIMEOUT_MS = 300_000;
 const RECONNECT_DELAY_MS = 2000;
 // Bounds the HTTP Upgrade only. Without it `ws` waits forever, so a listener that
 // accepts the socket and never answers leaves the terminal offline with no retry.
@@ -488,8 +488,8 @@ export default function (pi: ExtensionAPI) {
     if (!ctx) return;
 
     // Compacting: hold everything and return WITHOUT rescheduling. setCompacting()
-    // drains on release, so polling a compaction that may run to the 180s ceiling
-    // would be ~900 wakeups for no information.
+    // drains on release, so polling a compaction that may run to the 300s ceiling
+    // would be ~1500 wakeups for no information.
     if (compactionGated()) return;
 
     // Select batch: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS total (soft cap —
@@ -1347,7 +1347,7 @@ export default function (pi: ExtensionAPI) {
     disconnect();
     ctx = undefined;
     // Full teardown: clear inbox and both timers. The compaction deadline runs to
-    // 180s, so it would otherwise outlive the extension and fire after teardown.
+    // 300s, so it would otherwise outlive the extension and fire after teardown.
     inbox.length = 0;
     if (flushTimer) {
       clearTimeout(flushTimer);

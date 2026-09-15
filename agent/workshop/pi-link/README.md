@@ -211,7 +211,7 @@ Connected terminals:
 
 ### `link_compact`
 
-Ask another terminal to compact its context window and wait up to 180 seconds for a result. The target may compact successfully, decline, or return an error. After a successful result, the next call can dispatch work to the freshly trimmed worker.
+Ask another terminal to compact its context window and wait up to 300 seconds for a result. The target may compact successfully, decline, or return an error. After a successful result, the next call can dispatch work to the freshly trimmed worker.
 
 | Parameter      | Type     | Description                                            |
 | -------------- | -------- | ------------------------------------------------------ |
@@ -225,8 +225,8 @@ Ask another terminal to compact its context window and wait up to 180 seconds fo
 - **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`.
 - **Already-compacted decline** — a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`. Two compactions back to back require work in between.
 - **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
-- **Flat 180-second timeout** — compaction typically takes 5–60s. The timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
-- **A cancelled compaction does not reopen delivery by itself** — pi-link cannot observe the cancellation. The target may keep reporting `compacting` and hold messages without notifying the sender until its next agent run, a later successful compaction, or the 180-second backstop.
+- **Flat 300-second timeout** — the timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
+- **A cancelled compaction does not reopen delivery by itself** — pi-link cannot observe the cancellation. The target may keep reporting `compacting` and hold messages without notifying the sender until its next agent run, a later successful compaction, or the 300-second backstop.
 - **Caller abort** — if the call is aborted before the request is sent, the target does nothing. After the request is sent, aborting only stops the caller from waiting; it does not cancel the target's work.
 - Each call targets one terminal; independent calls can run concurrently.
 - Any connected terminal can request compaction on another; link participants are cooperating peers.
@@ -717,7 +717,7 @@ Because a gated flush does not reschedule, the release path is load-bearing. `re
 | `FLUSH_DELAY_MS`     | 200     | Batching window, from the first queued message   |
 | `BATCH_MAX_ITEMS`    | 20      | Max messages per batch                           |
 | `BATCH_MAX_CHARS`    | 16 000  | Soft cap on batch text size (~4K tokens)         |
-| `COMPACT_TIMEOUT_MS` | 180 000 | Remote-compact wait, reused as the gate backstop |
+| `COMPACT_TIMEOUT_MS` | 300 000 | Remote-compact wait, reused as the gate backstop |
 
 ### Rendering
 
