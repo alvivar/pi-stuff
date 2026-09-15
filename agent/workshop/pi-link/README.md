@@ -16,9 +16,8 @@ Questions, ideas? There's a [pi-link thread](https://discord.com/channels/145680
 - [Walkthrough](#walkthrough)
 - [LLM Tools](#llm-tools)
 - [Slash Commands](#slash-commands)
+- [CLI: `pi-link`](#cli-pi-link)
 - [Configuration](#configuration)
-  - [Who is connected right now](#who-is-connected-right-now)
-- [Architecture](#architecture)
 - [Troubleshooting](#troubleshooting)
 - [Limitations & Design Decisions](#limitations--design-decisions)
 - [Dependencies](#dependencies)
@@ -277,35 +276,9 @@ See [Configuration](#configuration) for details on `--link`, `/link-connect`, an
 
 ---
 
-## Configuration
+## CLI: `pi-link`
 
-Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, a fresh session is completely silent — no status bar, no connections, no warnings.
-
-**Naming concepts**
-
-- **link name** — identity used on the network (visible in `link_list`, `/link`, and messages).
-- **group** — the text after the first `@` in a link name, compared exactly. `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h`, and a name without `@` (or ending in one, like `a@`) belongs to the single implicit group of plain names. Comparison is **case-sensitive**: `a@Team` and `a@team` are different groups. `link_list`, `link_send`, `link_compact`, `/link` and the footer see only your own group; the hub still routes for every group, and `pi-link --status` shows all of them. Renaming with `/link-name` moves you.
-- **Pi session name** — identity Pi gives the session itself; lives in the session JSONL's latest `session_info` entry.
-- **saved link name** — the link name persisted to the session, restored on resume. Set by `/link-name`, `pi-link <name>`, or `pi --link-name <name>`.
-- **`--link-name` flag vs `/link-name` command** — same concept (the link name) at different times (startup vs mid-session).
-
-| What you want                        | Use                     |
-| ------------------------------------ | ----------------------- |
-| Resume/create a named session        | `pi-link <name>`        |
-| Stable link identity, normal Pi flow | `pi --link-name <name>` |
-| Quick try, random name               | `pi --link`             |
-| Already in a session                 | `/link-connect`         |
-| Disconnect mid-session               | `/link-disconnect`      |
-
-`pi-link <name>` resumes/creates a session AND sets your link identity in one step. `pi --link-name <name>` sets only the link identity, leaving Pi's normal session selection (latest in cwd, or fresh) untouched.
-
-**Name normalization:** Link names are normalized — leading/trailing whitespace removed and internal whitespace runs collapsed to a single space. `/link-name "build   lead"` saves and shows as `build lead`.
-
-**Name precedence:** `pi --link-name` > `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`. _(The `pi-link` wrapper itself does not accept `--link-name`; pick one or the other.)_
-
-`/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
-
-Once connected, terminals discover each other on `127.0.0.1:9900`. See [Limitations](#limitations--design-decisions) for the hardcoded port.
+`pi-link` is the optional shell launcher installed with `npm i -g pi-link`. It resolves sessions by name, lists them, and asks the running hub who is connected.
 
 ### Session Resume
 
@@ -355,7 +328,7 @@ Resume: pi-link <name>
 
 For scripting, `pi-link --resolve <name>` prints just the session path (machine-readable, no other output). Exit codes: `0` on single match, `1` if ambiguous (multiple matches printed to stderr), `2` if not found.
 
-### Who is connected right now
+### `--status`: who is connected right now
 
 `--list` and `--status` answer different questions. `--list` reads session files on disk and answers *which sessions exist in history on this machine* — a session that died days ago still appears. `--status` asks the running hub and answers *who is connected to the link at this instant* — it is held in the hub's memory, so it needs a live hub and reports nothing about sessions that are merely saved.
 
@@ -452,47 +425,33 @@ Finally, `--status` and `--json` belong to the wrapper only until a session name
 
 ---
 
-## Architecture
+## Configuration
 
-### Hub-Spoke Topology
+Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, a fresh session is completely silent — no status bar, no connections, no warnings.
 
-The network topology is **hub-spoke (star)**:
+**Naming concepts**
 
-```
-                       +-----------+
-                       |    Hub    |
-                       |   :9900   |
-                       +-----+-----+
-                             |
-              +--------------+--------------+
-              |              |              |
-          +---+---+      +---+---+      +---+---+
-          | pi-2  |      | pi-3  |      | pi-4  |
-          |client |      |client |      |client |
-          +-------+      +-------+      +-------+
-```
+- **link name** — identity used on the network (visible in `link_list`, `/link`, and messages).
+- **group** — the text after the first `@` in a link name, compared exactly. `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h`, and a name without `@` (or ending in one, like `a@`) belongs to the single implicit group of plain names. Comparison is **case-sensitive**: `a@Team` and `a@team` are different groups. `link_list`, `link_send`, `link_compact`, `/link` and the footer see only your own group; the hub still routes for every group, and `pi-link --status` shows all of them. Renaming with `/link-name` moves you.
+- **Pi session name** — identity Pi gives the session itself; lives in the session JSONL's latest `session_info` entry.
+- **saved link name** — the link name persisted to the session, restored on resume. Set by `/link-name`, `pi-link <name>`, or `pi --link-name <name>`.
+- **`--link-name` flag vs `/link-name` command** — same concept (the link name) at different times (startup vs mid-session).
 
-- The **first terminal** to start becomes the **hub** - it runs a `WebSocketServer` on `127.0.0.1:9900`.
-- **Subsequent terminals** connect as **clients** via plain WebSocket.
-- All messages route **through the hub**; clients never talk directly to each other.
+| What you want                        | Use                     |
+| ------------------------------------ | ----------------------- |
+| Resume/create a named session        | `pi-link <name>`        |
+| Stable link identity, normal Pi flow | `pi --link-name <name>` |
+| Quick try, random name               | `pi --link`             |
+| Already in a session                 | `/link-connect`         |
+| Disconnect mid-session               | `/link-disconnect`      |
 
-### Auto-Discovery Protocol
+`pi-link <name>` resumes/creates a session AND sets your link identity in one step. `pi --link-name <name>` sets only the link identity, leaving Pi's normal session selection (latest in cwd, or fresh) untouched.
 
-The discovery sequence runs on startup (with `--link` or `pi-link`) or when `/link-connect` is used. See [Configuration](#configuration) for details.
+**Name normalization:** Link names are normalized — leading/trailing whitespace removed and internal whitespace runs collapsed to a single space. `/link-name "build   lead"` saves and shows as `build lead`.
 
-The sequence is a simple fallback:
+**Name precedence:** `pi --link-name` > `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`. _(The `pi-link` wrapper itself does not accept `--link-name`; pick one or the other.)_
 
-1. Attempt to connect as a **client** to `127.0.0.1:9900`. The WebSocket opening handshake is bounded at **5 seconds**; a listener that accepts the connection but never completes the upgrade fails the attempt instead of holding it open.
-2. If connection fails → become the **hub** (start a WebSocket server on that port).
-3. If both fail (rare race condition) → retry after a randomized 2-5 second backoff.
-
-Only **one attempt runs at a time**, across both steps. Startup, a retry and `/link-connect` arriving while an attempt is in flight all join that attempt rather than opening a second connection, so a terminal cannot register twice or leave a second socket behind.
-
-### Hub Promotion
-
-When the hub disconnects, clients detect the WebSocket close event, enter `"disconnected"` state, and call `scheduleReconnect()`. The **first terminal to retry** becomes the new hub via the same initialize-or-fallback flow.
-
-There is **no explicit leader election** - promotion is race-based.
+`/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
 ---
 
@@ -512,7 +471,7 @@ A successful send is not a confirmation. On a client it means the message was ha
 
 ### `pi-link --status` reports no hub, or an unsupported one
 
-The two messages mean different things. `No link hub running on :9900.` (exit `2`) means nothing answered — either the link is genuinely down, or you caught it during the 2–5 second window while a client promotes itself to hub, so poll again before believing it. `Link hub does not support /status — update pi-link and restart terminals.` (exit `1`) means something did answer but is not a hub speaking this contract — usually a pi-link 0.3.0 hub, which predates the endpoint. Updating is not enough on its own: the running terminals keep the old hub alive until they restart. See [Who is connected right now](#who-is-connected-right-now).
+The two messages mean different things. `No link hub running on :9900.` (exit `2`) means nothing answered — either the link is genuinely down, or you caught it during the 2–5 second window while a client promotes itself to hub, so poll again before believing it. `Link hub does not support /status — update pi-link and restart terminals.` (exit `1`) means something did answer but is not a hub speaking this contract — usually a pi-link 0.3.0 hub, which predates the endpoint. Updating is not enough on its own: the running terminals keep the old hub alive until they restart. See [`--status`: who is connected right now](#--status-who-is-connected-right-now).
 
 ### Terminals don't see each other
 
@@ -571,6 +530,46 @@ When the hub goes down and a client promotes itself, terminal names and in-fligh
 ## Internals
 
 > This section covers implementation details for contributors and developers who want to understand or modify the extension's internals.
+
+### Hub-Spoke Topology
+
+The network topology is **hub-spoke (star)**:
+
+```
+                       +-----------+
+                       |    Hub    |
+                       |   :9900   |
+                       +-----+-----+
+                             |
+              +--------------+--------------+
+              |              |              |
+          +---+---+      +---+---+      +---+---+
+          | pi-2  |      | pi-3  |      | pi-4  |
+          |client |      |client |      |client |
+          +-------+      +-------+      +-------+
+```
+
+- The **first terminal** to start becomes the **hub** - it runs a `WebSocketServer` on `127.0.0.1:9900`.
+- **Subsequent terminals** connect as **clients** via plain WebSocket.
+- All messages route **through the hub**; clients never talk directly to each other.
+
+### Auto-Discovery Protocol
+
+The discovery sequence runs on startup (with `--link` or `pi-link`) or when `/link-connect` is used. See [Configuration](#configuration) for details.
+
+The sequence is a simple fallback:
+
+1. Attempt to connect as a **client** to `127.0.0.1:9900`. The WebSocket opening handshake is bounded at **5 seconds**; a listener that accepts the connection but never completes the upgrade fails the attempt instead of holding it open.
+2. If connection fails → become the **hub** (start a WebSocket server on that port).
+3. If both fail (rare race condition) → retry after a randomized 2-5 second backoff.
+
+Only **one attempt runs at a time**, across both steps. Startup, a retry and `/link-connect` arriving while an attempt is in flight all join that attempt rather than opening a second connection, so a terminal cannot register twice or leave a second socket behind.
+
+### Hub Promotion
+
+When the hub disconnects, clients detect the WebSocket close event, enter `"disconnected"` state, and call `scheduleReconnect()`. The **first terminal to retry** becomes the new hub via the same initialize-or-fallback flow.
+
+There is **no explicit leader election** - promotion is race-based.
 
 ### Protocol
 
