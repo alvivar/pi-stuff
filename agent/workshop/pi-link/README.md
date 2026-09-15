@@ -181,16 +181,14 @@ Each terminal also reports its LLM context usage, rendered as `45K/272K (17%)` �
 
 Each terminal's status is derived automatically from Pi lifecycle events - agents can't set it manually. Four states:
 
-| Status            | Meaning                                      |
-| ----------------- | -------------------------------------------- |
-| `idle (2m)`       | Waiting for user input                       |
-| `thinking (3s)`   | LLM is generating                            |
-| `tool:bash (12s)` | The first still-active call, not a list      |
-| `compacting (8s)` | Manual compaction gate raised; messages held |
+| Status            | Meaning                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------- |
+| `idle (2m)`       | Waiting for user input                                                             |
+| `thinking (3s)`   | Work Pi has not settled yet — the LLM call, plus any automatic retry or compaction |
+| `tool:bash (12s)` | The first still-active call, not a list                                            |
+| `compacting (8s)` | Manual compaction gate raised; messages held                                       |
 
-Pi can run tools in parallel, and does by default. `tool:<name>` then names the first still-active call Pi reported — one call that really is still running, not a list of every concurrent one. It advances only when that call ends, and stays `tool:<name>` until the last call ends.
-
-`thinking` means work Pi has not settled yet, which is more than an LLM call: an automatic retry, an automatic compaction and a queued continuation all happen after `agent_end` and inside the same run, and the terminal reports `thinking` through all of them until Pi reports the run settled.
+Pi can run tools in parallel, so `tool:<name>` names the first still-active call Pi reported — one call that really is still running, not a list of every concurrent one — and it advances only when that call ends, staying `tool:<name>` until the last one does.
 
 Only a manual compaction shows `compacting`; while it does, messages to that terminal are held — see [Inbox](#inbox).
 
@@ -219,18 +217,14 @@ Ask another terminal to compact its context window and wait up to 300 seconds fo
 | `to`           | `string` | Target terminal name                                   |
 | `instructions` | `string` | Optional custom compaction instructions for the target |
 
-- When the target accepts, it runs `ctx.compact()` — the same operation as `/compact`. Success is returned only after the runtime reports that it finished.
 - **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
-- **Busy decline** — the target accepts only when Pi reports its session idle **and** no manual compaction holds its delivery gate; otherwise it declines immediately with `reason: "busy"` and does not interrupt active work. Pi's idle state is the authority, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline, not just a visible turn.
-- **Unsupported decline** — a target whose runtime offers no compaction capability declines with `reason: "unsupported"`, and is never asked to compact.
-- **Too-small decline** — a target whose session is under the runtime's compaction threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`.
-- **Already-compacted decline** — a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`. Two compactions back to back require work in between.
+- **Busy decline** — the target accepts only when Pi reports its session idle **and** no manual compaction holds its delivery gate, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline immediately with `reason: "busy"` without interrupting the work in progress.
+- **The other declines** — a runtime offering no compaction capability declines with `reason: "unsupported"` and is never asked to compact; a session under the runtime's threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`; a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`.
 - **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
 - **Flat 300-second timeout** — the timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
-- **A cancelled compaction does not reopen delivery by itself** — pi-link cannot observe the cancellation. The target may keep reporting `compacting` and hold messages without notifying the sender until its next agent run, a later successful compaction, or the 300-second backstop.
-- **Caller abort** — if the call is aborted before the request is sent, the target does nothing. After the request is sent, aborting only stops the caller from waiting; it does not cancel the target's work.
-- Each call targets one terminal; independent calls can run concurrently.
-- Any terminal can request compaction on another **in its group**; link participants are cooperating peers.
+- Any terminal can request compaction on another **in its group**.
+
+The mechanics behind these outcomes — what an accepted request runs, the delivery gate it raises, what releases that gate after a cancellation, and what aborting the caller does — are in [Remote compaction](#remote-compaction).
 
 ---
 
@@ -349,7 +343,7 @@ Querying is read-only. It does not register a terminal, does not appear in anyon
 
 #### Scripting
 
-`--status --json` writes the hub's response body to stdout verbatim, and the endpoint is plain HTTP, so `curl` works too:
+`--status --json` writes the hub's response body to stdout unchanged once it passes the same checks the table uses, and the endpoint is plain HTTP, so `curl` works too:
 
 ```bash
 pi-link --status --json
@@ -401,7 +395,7 @@ Two things may grow, and consumers must tolerate both:
 - **Unknown fields.** Documented fields are frozen; new ones may be added, so ignore what you do not recognize rather than rejecting the payload.
 - **Unknown `status` values.** The vocabulary is not frozen — it has grown before, gaining `compacting` in 0.3.0. Treat any non-empty string as possible; the CLI renders an unrecognized value as-is instead of refusing the response.
 
-Everything above is what the hub sends. The CLI checks less: before printing, it validates the fields its table reads — `terminals` is an array of objects with a string `name`, an optional string `cwd`, a `context` that is `null` or `{ tokens, window }`, and `status`/`sinceSeconds` present together or not at all — and nothing else. A response missing those fields or mistyping them still exits 1 with the unsupported message rather than a stack trace, but a zero exit certifies only that the rows could be printed: it does not confirm hub-first order, `terminals[0].name === hub`, a numeric `port`, a non-empty list — or even that a hub sent it, since any service returning the same printable shape passes. Verify those yourself if you depend on them. `--json` is unaffected either way — it writes the response body verbatim.
+Everything above is what the hub sends. The CLI validates only the fields its table prints — `terminals` as an array of objects with a string `name`, an optional string `cwd`, `context` as `null` or `{ tokens, window }`, and `status`/`sinceSeconds` together or absent. A body failing that exits 1 with the unsupported message instead of a stack trace, **in both modes**. A zero exit certifies nothing beyond printability — not hub-first order, not `terminals[0].name === hub`, not a numeric `port`, not even that a hub answered; verify what you depend on yourself. Once the body passes, `--json` writes it as received, unreformatted.
 
 #### Exit codes
 
@@ -467,7 +461,7 @@ A `link_compact` request does not interrupt work the target is still doing, so i
 
 ### I sent a message but got no reply
 
-A successful send is not a confirmation. On a client it means the message was handed to the hub connection, not that the target received it or acted on it — and replies are ordinary messages the other agent chooses to send, so nothing produces one automatically. Run `/link`, or ask your model to call `link_list`, and check the target: confirm the name is still exactly right, and note that a target in the `compacting` state holds messages that reach it until that state clears. Otherwise silence may mean the work is still running or that no reply was sent.
+A successful send is not a confirmation. On a client it means the message was handed to the hub connection, not that the target received it or acted on it — and replies are ordinary messages the other agent chooses to send, so nothing produces one automatically. Run `/link`, or ask your model to call `link_list`, and check the target: confirm the name is still exactly right, and note that a target in the `compacting` state holds messages that reach it until that state clears. Otherwise silence may mean the work is still running or that no reply was sent. If the target cancelled a `/compact`, pi-link cannot see that, so its messages may stay held until its next run or up to five minutes — see [Remote compaction](#remote-compaction).
 
 ### `pi-link --status` reports no hub, or an unsupported one
 
@@ -688,7 +682,7 @@ The `manuallyDisconnected` flag distinguishes user-initiated disconnects (`/link
 
 The extension hooks into Pi's agent lifecycle events:
 
-- **`agent_start`** → Sets `agentRunning = true`, which drives status. Clears the local compaction gate - safe only under the current deployment, not by Pi alone: Pi refuses to start an ordinary prompt during a manual compaction, and pi-link holds back the one delivery path that refusal does not cover, so nothing can start a run mid-compaction. Another extension starting a turn during one would void that. Also drops any tool calls left recorded; status normally becomes `thinking`.
+- **`agent_start`** → Sets `agentRunning = true`, which drives status. Clears the local compaction gate (`localCompacting`, never a remote request's `compactRunning`) - safe only under the current deployment, not by Pi alone: Pi refuses to start an ordinary prompt during a manual compaction, and pi-link holds back the one delivery path that refusal does not cover, so nothing can start a run mid-compaction. Another extension starting a turn during one would void that. Status normally becomes `thinking`.
 - **`agent_end`** → Drops any tool calls still recorded, so an unmatched one falls back to `thinking` instead of staying pinned. It deliberately does **not** end the run: Pi may still retry, compact automatically, or drain a queued continuation, so the status stays `thinking`.
 - **`agent_settled`** → The authoritative end of a run: Pi emits it once no retry, compaction or queued continuation is left. Status becomes `idle` — unless the event's context reports Pi busy again, which means another extension started a new run during settlement, and that newer run keeps reporting `thinking`.
 - **`tool_execution_start`** → Records that call. It is displayed unless an earlier call is still running.
@@ -697,7 +691,7 @@ The extension hooks into Pi's agent lifecycle events:
 - **`session_compact`** → Clears the local compaction gate and force-pushes a `status_update` so peers see the new (post-compaction) context usage immediately.
 - **`session_shutdown`** → Full cleanup via `cleanup()`: closes all sockets, resolves pending promises, and disposes the extension.
 
-The five agent and tool handlers — `agent_start`, `agent_end`, `agent_settled`, `tool_execution_start`, `tool_execution_end` — each recompute the status and hand it to `pushStatus()`, which publishes only when the status identity differs from the stored baseline of the last published identity. While a baseline is stored, a mutation leaving the display identical is therefore silent: a second tool starting behind the one already shown publishes nothing, and because a raised compaction gate outranks every other state, mutations beneath it publish nothing either. `disconnect()` clears that baseline. Once connected again, whichever comes first restores it: a forced push, such as the one a client makes on `welcome`, or the first of these handler events. So a handler event republishes an unchanged identity only when no forced push got there first — the case for a promoted hub, which receives no `welcome` of its own. The three session handlers are governed by their own bullets above, including `session_compact`'s forced push, which goes out whether the identity changed or not.
+The five agent and tool handlers — `agent_start`, `agent_end`, `agent_settled` (when Pi still reports the session idle), `tool_execution_start` and `tool_execution_end` — each recompute the status and hand it to `pushStatus()`, which publishes only when the display identity changed since the last publish: a second concurrent tool starting behind the one already shown is silent, and so is a mutation that leaves a raised compaction gate on display. The session handlers keep the separate paths described in their own bullets, and `session_shutdown` cleans up rather than pushing. `disconnect()` is the only thing that clears the stored baseline, and `pushStatus()` returns immediately while the terminal is disconnected, so handler events in that interval restore nothing; once connected again, either a client's forced `welcome` push or the first of those ordinary handler events restores it. `session_compact` always pushes, whether the identity changed or not — including while a remote request's gate still holds the displayed identity.
 
 Status updates are push-based: each terminal broadcasts changes to the hub, which fans them out. New joiners receive a status snapshot for all terminals in the `welcome` message. Context updates reuse the same status path, including a forced post-compaction update.
 
@@ -713,9 +707,7 @@ The flush pipeline:
 4. **Deliver** - one `pi.sendMessage()` call with a `[Link: N message(s) received]` block. Pi reads the receiver's state at this point — not at send time — to decide whether the batch steers a running agent or starts a turn.
 5. **Drain** - if the inbox still has items, reschedule.
 
-Delivery is held while a `manual`-reason compaction holds this terminal's gate, because a message delivered mid-compaction would be reasoned about against context that is being rebuilt. Two flags gate it: `compactRunning` for a compaction serving a remote `link_compact`, and `localCompacting`, set from `session_before_compact`. A human `/compact` aborts and prepares before Pi emits that event, so the gate rises a moment after the compaction starts; a flush in that gap can still start a turn, and the message itself survives. A remote request raises both, since Pi reports its own reason as `manual` either way. Automatic (threshold/overflow) compaction is deliberately **not** gated: it runs inside the agent run, where Pi already queues steered messages and drains them afterwards.
-
-Because a gated flush does not reschedule, the release path is load-bearing. `releaseInbox()` is called after either flag clears and schedules a flush only when neither gate remains — so a remote compaction's `session_compact` calls it and correctly does nothing, and the later `finish()` is what drains. `compactDeadline` is the backstop, since a failed compaction reports no ending to an extension at all.
+Delivery is held while a `manual`-reason compaction holds this terminal's gate, because a message delivered mid-compaction would be reasoned about against context that is being rebuilt. Two flags gate it: `compactRunning` for a compaction serving a remote `link_compact`, and `localCompacting`, set from `session_before_compact`; a remote request raises `compactRunning` first and adds `localCompacting` only if its compaction reaches that hook, since Pi reports its own reason as `manual` either way. Automatic (threshold/overflow) compaction is deliberately **not** gated: it runs inside the agent run, where Pi already queues steered messages and drains them afterwards. Because a gated flush does not reschedule, the release path is load-bearing: `releaseInbox()` runs after either flag clears and schedules a flush only when neither gate remains, and `compactDeadline` is the backstop for a `localCompacting` left raised, since failure emits no lifecycle ending event that clears it.
 
 | Constant             | Value   | Purpose                                          |
 | -------------------- | ------- | ------------------------------------------------ |
@@ -723,6 +715,16 @@ Because a gated flush does not reschedule, the release path is load-bearing. `re
 | `BATCH_MAX_ITEMS`    | 20      | Max messages per batch                           |
 | `BATCH_MAX_CHARS`    | 16 000  | Soft cap on batch text size (~4K tokens)         |
 | `COMPACT_TIMEOUT_MS` | 300 000 | Remote-compact wait, reused as the gate backstop |
+
+### Remote compaction
+
+A `compact_request` that passes the capability and idle checks is served by calling `ctx.compact()` — the same operation as `/compact`. The caller is answered only after the runtime reports a result, since exactly one of `onComplete`/`onError` fires. Each call targets one terminal, independent calls can run concurrently, and link participants are cooperating peers: nothing here is privileged.
+
+Serving a request raises the inbox gates in order, and not always both. `compactRunning` is set synchronously before `ctx.compact()` is called; `localCompacting` rises only if execution reaches the manual `session_before_compact` hook, so a runtime that refuses early — nothing to compact, already compacted, or another preparation failure — returns through `onError` without the local gate ever going up. When the compaction does succeed, `session_compact` clears the local gate first, and the later `finish()` clears `compactRunning` and calls `releaseInbox()`, which is what drains the inbox.
+
+What a failure hides is the ending, not the failure itself. A remote compaction reports its error through `onError`, which runs `finish()` and answers the caller, so `compactRunning` always comes back down. But `session_compact` is a success-only ending and Pi emits nothing to extensions when a compaction is cancelled or fails, so a `localCompacting` already raised by the hook stays up until the target's next agent run (`agent_start`), a later successful compaction, or the `compactDeadline` backstop 300 seconds after that gate rose. A human `/compact` has no result callback at all, so those three are its only release paths.
+
+Those 300 seconds are two independent timers, not one synchronized deadline: the caller's bounded wait uses `COMPACT_TIMEOUT_MS` to stop waiting, and the local gate backstop reuses the same constant only to avoid inventing a second one. Aborting the caller before the request goes out leaves the target untouched; aborting after it goes out stops the caller from waiting and nothing else — the target's compaction, once started, runs to its own end.
 
 ### Rendering
 

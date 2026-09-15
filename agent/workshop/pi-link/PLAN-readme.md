@@ -206,10 +206,18 @@ reminders that prevent a real error, not restatements.
   compacted — with the literal messages), self-target, and the 300 s timeout that
   bounds the wait without aborting the target. Move to a new **Internals ›
   Remote compaction** subsection: the `ctx.compact()` mechanics, how and when a
-  cancelled compaction's gate is released (next agent run, later successful
-  compaction, or the 300 s backstop), caller-abort semantics, the "raises both
-  flags" detail, the concurrency and cooperating-peers lines (with 1.8 applied).
-  Six bullets stay; five move. **The cancelled-compaction symptom stays visible:**
+  cancelled compaction's local gate is released (next agent run, later successful
+  compaction, or the 300 s backstop), caller-abort semantics, conditional gate
+  ordering, concurrency and the cooperating-peers explanation. Acceptance raises
+  `compactRunning` first; `localCompacting` rises only if execution reaches the
+  manual `session_before_compact` hook. Early runtime refusals can return through
+  `onError` without raising the local gate. Remote failures are visible through
+  that callback; what is missing on failure/cancellation is an extension lifecycle
+  ending that clears an already-raised local gate. Successful `session_compact`
+  clears local before `finish()` clears remote and releases delivery. Keep the
+  same-group restriction from 1.8 in the tool section; move only its cooperating-
+  peers explanation, not that user-facing boundary. A short link to Remote
+  compaction may direct readers to the moved details. Bullet counts are guidance. **The cancelled-compaction symptom stays visible:**
   add one sentence to Troubleshooting › "I sent a message but got no reply" (~508):
   "If the target cancelled a `/compact`, pi-link cannot see that, so its messages
   may stay held until its next run or up to five minutes" with a link to the
@@ -229,15 +237,24 @@ reminders that prevent a real error, not restatements.
 - **4.3 Internals › Inbox (~699–720).** Merge the two gate paragraphs (~711, ~713)
   into one of ≤6 lines: which two flags gate, why (context being rebuilt), that
   automatic compaction is not gated and why, that a gated flush does not
-  reschedule so `releaseInbox()` and `compactDeadline` are the release paths. Drop
+  reschedule so `releaseInbox()` and `compactDeadline` are the release paths.
+  The deadline backs up an already-raised `localCompacting`: failure provides no
+  lifecycle ending event that clears it, even though remote `onError` is observable.
+  Any remote two-gate description must preserve 4.1's conditional hook ordering,
+  not imply that an early refused operation raised both gates. Drop
   the `/compact` timing-gap sentence unless a Troubleshooting entry depends on it
   (none does).
 - **4.4 Internals › Agent Lifecycle Integration, `pushStatus` paragraph (~695).**
-  Ten lines → three: "Each of these handlers recomputes the status and hands it to
-  `pushStatus()`, which publishes only when the display identity changed since the
-  last publish, so a second concurrent tool or a mutation beneath a raised gate is
-  silent. `disconnect()` clears that baseline; the next forced push (`welcome`) or
-  handler event restores it. `session_compact` always pushes."
+  Shorten without merging distinct handler classes: the five agent/tool handlers
+  use deduplicated `pushStatus()` (subject to `agent_settled`'s busy early return),
+  so their unchanged display identities are silent. Session handlers keep their
+  separately documented paths; `session_shutdown` cleans up rather than pushing.
+  Once connected again after `disconnect()` clears the baseline, either a client's
+  forced `welcome` push or the first of those ordinary handlers restores it;
+  `pushStatus()` returns without restoring it while disconnected. Spontaneous socket
+  loss/promotion does not clear that baseline, and a promoted hub's ordinary
+  handler is not a forced push. Keep `session_compact` as the explicit forced-push
+  exception, including while the remote gate still holds the displayed identity.
 - **4.5 `--status` › "Everything above is what the hub sends…" (~428).** Nine
   lines → about three: "The CLI validates only the fields its table prints —
   `terminals` as an array of objects with string `name`, optional string `cwd`,
@@ -261,8 +278,10 @@ reminders that prevent a real error, not restatements.
 
 **Check:** the tool sections contain no sentence about `ctx.compact()`, flags,
 `agent_end` or `session_before_compact`; those words appear only under Internals.
-("Retry" may appear once, in the `thinking` table row.) Every symptom whose
-mechanism moved has one sentence left in Troubleshooting or the tool section.
+"Retry" may appear where it explains the `thinking` status or the busy-decline
+rule; the event-wiring explanation belongs in Internals, without imposing a word
+occurrence quota. Every symptom whose mechanism moved retains a brief explanation
+in Troubleshooting or the tool section.
 
 ---
 
@@ -341,6 +360,12 @@ catches none of those. No code suites are involved; nothing binds a port.
   evidence block; should-fix is routed; nits are recorded. Remaining must-fix at
   the cap, factual disputes, changed outcomes or material risk escalate to owner.
   Material declarations and rationale are relayed verbatim to the reviewer.
+  **Owner-authorized lot 4 exception:** after the two-round cap was reached, the
+  owner answered “Go run through!” to one additional, bounded repair: add the
+  connected-state condition to baseline restoration and qualify Inbox's missing
+  lifecycle ending/local-gate backstop. This includes their plan clarifications,
+  full documentary gate and independent re-review; it does not reset the cap or
+  authorize another automatic round if a must-fix remains.
 - **Context:** assess before each stage and at each committed boundary, using the
   owner's healthy reference of 200K with repair/handoff reserve, not the model's
   full advertised window as a target. Compact idle workers before engagement
