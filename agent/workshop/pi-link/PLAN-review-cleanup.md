@@ -1,6 +1,6 @@
 # PLAN — Post-review cleanup: dead defense, one roster map set, narrower contracts
 
-> **Status:** Approved by owner — ready to build
+> **Status:** Implemented — lots A–D; execution record below.
 > **Baseline:** HEAD 3ec03ac (groups feature at 74e732f, product 0.4.1 unpublished).
 > Re-base line anchors when dispatching; they are given for HEAD 3ec03ac.
 > **Origin:** fable's full review of `index.ts`, `bin/pi-link.mjs` and the five test
@@ -225,8 +225,11 @@ goes for the rest.
   description, including hub-first order, sorted clients and the structural fields.
   The producer is unchanged. Clarify that `--json` writes the response body
   verbatim and the CLI validates the fields needed for its table, not the remaining
-  structural invariants. A successful CLI exit no longer certifies those invariants;
-  do not present weaker validation as a changed wire contract.
+  structural invariants. A successful CLI exit no longer certifies those invariants
+  or hub origin: a different service can return the same printable shape. Narrow
+  nearby validator comments, README exit-code prose and changelog claims accordingly:
+  incompatible consumed fields are rejected, not every foreign service's JSON.
+  Do not present weaker validation as a changed wire contract.
 
 **Gate:** suite J count drops; `--status` table output for the existing valid
 fixture byte-identical.
@@ -256,7 +259,8 @@ Go, run through!"**
 
 Paths below are relative to the product directory. Each commit includes its
 relevant `CHANGELOG.md` update. Only Archon edits this plan; authorized execution
-amendments to it accompany the affected implementation commit (this addendum in A).
+amendments to it accompany the affected implementation commit (execution addendum
+in A; implementation record and status closeout in D).
 
 | Lot | Implementer may edit |
 |---|---|
@@ -313,6 +317,26 @@ final catch-up step. Describe A/B as simplification or refactoring, not a `Fixed
 entry for B1; C changes accepted Pi versions and D changes CLI validation. Keep
 notes concise: no forced entry per micro-adjustment, and related refactoring notes
 may be consolidated. Version and publication remain the owner's decisions.
+
+## Implementation record
+
+| Lot | Commit | Post-implementation full-suite result |
+|---|---|---|
+| A | `0595e67` | 462 passed, 0 failed; existing assertions unchanged |
+| B | `01818af` | 470 passed, 0 failed; eight fundamental ownership checks added |
+| C | `145e342` | 454 passed, 0 failed; redundant version-grammar rows removed |
+| D | This closeout commit | 444 passed, 0 failed; six invalid-shape fixtures removed from two modes, two accepted-path checks added |
+
+Each lot also passed CLI syntax and diff checks. The native pi-tui block ran.
+For D's existing valid status fixture, baseline and changed CLI outputs were
+byte-identical in table and JSON modes against the same isolated stub server.
+That comparison covers the fixture and execution environment, not every payload.
+
+The gates use fixture/model transports (including ephemeral loopback HTTP servers
+for CLI tests); native Text/Box checks are not full Pi UI/SDK integration. No live
+mesh, installation, reload, version bump, dependency change or publication was
+part of this run. This tracked plan is retained; only the temporary ledger is
+removed on run closure. Independent review and commit remain the closing gates.
 
 ## Out of scope
 

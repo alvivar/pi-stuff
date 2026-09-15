@@ -425,15 +425,17 @@ Two things may grow, and consumers must tolerate both:
 - **Unknown fields.** Documented fields are frozen; new ones may be added, so ignore what you do not recognize rather than rejecting the payload.
 - **Unknown `status` values.** The vocabulary is not frozen — it has grown before, gaining `compacting` in 0.3.0. Treat any non-empty string as possible; the CLI renders an unrecognized value as-is instead of refusing the response.
 
+Everything above is what the hub sends. The CLI checks less: before printing, it validates the fields its table reads — `terminals` is an array of objects with a string `name`, an optional string `cwd`, a `context` that is `null` or `{ tokens, window }`, and `status`/`sinceSeconds` present together or not at all — and nothing else. A response missing those fields or mistyping them still exits 1 with the unsupported message rather than a stack trace, but a zero exit certifies only that the rows could be printed: it does not confirm hub-first order, `terminals[0].name === hub`, a numeric `port`, a non-empty list — or even that a hub sent it, since any service returning the same printable shape passes. Verify those yourself if you depend on them. `--json` is unaffected either way — it writes the response body verbatim.
+
 #### Exit codes
 
 | Code | Meaning | Message |
 | --- | --- | --- |
-| `0` | The hub answered with a valid payload | — |
+| `0` | Something answered with a printable payload | — |
 | `2` | No hub answered | `No link hub running on :9900.` |
-| `1` | Usage error, or something answered that is not a compatible hub | `Link hub does not support /status — update pi-link and restart terminals.` |
+| `1` | Usage error, or an answer the table cannot print | `Link hub does not support /status — update pi-link and restart terminals.` |
 
-The two failure messages are deliberately distinct, so a script can tell *the link is down* from *this machine needs upgrading* without parsing anything else. Exit `2` covers both nothing listening and a listener that accepts the request but does not answer within two seconds — every timeout is exit `2`. Exit `1` covers a listener that responds but is not a hub speaking this contract: a pi-link 0.3.0 hub answers plain HTTP with `426 Upgrade Required`, so an out-of-date fleet lands here deterministically rather than looking like an outage.
+The two failure messages are deliberately distinct, so a script can tell *no usable answer* from *an answer this CLI cannot read* without parsing anything else. Exit `2` covers both nothing listening and a listener that accepts the request but does not answer within two seconds — every timeout is exit `2`. Exit `1` covers a listener that responds with something the table cannot read — the usual case being that it is not a hub speaking this contract: a pi-link 0.3.0 hub answers plain HTTP with `426 Upgrade Required`, so an out-of-date fleet lands here deterministically rather than looking like an outage.
 
 Exit `2` means no hub answered **at that instant**. When a hub exits, a surviving client promotes itself to replace it, which takes roughly 2–5 seconds — poll again before concluding the fleet is down.
 

@@ -500,22 +500,16 @@ const htmlHub = await startStubHub("nonjson");
 const shapeHub = await startStubHub("wrongshape");
 const stallHub = await startStubHub("stall");
 
-// Well-formed JSON that is not the frozen contract. Each of these reached the
-// renderer before the contract predicate existed; the first two stack-traced.
+// Well-formed JSON the table cannot print. Each of these reached the renderer
+// before the predicate existed; the first two stack-traced.
 const MALFORMED = {
   "a null row": '{"hub":"h","port":9900,"terminals":[null]}',
   "a non-string cwd": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","cwd":123,"context":null}]}',
-  "an empty terminal list": '{"hub":"h","port":9900,"terminals":[]}',
   "a row missing name": '{"hub":"h","port":9900,"terminals":[{"role":"hub","context":null}]}',
-  "a row missing role": '{"hub":"h","port":9900,"terminals":[{"name":"h","context":null}]}',
-  "a client in the hub slot": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"client","context":null}]}',
-  "a hub in a client slot": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","context":null},{"name":"c","role":"hub","context":null}]}',
-  "a first row that is not the named hub": '{"hub":"other","port":9900,"terminals":[{"name":"h","role":"hub","context":null}]}',
   "half of the status pair": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","status":"idle","context":null}]}',
   "a non-numeric sinceSeconds": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","status":"idle","sinceSeconds":"7m","context":null}]}',
   "an empty status string": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","status":"","sinceSeconds":1,"context":null}]}',
   "a context missing window": '{"hub":"h","port":9900,"terminals":[{"name":"h","role":"hub","context":{"tokens":1}}]}',
-  "a non-numeric port": '{"hub":"h","port":"9900","terminals":[{"name":"h","role":"hub","context":null}]}',
   "a JSON array": '[{"name":"h"}]',
 };
 // A port that was bound and then released: nothing is listening, so a dial is
@@ -651,6 +645,33 @@ for (const [description, payload] of Object.entries(MALFORMED)) {
     });
   }
   await hub.stop();
+}
+
+// J11b — the payload invariants the CLI no longer checks are the hub's to keep:
+// a body whose rows the table can print is printed, whatever else it omits.
+{
+  const sparseHub = await startStubHub("ok", '{"terminals":[{"name":"solo","context":null}]}');
+  const emptyHub = await startStubHub("ok", '{"terminals":[]}');
+
+  runCase("J11b: a body without hub, port or roles still renders its rows", () => {
+    const r = run(["--status"], atPort(sparseHub.port));
+    const row = r.stdout.split("\n")[1] ?? "";
+    // Name, then unknown status, context and cwd — nothing invented for the gaps.
+    const ok = r.code === 0 && row.includes("solo") && (row.match(/\?/g) ?? []).length === 3;
+    return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}`];
+  });
+
+  runCase("J11c: an empty terminal list renders an empty table", () => {
+    const r = run(["--status"], atPort(emptyHub.port));
+    const ok =
+      r.code === 0 &&
+      /NAME\s+STATUS\s+CONTEXT\s+CWD/.test(r.stdout) &&
+      r.stdout.trim().split("\n").length === 1;
+    return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}`];
+  });
+
+  await sparseHub.stop();
+  await emptyHub.stop();
 }
 
 // J13 — forward compatibility, decided at the T2 tie-break: the status value is
