@@ -1,6 +1,13 @@
 # pi-link
 
-Message another Pi terminal with `link_send`. Replies are ordinary messages the other agent chooses to send, not automatic responses. Start two Pi terminals with `--link` — they find each other automatically.
+Run several Pi agents side by side and let them work as a team. Open two terminals with `pi --link`; they find each other on your machine, and each one can hand the other work, ask it questions, or wait for it to report back — all from a normal prompt.
+
+One Pi is powerful. Several, talking to each other, unlock patterns a single terminal cannot:
+
+- **Research + Build** — one terminal digs through APIs, docs or logs while another writes the code.
+- **Parallel work** — split a large task ("you take the backend, you take the frontend") and collect the results.
+- **Orchestrator / Workers** — one terminal delegates, tracks who reported back, and assembles the whole.
+- **Review pipeline** — one writes, another reviews, back and forth until both are satisfied.
 
 Questions, ideas? There's a [pi-link thread](https://discord.com/channels/1456806362351669492/1485515696719921183) in the official Pi Discord.
 
@@ -8,7 +15,6 @@ Questions, ideas? There's a [pi-link thread](https://discord.com/channels/145680
 
 ## Table of Contents
 
-- [Why?](#why)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Walkthrough](#walkthrough)
@@ -20,17 +26,6 @@ Questions, ideas? There's a [pi-link thread](https://discord.com/channels/145680
 - [Limitations & Design Decisions](#limitations--design-decisions)
 - [Dependencies](#dependencies)
 - [Internals](#internals)
-
----
-
-## Why?
-
-A single Pi terminal is powerful. Multiple terminals working together unlock new patterns:
-
-- **Research + Build** - one terminal investigates APIs, docs, or logs while another writes code based on the findings.
-- **Parallel work** - split a large task across agents (e.g., "terminal A handles the backend, terminal B handles the frontend") and collect results.
-- **Orchestrator / Worker** - designate one terminal as a coordinator that delegates subtasks with `link_send`, tracks callbacks, and assembles the final output.
-- **Review pipeline** - one terminal writes code, another reviews it, back and forth until both are satisfied.
 
 ---
 
@@ -100,27 +95,25 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi 
 **Terminal 1** - rename it:
 
 ```
-> /link-name builder@demo
-✓ Renamed to "builder@demo"
+> /link-name builder
+✓ Renamed to "builder"
 ```
-
-The `@demo` part is a group: terminals see and address only names in their own group, so a third terminal named `builder` would not appear here.
 
 **Terminal 2** - rename it too:
 
 ```
-> /link-name researcher@demo
-✓ Reconnecting, requesting "researcher@demo" (hub may assign a different name if taken)...
+> /link-name researcher
+✓ Reconnecting, requesting "researcher" (hub may assign a different name if taken)...
 ```
 
 `/link-name` reconnects under the new name, so wait for Terminal 2 to come back before checking. **Back in Terminal 1**, both names are now visible:
 
 ```
 > /link
-⚡ Link: builder@demo (hub) · 2 online
-  builder@demo: idle (5s) · 45K/272K (17%)
+⚡ Link: builder (hub) · 2 online
+  builder: idle (5s) · 45K/272K (17%)
     cwd: ~/my-project
-  researcher@demo: idle (12s) · 80K/272K (29%)
+  researcher: idle (12s) · 80K/272K (29%)
     cwd: ~/my-project
 ```
 
@@ -129,10 +122,14 @@ The `@demo` part is a group: terminals see and address only names in their own g
 In Terminal 1, type a normal prompt:
 
 ```
-> Use link_send to ask "researcher@demo" to summarize README.md, then report DONE with the summary back to builder@demo
+> Use link_send to ask "researcher" to summarize README.md, then report DONE with the summary back to builder
 ```
 
 Terminal 1 calls `link_send` and returns immediately. The message enters Terminal 2's reasoning — steered into its current run if it is working, or starting a turn if it is idle. Terminal 2 completes the assignment, then sends a conventional `DONE` callback. That callback enters Terminal 1 the same way, where the result can be presented or used for follow-up work.
+
+### Once it works: groups
+
+With two projects open, you may not want their terminals to see each other. Put a group after `@` in the name — `/link-name builder@frontend` — and that terminal lists, messages and compacts only names ending in the same `@frontend`; a plain `builder` elsewhere no longer appears. The hub still serves everyone, and `pi-link --status` shows all groups. Full rule under [Configuration](#configuration).
 
 ---
 
