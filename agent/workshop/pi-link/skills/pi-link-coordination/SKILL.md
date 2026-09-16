@@ -6,37 +6,24 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 # Pi-Link Coordination
 
 - Each terminal knows only its own conversation; sending a message does not share the rest of yours.
-- Messages that reach another terminal enter its reasoning and can redirect its work.
-
----
-
-## What a message does
-
 - A message asks another terminal to act with its own tools and access, which may differ from yours.
-- To an idle peer it starts a turn; to a busy one it arrives at a safe boundary, not in the middle of a tool call.
-- Sending does not wait for a reply, so several requests can be outstanding at once.
-- If you ask for a callback, your turn can end and resume when it arrives.
-- `link_list` snapshots help choose whom to address.
-- `link_compact` asks an idle peer to summarize its context; `instructions` guide that summary, not a new task, and do not guarantee what survives.
+- Messages that reach another terminal enter its reasoning and can redirect its work.
 
 ---
 
 ## Tools
 
-- Sending to or compacting yourself is rejected; the entry marked `(you)` is not an eligible target for either operation.
-
 ### `link_list`
 
 - Returns connected terminals with names, status (`idle`, `thinking`, `compacting`, `tool:<name>`), cwd, and (when available) context usage such as `45K/272K (17%)`.
-- Your own entry is marked `(you)`; its status and context are computed when listed, while peer values are their latest published snapshots.
+- Your own entry is marked `(you)` and cannot be a target of `link_send` or `link_compact`; its status and context are computed when listed, while peer values are their latest published snapshots.
 - A missing status means no status has been reported yet, not `idle`.
 - A `?` context value means usage is unknown; it can appear after successful compaction until a new measurement is available.
 - An `idle` snapshot does not reserve the terminal: it may become busy before your next call.
 - `tool:<name>` names one of the running tool calls.
 - `thinking` covers every kind of unsettled work, not just an LLM call, including automatic retries and compactions that run after the visible turn ends.
-- `compacting` means a compaction holds that terminal's delivery gate. An automatic (threshold or overflow) compaction never shows it: it is not gated, and reads `thinking` like the rest of the run it belongs to.
-- Only connected terminals are visible.
-- The link does not queue new sends for offline terminals or replay messages missed while they were disconnected.
+- `compacting` means a compaction holds that terminal's delivery gate: messages to it are held, and the sender is not told. An automatic (threshold or overflow) compaction never shows it: it is not gated, and reads `thinking` like the rest of the run it belongs to.
+- Only connected terminals are visible; messages missed while a terminal was disconnected are not replayed.
 
 ### `link_send`
 
@@ -44,7 +31,6 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 - A delivered message always enters the receiver's reasoning: if the receiver is idle it starts a turn; if it is running, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. The receiver's state is read when the batch is delivered, not when you send and not when you last ran `link_list`.
 - Each call has one recipient; there is no broadcast.
 - The call returns send status, not the receiver's eventual work result. A target absent from your local, group-filtered list — a typo, an offline terminal or a name in another group — fails immediately; the error lists the names currently visible to you. A successful send means the message was accepted for delivery, not that it arrived. For a client, if the target has vanished, the routing failure is shown to the human as a notification and never reaches the sending model. A terminal's queued messages are invisible to you, and silence alone does not tell you whether your message was received or acted on.
-- Messages are held while the target's delivery gate is raised, and the sender is not told.
 
 ### `link_compact`
 
@@ -54,7 +40,7 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
   - A timed-out call may mean the compaction is still running.
 - A target accepts only when Pi reports its session idle and no compaction holds its gate.
 - Busy targets decline the request rather than being interrupted; the request is not queued to run later.
-- Optional `instructions` focus the summary.
+- Optional `instructions` guide the summary; they are not a new task and do not guarantee what survives.
 - Compaction discards detail. Its summary may omit information, so anything the target learned but has not written down or reported can be lost.
 
 ---
