@@ -135,7 +135,7 @@ With two projects open, you may not want their terminals to see each other. Put 
 
 ## LLM Tools
 
-The extension registers three tools. `link_send` is the sole agent messaging tool; `link_list` provides discovery and status, and `link_compact` is a separate bounded blocking operation. pi-link also ships a **pi-link-coordination** skill that explains how the tools behave.
+Three tools: `link_send` to talk to another terminal, `link_list` to see who is there, and `link_compact` to trim a worker's context before handing it more work. pi-link also ships a **pi-link-coordination** skill that teaches the model how to use them.
 
 ### Which tool should I use?
 
@@ -160,9 +160,7 @@ The receiver's state is read when that batch is delivered, not when it is sent. 
 
 Each send has exactly one recipient; there is no fan-out.
 
-`link_send` never returns the receiver's eventual work result. A reply is an ordinary later `link_send`, uncorrelated with the message that prompted it: there is no request ID, no automatic response, and no delivery receipt for completed work.
-
-Targets are pre-validated against the terminals in your group, so a definite typo, an offline name and a name outside your group all fail the same way. Sending to yourself is rejected. For a client, a successful send means the message was handed to its connection to the hub. It does not confirm that the hub routed it or that the receiver saw it — see [Message Routing](#message-routing--error-handling).
+Targets are pre-validated against the terminals in your group, so a definite typo, an offline name and a name outside your group all fail the same way. Sending to yourself is rejected. For a client, a successful send means the message was handed to its connection to the hub. It does not confirm that the hub routed it or that the receiver saw it — see [Message Routing](#message-routing--error-handling). A reply, when one comes, is an ordinary later `link_send` from the other side; nothing correlates it to your message or produces it automatically.
 
 ### `link_list`
 
@@ -193,12 +191,12 @@ Working directories use full absolute paths in tool output. In the TUI (`/link`)
 
 ```
 Connected terminals:
-  • opus@pi-link (you)  idle (12s)  · 45K/272K (17%)
-    cwd: C:\Users\andre\.pi
-  • gpt@pi-link  thinking (3s)  · ?/272K
-    cwd: C:\Users\andre\.pi
-  • docs@pi-link  idle (1m)  · 90K/272K (33%)
-    cwd: C:\Users\andre\.pi
+  • builder (you)  idle (12s)  · 45K/272K (17%)
+    cwd: /home/me/my-project
+  • researcher  thinking (3s)  · ?/272K
+    cwd: /home/me/my-project
+  • reviewer  idle (1m)  · 90K/272K (33%)
+    cwd: /home/me/my-project
 ```
 
 ### `link_compact`
@@ -292,8 +290,8 @@ Lookup is **scoped to the current cwd by default**; pass `--global` (`-g`) to co
 ```
 $ pi-link --list
 NAME             MODIFIED  MESSAGES  ID
-opus@pi-link     2m ago    4632      6332faab
-gpt@pi-link      5m ago    1493      20d43841
+builder          2m ago    4632      6332faab
+researcher       5m ago    1493      20d43841
 
 Resume: pi-link <name>
 ```
@@ -303,8 +301,8 @@ With `--global`:
 ```
 $ pi-link --list --global
 NAME             CWD                   MODIFIED  MESSAGES  ID
-opus@pi-link     ~/my-project          2m ago    4632      6332faab
-gpt@pi-link      ~/other-project       5m ago    1493      20d43841
+builder          ~/my-project          2m ago    4632      6332faab
+researcher       ~/other-project       5m ago    1493      20d43841
 
 Resume: pi-link <name>
 ```
@@ -321,14 +319,14 @@ For scripting, `pi-link --resolve <name>` prints just the session path (machine-
 
 ```
 $ pi-link --status
-NAME          STATUS               CONTEXT          CWD
-opus@pi-link  idle (7m)            92K/272K (34%)   ~/my-project
-gpt@pi-link   tool:link_send (3s)  ?/272K           ~/my-project
-new@pi-link   ?                    ?                ?
-sol@pi-link   compacting (12s)     1.3M/2.0M (63%)  ~/other-project
+NAME        STATUS               CONTEXT          CWD
+builder     idle (7m)            92K/272K (34%)   ~/my-project
+researcher  tool:link_send (3s)  ?/272K           ~/my-project
+reviewer    compacting (12s)     1.3M/2.0M (63%)  ~/other-project
+worker-1    ?                    ?                ?
 ```
 
-The hub is listed first, then clients sorted by name. A `?` means the hub could not report that field — for `new@pi-link` above, it has registered but has not yet sent its first status update. **`?` means unknown, not idle.** Reading it as idle is the mistake this command exists to prevent.
+The hub is listed first, then clients sorted by name. A `?` means the hub could not report that field — for `worker-1` above, it has registered but has not yet sent its first status update. **`?` means unknown, not idle.** Reading it as idle is the mistake this command exists to prevent.
 
 The word for what this proves is **connected**, not alive: it shows terminals registered with the hub that answered. A terminal whose process is wedged still holds its connection, so `--status` never claims a terminal is healthy — only that it is on the link.
 
@@ -347,19 +345,19 @@ Two of the terminals above, as the hub reports them:
 
 ```json
 {
-  "hub": "opus@pi-link",
+  "hub": "builder",
   "port": 9900,
   "terminals": [
     {
-      "name": "opus@pi-link",
+      "name": "builder",
       "role": "hub",
       "status": "idle",
       "sinceSeconds": 420,
-      "cwd": "C:/Users/andre/my-project",
+      "cwd": "/home/me/my-project",
       "context": { "tokens": 92000, "window": 272000 }
     },
     {
-      "name": "new@pi-link",
+      "name": "worker-1",
       "role": "client",
       "context": null
     }
