@@ -114,6 +114,42 @@ be the friction.
 — a filter that was declined because the group is readable by eye — and it must not
 grow into one.
 
+### BL-6 — Release the inbox when a compaction fails
+
+**Priority:** 6 — low; the cost is a delay, not a loss. **Status:** Open, no design pinned.
+
+Pi 0.84.3+ emits `session_compact_failed` to extensions when a compaction fails
+or is cancelled. pi-link does not handle it: a `localCompacting` gate raised by
+`session_before_compact` stays up until the next agent run, a later successful
+compaction, or the five-minute deadline, so messages to that terminal wait that
+long after a compaction that already failed. `REPORT-session-compact-failed.md`
+holds the earlier analysis; it was not re-assessed here.
+
+*Outcome sought:* a failed or cancelled compaction releases held messages promptly.
+
+*Revisit when:* a cancelled `/compact` is seen holding a terminal's inbox for
+minutes in practice, or the floor moves to 0.84.3+ for another reason.
+
+*Constraints:* the release must be correlated with the compaction that raised the
+gate — the event carries no id, and a release on the wrong failure reopens
+delivery into a compaction still running. Requires raising `MIN_PI_VERSION` to
+0.84.3; no compatibility branch for the floor below it.
+
+### BL-7 — `!ctx.compact` guard and the `"unsupported"` reason
+
+**Priority:** 7 — cleanup. **Status:** Open.
+
+`compact` is a required member of `ExtensionContext` on every supported Pi
+(`types.d.ts` 246), so the `!ctx.compact` sub-guard in the `compact_request`
+handler defends a case the API excludes. Whether the whole `"unsupported"` result
+is reachable depends on `!ctx`, which no path was found to reach by reading.
+
+*Outcome sought:* either the branch is shown reachable and stays, or it goes with
+README's "unsupported" bullet and test B1 in `lifecycle-compact-test.mjs`.
+
+*Constraints:* a removal is a behavior change to a documented result; it travels
+with its documentation and test in one commit.
+
 ## Decisions not to reopen without new evidence
 
 These were decided against, and each parked candidate above has a plausible path
