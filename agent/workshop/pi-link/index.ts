@@ -83,8 +83,8 @@ interface StatusUpdateMsg {
   type: "status_update";
   name: string;
   status: LinkStatus;
-  // Per-terminal LLM context. Absent = old terminal (ignore); null = clear
-  // stored value; object = store. Only status_update carries the null-clear.
+  // Per-terminal LLM context. Absent = keep the stored value; null = clear it;
+  // object = store it. Only status_update carries the null-clear.
   context?: ContextSnapshot | null;
 }
 interface ErrorMsg {
@@ -577,15 +577,15 @@ export default function (pi: ExtensionAPI) {
   /**
    * Gate and release inbox delivery around a local manual compaction.
    *
-   * The deadline is the only backstop. A failed manual compaction emits
-   * `compaction_end` to session listeners only, never to extensions, and Pi
-   * clears its compaction controller without aborting it — so success is the sole
-   * positive ending an extension can observe. The timer handle must be explicit
+   * The deadline is the only backstop pi-link uses. Pi 0.84.3+ reports failure and
+   * abort through `session_compact_failed`, which pi-link does not handle (see
+   * REPORT-session-compact-failed.md); `session_compact` is the only
+   * compaction-ending event it handles. The timer handle must be explicit
    * and cleared on every transition: a bare setTimeout outlives its own
    * compaction and would release a *later* compaction's flag.
    *
-   * COMPACT_TIMEOUT_MS is reused only to avoid a new constant. It shares a value
-   * with the remote-request wait by coincidence, not by meaning.
+   * COMPACT_TIMEOUT_MS also bounds the remote-request wait. The two share a
+   * value, not a meaning: nothing here depends on their being equal.
    */
   function setCompacting(on: boolean) {
     localCompacting = on;
@@ -704,7 +704,6 @@ export default function (pi: ExtensionAPI) {
     for (const [clientWs, name] of hubClients) {
       if (name !== excludeName) clientWs.send(json);
     }
-    // Also deliver to the hub itself (unless excluded)
     if (excludeName !== terminalName) handleIncoming(msg);
   }
 
@@ -895,9 +894,9 @@ export default function (pi: ExtensionAPI) {
         syncCompactionStatus();
         notify(`"${from}" requested compact`, "info");
         // compact() aborts the current turn first, so the idle guard above
-        // keeps us from interrupting active work. The runtime guarantees
-        // exactly one of onComplete/onError fires, so compactRunning can't
-        // get stuck and the sender won't hang.
+        // keeps us from interrupting active work. Pi reports the compaction's
+        // outcome through these callbacks once compact() settles; finish() clears
+        // compactRunning and answers the request.
         try {
           ctx.compact({
             customInstructions: msg.instructions,
@@ -916,7 +915,7 @@ export default function (pi: ExtensionAPI) {
         const pending = cleanupPendingCompact(msg.id);
         if (pending) {
           // Use the requested target, not msg.from: a hub-synthesized
-          // not_found response comes from the hub, not the worker.
+          // not_found response comes from the hub, not the target.
           const target = pending.targetName;
           if (msg.ok) {
             pending.resolve(
@@ -961,7 +960,7 @@ export default function (pi: ExtensionAPI) {
         hubClients.set(clientWs, clientName);
         const list = terminalList();
 
-        // Confirm to the new client (include status + cwd snapshots)
+        // Confirm to the new client (with status, cwd and context snapshots)
         const statuses: Record<string, LinkStatus> = {};
         statuses[terminalName] = deriveStatus(); // hub's own status
         for (const [name, status] of terminalStatuses) statuses[name] = status;
@@ -1583,7 +1582,6 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params) {
       if (role === "disconnected") return notConnectedResult();
 
-      // Pre-validate target exists locally (best-effort, catches typos and definitely-absent names)
       if (params.to === terminalName) {
         return textResult("Cannot send to yourself", {
           to: params.to,
@@ -1885,7 +1883,6 @@ export default function (pi: ExtensionAPI) {
 
       // If we're the hub, check uniqueness before persisting
       if (role === "hub") {
-        // Check if name is taken by another terminal
         const takenByOther = Array.from(hubClients.values()).includes(newName);
         if (takenByOther) {
           _ctx.ui.notify(

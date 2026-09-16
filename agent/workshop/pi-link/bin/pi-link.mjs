@@ -340,8 +340,8 @@ function describeMode(mode) {
 // ── Parser ─────────────────────────────────────────────────────────────────
 //
 // Single sequential pass populates `state`; dispatcher reads it. Phases:
-//   1. Global flags (--global, --help, --version, --)
-//   2. Mode-selecting flags (--list, --resolve, --resolve=<name>)
+//   1. Global flags (--global, --help, --version, --json, --)
+//   2. Mode-selecting flags (--list, --status, --resolve, --resolve=<name>)
 //   3. Mode-specific extra-token rejection
 //   4. Launcher mode entry (mode null + bare positional)
 //   5. Launcher passthrough (mode launcher) with orphan-positional rejection
@@ -638,7 +638,7 @@ function isTerminalEntry(entry) {
   //
   // The value is checked for shape, not vocabulary. `idle`/`thinking`/
   // `compacting`/`tool:<name>` are today's kinds, but that set has already grown
-  // once (`compacting` arrived after 0.3.0) and the CLI never branches on it — it
+  // once (`compacting`, in 0.3.0) and the CLI never branches on it — it
   // only prints it. Freezing the list here would make a newer hub's fifth kind
   // reject the whole payload, and only while some terminal happened to be in that
   // state: an intermittent failure telling the user to update. An empty string is
