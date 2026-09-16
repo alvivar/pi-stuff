@@ -1,6 +1,6 @@
 ---
 name: pi-link-coordination
-description: Mechanics of coordinating work across Pi terminals with link_send, link_list, and link_compact — how delivery, batching, callbacks, and remote compaction actually behave.
+description: How `link_send`, `link_list` and `link_compact` behave between Pi terminals: delivery, status snapshots, callbacks, groups and remote compaction.
 ---
 
 # Pi-Link Coordination
