@@ -5,8 +5,7 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 
 # Pi-Link Coordination
 
-- Each terminal has its own conversation and prior context.
-- Sending a message does not share the rest of yours.
+- Each terminal knows only its own conversation; sending a message does not share the rest of yours.
 - Messages that reach another terminal enter its reasoning and can redirect its work.
 
 ---
@@ -35,7 +34,7 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 - An `idle` snapshot does not reserve the terminal: it may become busy before your next call.
 - `tool:<name>` names one of the running tool calls.
 - `thinking` covers every kind of unsettled work, not just an LLM call, including automatic retries and compactions that run after the visible turn ends.
-- `compacting` means a manual compaction holds that terminal's delivery gate. An automatic (threshold or overflow) compaction never shows it: it is not gated, and reads `thinking` like the rest of the run it belongs to.
+- `compacting` means a compaction holds that terminal's delivery gate. An automatic (threshold or overflow) compaction never shows it: it is not gated, and reads `thinking` like the rest of the run it belongs to.
 - Only connected terminals are visible.
 - The link does not queue new sends for offline terminals or replay messages missed while they were disconnected.
 
@@ -53,7 +52,7 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 - Has a five-minute ceiling that bounds your wait only:
   - Nothing aborts the target.
   - A timed-out call may mean the compaction is still running.
-- A target accepts only when Pi reports its session idle and no manual compaction holds its gate.
+- A target accepts only when Pi reports its session idle and no compaction holds its gate.
 - Busy targets decline the request rather than being interrupted; the request is not queued to run later.
 - Optional `instructions` focus the summary.
 - Compaction discards detail. Its summary may omit information, so anything the target learned but has not written down or reported can be lost.
