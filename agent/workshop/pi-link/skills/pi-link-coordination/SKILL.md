@@ -13,7 +13,7 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 ## What a message does
 
 - A message asks another terminal to act with its own tools and access, which may differ from yours.
-- To a busy peer, it arrives at a safe boundary, not in the middle of a tool call.
+- To an idle peer it starts a turn; to a busy one it arrives at a safe boundary, not in the middle of a tool call.
 - Sending does not wait for a reply, so several requests can be outstanding at once.
 - If you ask for a callback, your turn can end and resume when it arrives.
 - `link_list` snapshots help choose whom to address.
@@ -41,7 +41,7 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 ### `link_send`
 
 - Messages that reach the receiver close together are batched before entering its model. A batch arrives as one `[Link: N message(s) received]` block, in arrival order, containing one `From "name":` block per message.
-- The receiver's state is read when that batch is delivered, not when you send and not when you last ran `link_list`. If the receiver is still running then, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. Otherwise it starts a turn. There is no way to send without entering the receiver's reasoning.
+- A delivered message always enters the receiver's reasoning: if the receiver is idle it starts a turn; if it is running, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. The receiver's state is read when the batch is delivered, not when you send and not when you last ran `link_list`.
 - Each call has one recipient; there is no broadcast.
 - The call returns send status, not the receiver's eventual work result. A target absent from your local, group-filtered list — a typo, an offline terminal or a name in another group — fails immediately; the error lists the names currently visible to you. A successful send means the message was accepted for delivery, not that it arrived. For a client, if the target has vanished, the routing failure is shown to the human as a notification and never reaches the sending model. A terminal's queued messages are invisible to you, and silence alone does not tell you whether your message was received or acted on.
 - Messages are held while the target's delivery gate is raised, and the sender is not told.
