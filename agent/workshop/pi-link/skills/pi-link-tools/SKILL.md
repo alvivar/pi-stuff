@@ -1,9 +1,9 @@
 ---
-name: pi-link-coordination
+name: pi-link-tools
 description: "How `link_send`, `link_list` and `link_compact` behave between Pi terminals: delivery, status snapshots, callbacks, groups and remote compaction."
 ---
 
-# Pi-Link Coordination
+# Pi-Link Tools
 
 - Each terminal knows only its own conversation; sending a message does not share the rest of yours.
 - A message asks another terminal to act with its own tools and access, which may differ from yours.

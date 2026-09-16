@@ -61,7 +61,7 @@ On Pi 0.75+, install the shell launcher separately if you want to run `pi-link <
 npm i -g pi-link
 ```
 
-The global install is optional; the Pi install enables the extension, slash commands, and LLM tools. See the package [README](agent/workshop/pi-link/README.md), [CHANGELOG](agent/workshop/pi-link/CHANGELOG.md), bundled `pi-link-coordination` skill, and design documents (`BACKLOG.md`, `REPORT-*.md`).
+The global install is optional; the Pi install enables the extension, slash commands, and LLM tools. See the package [README](agent/workshop/pi-link/README.md), [CHANGELOG](agent/workshop/pi-link/CHANGELOG.md), bundled `pi-link-tools` skill, and design documents (`BACKLOG.md`, `REPORT-*.md`).
 
 ### [pi-dock](agent/workshop/pi-dock/)
 
@@ -75,7 +75,7 @@ Commands: `spawn`, `send`, `start`, `stop`, `ls`, `logs`, `set`, and `compact`. 
 
 Local, plan-driven implement → review → commit orchestration for multi-terminal Pi work. It coordinates separate implementer, reviewer, and committer roles, requires task gates before review and commit, and keeps the orchestrator as the communication relay.
 
-It is a policy skill built on `pi-link-coordination`, the general coordination skill bundled with `pi-link`.
+It is a policy skill built on `pi-link-tools`, the tool-use skill bundled with `pi-link`.
 
 ## Disabled skills
 

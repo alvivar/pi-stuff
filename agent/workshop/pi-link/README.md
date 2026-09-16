@@ -136,7 +136,7 @@ With two projects open, you may not want their terminals to see each other. Put 
 
 ## LLM Tools
 
-Three tools: `link_send` to talk to another terminal, `link_list` to see who is there, and `link_compact` to trim a worker's context before handing it more work. pi-link also ships a **pi-link-coordination** skill that teaches the model how to use them.
+Three tools: `link_send` to talk to another terminal, `link_list` to see who is there, and `link_compact` to trim another terminal's context. pi-link also ships a **pi-link-tools** skill describing how they behave.
 
 ### Which tool should I use?
 
@@ -209,10 +209,10 @@ Ask another terminal to compact its context window and wait up to 300 seconds fo
 | `to`           | `string` | Target terminal name                                   |
 | `instructions` | `string` | Optional custom compaction instructions for the target |
 
-- **Success** result: `Compacted "<name>"`. The worker is now idle with a trimmed context, ready for the next dispatch.
+- **Success** result: `Compacted "<name>"`.
 - **Busy decline** — the target accepts only when Pi reports its session idle **and** no manual compaction holds its delivery gate, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline immediately with `reason: "busy"` without interrupting the work in progress.
 - **The other declines** — a runtime offering no compaction capability declines with `reason: "unsupported"` and is never asked to compact; a session under the runtime's threshold declines with `Compact on "<target>" not done: Nothing to compact (session too small)`; a target that has done nothing since its last compaction declines with `Compact on "<target>" not done: Already compacted`.
-- **Self-target rejection** — calling `link_compact` on yourself returns an error pointing at `/compact`.
+- **Self-target rejection** — calling `link_compact` on yourself returns a `self_target` error (`Cannot compact yourself.`).
 - **Flat 300-second timeout** — the timeout bounds the caller's wait only; nothing aborts the target, so a timed-out call may mean the compaction is still running.
 - Any terminal can request compaction on another **in its group**.
 

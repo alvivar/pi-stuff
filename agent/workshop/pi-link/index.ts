@@ -1636,8 +1636,7 @@ export default function (pi: ExtensionAPI) {
     label: "Link Compact",
     description: [
       "Ask another Pi terminal to compact its context window and wait until it finishes.",
-      "Returns once the target has compacted, so you can immediately send it new work.",
-      "A target declines unless Pi reports its session idle and no manual compaction holds its gate, so an active run, retry, automatic compaction, queued continuation or reported `compacting` all decline.",
+      "A target declines unless Pi reports its session idle and no compaction holds its gate, so an active run, retry, automatic compaction, queued continuation or reported `compacting` all decline.",
     ].join(" "),
     promptSnippet: "Ask another Pi terminal to compact its context window",
     parameters: Type.Object({
@@ -1660,7 +1659,7 @@ export default function (pi: ExtensionAPI) {
       if (role === "disconnected") return notConnectedResult();
 
       if (params.to === terminalName) {
-        return textResult("Cannot compact yourself - use /compact.", {
+        return textResult("Cannot compact yourself.", {
           to: params.to,
           error: "self_target",
         });
