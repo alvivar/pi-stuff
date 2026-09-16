@@ -1,8 +1,6 @@
 # pi-link
 
-A WebSocket-based inter-terminal communication system that creates a local network between multiple Pi coding agent terminals. Enables terminals to discover each other, exchange messages, and orchestrate work across agents - all automatically on `localhost`.
-
-> Message another Pi terminal with `link_send`. Replies are ordinary messages the other agent chooses to send, not automatic responses. Start two Pi terminals with `--link` — they find each other automatically.
+Message another Pi terminal with `link_send`. Replies are ordinary messages the other agent chooses to send, not automatic responses. Start two Pi terminals with `--link` — they find each other automatically.
 
 Questions, ideas? There's a [pi-link thread](https://discord.com/channels/1456806362351669492/1485515696719921183) in the official Pi Discord.
 
@@ -38,10 +36,10 @@ A single Pi terminal is powerful. Multiple terminals working together unlock new
 
 ## Prerequisites
 
-- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.84.2 or later** (for pi-link 0.3+), stable releases only, reported as `x.y.z` without a prerelease or build suffix — anything else is refused rather than guessed at. On Pi 0.74–0.84.1, pin `pi-link@0.2.x`; on Pi ≤0.73, pin `pi-link@0.1.14`.
+- [Pi coding agent](https://github.com/badlogic/pi-mono), version **0.84.2 or later** (for pi-link 0.3+), stable releases only, reported as `x.y.z` without a prerelease or build suffix. On Pi 0.74–0.84.1, pin `pi-link@0.2.x`; on Pi ≤0.73, pin `pi-link@0.1.14`.
 - Node.js (LTS recommended)
 
-Pi's package installation does not check the host version, so `pi install` succeeds on an older Pi. pi-link then refuses to initialize instead of half-running: it throws before registering anything, and Pi reports it under **[Extension issues]** with the required minimum and the version it detected. Nothing else about the session changes.
+Pi's package installation does not check the host version, so `pi install` succeeds on an older Pi. pi-link then refuses to initialize instead of half-running: it throws before registering anything, and Pi reports it under **[Extension issues]** with the required minimum and the version it detected.
 
 ---
 
@@ -71,6 +69,8 @@ Or install both in one line:
 pi install npm:pi-link && npm i -g pi-link
 ```
 
+Pi installs packages into its own npm root (`~/.pi/agent/npm/`), which is not on `PATH`; `npm i -g pi-link` is what puts the `pi-link` command there.
+
 The shell launcher is convenience-only — you can always reach the same functionality from inside Pi via `/link-connect` and `/link-name <name>`.
 
 ### Uninstall
@@ -90,10 +90,6 @@ pi-link mybot        # named session you can resume by name
 ```
 
 Already in a session? Use `/link-connect`. Use `/link` any time to check status, or let the LLM tools handle cross-terminal coordination. See [Session Resume](#session-resume) for `pi-link <name>` details.
-
-### Notes on installation
-
-**Why two installs?** Pi 0.75 installs Pi packages into a private npm root (`~/.pi/agent/npm/`) for safer permission handling ([pi-mono#4587](https://github.com/earendil-works/pi-mono/issues/4587)). That's where the Pi extension lives, but it means the `pi-link` shell command is no longer on system PATH. `npm i -g pi-link` puts it on PATH separately. Both installs are safe to use together.
 
 ---
 
@@ -482,40 +478,22 @@ When the hub exits, a surviving client promotes itself in roughly 2–5 seconds;
 
 ## Limitations & Design Decisions
 
-| #   | Decision                                  | Rationale / Impact                                                                                                                                                                                               |
-| --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                                                                      |
-| 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                                                                              |
-| 3   | **Race-based hub promotion**              | Non-deterministic. Reconnect order can change which terminal holds a hub-assigned suffix; in-flight messages can be lost. Simple but imperfect.                                                                  |
-| 4   | **No offline backlog**                    | A definitely absent target is rejected, and nothing is stored for later delivery. A terminal that reconnects receives no messages it missed while offline.                                                       |
-| 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.                                                                          |
-| 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                                                                     |
-| 7   | **Callbacks are conventional**            | Async work results are uncorrelated messages, not protocol responses. A send carries no request identifier, nothing correlates a reply to it, and a callback exists only because the receiver chose to send one. |
-| 8   | **Groups isolate attention, not access**  | No auth: any process may pick any group, and `pi-link --status` shows all groups. Isolation needs one version everywhere; upgrade and restart together.                                                          |
+| #   | Decision                                  | Rationale / Impact                                                                                                                                               |
+| --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No authentication**                     | Any localhost process can connect to port 9900. Acceptable for local dev; don't expose the port externally.                                                      |
+| 2   | **Hardcoded port (9900)**                 | Not configurable without editing `DEFAULT_PORT` in `index.ts`. Could conflict with other services on the same port.                                              |
+| 3   | **Race-based hub promotion**              | Non-deterministic. Reconnect order can change which terminal holds a hub-assigned suffix; in-flight messages can be lost. Simple but imperfect.                  |
+| 4   | **No offline backlog**                    | A definitely absent target is rejected and nothing is stored, so a terminal that reconnects receives no messages it missed while offline.                        |
+| 5   | **Client rename triggers full reconnect** | Changing a client's name requires a new `register` message, so the client disconnects and reconnects. Hub renames are handled in-place.                          |
+| 6   | **Single-machine / localhost-only**       | Link only binds to `127.0.0.1`; terminals on different machines cannot join.                                                                                     |
+| 7   | **Callbacks are conventional**            | Async results arrive as uncorrelated messages, not protocol responses: no request identifier, and a callback exists only because the receiver chose to send one. |
+| 8   | **Groups isolate attention, not access**  | No auth: any process may pick any group, and `pi-link --status` shows all of them; isolation needs one version everywhere, so upgrade and restart together.      |
 
 ---
 
 ## Dependencies
 
-### Runtime (installed by `pi install`)
-
-| Package | Version | Purpose                             |
-| ------- | ------- | ----------------------------------- |
-| `ws`    | ^8.20.0 | WebSocket library (server + client) |
-
-### Development
-
-| Package     | Version | Purpose                     |
-| ----------- | ------- | --------------------------- |
-| `@types/ws` | ^8.18.1 | TypeScript type definitions |
-
-### Provided by Pi (no install needed)
-
-| Package                           | Purpose                                                     |
-| --------------------------------- | ----------------------------------------------------------- |
-| `@earendil-works/pi-coding-agent` | Pi SDK types (ExtensionAPI, ExtensionContext) and `VERSION` |
-| `@earendil-works/pi-tui`          | TUI Text widget for custom message rendering                |
-| `typebox`                         | JSON Schema type definitions for tool parameters            |
+At runtime pi-link needs one package, `ws` (^8.20.0), the WebSocket server and client; `pi install` brings it in. Development adds `@types/ws` (^8.18.1) for its type definitions. Everything else comes from Pi itself and needs no install: `@earendil-works/pi-coding-agent` for the SDK types (`ExtensionAPI`, `ExtensionContext`) and `VERSION`, `@earendil-works/pi-tui` for the Text widget used in custom message rendering, and `typebox` for the tool parameter schemas.
 
 > See [Prerequisites](#prerequisites) for supported Pi versions.
 
