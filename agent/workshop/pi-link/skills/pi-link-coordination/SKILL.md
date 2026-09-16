@@ -49,7 +49,7 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 
 - A callback is an ordinary `link_send` from the other terminal back to you. There is no request ID, no automatic response, no delivery receipt, and no protocol timeout — nothing correlates a callback with the request that asked for it except the text of both, and nothing produces one except the receiver choosing to send it.
 - Your ordinary reply stays in your own conversation; use `link_send` to send a result to the requester or the designated recipient. If you need a reply, say who should receive it; a label in the request and reply can help distinguish concurrent exchanges.
-- Waiting for one requires no live run: if the terminal is idle when the batch is delivered, the message starts a turn by itself. Keeping a run alive only to wait — by sleeping or polling `link_list` — can postpone delivery to the model until active tool calls end.
+- Waiting for one requires no live run. Keeping a run alive only to wait — by sleeping or polling `link_list` — can postpone delivery to the model until active tool calls end.
 - A callback can be sent before its sender's run settles; receiving it does not prove the sender is idle, so a `link_compact` aimed at it can still decline as busy.
 - An accepted send does not wait for a reply, so several requests can be sent before any callback arrives, and callbacks may arrive separately or batched into one of your turns. The protocol does not decide when an exchange is complete; it supplies no exit condition for an A → B → C → A chain.
 
