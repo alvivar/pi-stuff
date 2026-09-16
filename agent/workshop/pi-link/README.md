@@ -90,23 +90,14 @@ Already in a session? Use `/link-connect`. Use `/link` any time to check status,
 
 ## Walkthrough
 
-Here's a concrete example of two terminals collaborating. Open two separate `pi --link` sessions.
+Here's a concrete example of two terminals collaborating. Open two terminals, each with its name already set:
 
-**Terminal 1** - rename it:
-
-```
-> /link-name builder
-✓ Renamed to "builder"
+```bash
+pi --link-name builder       # Terminal 1
+pi --link-name researcher    # Terminal 2
 ```
 
-**Terminal 2** - rename it too:
-
-```
-> /link-name researcher
-✓ Reconnecting, requesting "researcher" (hub may assign a different name if taken)...
-```
-
-`/link-name` reconnects under the new name, so wait for Terminal 2 to come back before checking. **Back in Terminal 1**, both names are now visible:
+The first one to start becomes the hub; the second joins it. **In Terminal 1**, both names are now visible:
 
 ```
 > /link
@@ -116,6 +107,15 @@ Here's a concrete example of two terminals collaborating. Open two separate `pi 
   researcher: idle (12s) · 80K/272K (29%)
     cwd: ~/my-project
 ```
+
+Already inside a session? Name it from the prompt instead — `/link-connect` if it is not on the link yet, then:
+
+```
+> /link-name researcher
+✓ Reconnecting, requesting "researcher" (hub may assign a different name if taken)...
+```
+
+A client reconnects under its new name, so give it a moment before checking `/link`. Either way the name is saved with the session and comes back on resume.
 
 **Now ask Terminal 1's LLM to delegate work:**
 
