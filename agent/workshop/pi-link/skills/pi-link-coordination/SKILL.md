@@ -1,6 +1,6 @@
 ---
 name: pi-link-coordination
-description: How `link_send`, `link_list` and `link_compact` behave between Pi terminals: delivery, status snapshots, callbacks, groups and remote compaction.
+description: "How `link_send`, `link_list` and `link_compact` behave between Pi terminals: delivery, status snapshots, callbacks, groups and remote compaction."
 ---
 
 # Pi-Link Coordination
