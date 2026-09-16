@@ -77,11 +77,12 @@ npm uninstall -g pi-link      # Remove CLI launcher (if you installed it)
 
 ### Usage
 
-Link is **off by default**. Two ways to start:
+Link is **off by default**. Three ways to start:
 
 ```bash
-pi --link            # try it now, random name like t-a3f9
-pi-link mybot        # named session you can resume by name
+pi --link                    # try it now, random name like t-a3f9
+pi --link-name builder       # with a name of your choice
+pi-link builder              # same, plus resume that session by name later (needs the shell launcher)
 ```
 
 Already in a session? Use `/link-connect`. Use `/link` any time to check status, or let the LLM tools handle cross-terminal coordination. See [Session Resume](#session-resume) for `pi-link <name>` details.
@@ -129,7 +130,7 @@ Terminal 1 calls `link_send` and returns immediately. The message enters Termina
 
 ### Once it works: groups
 
-With two projects open, you may not want their terminals to see each other. Put a group after `@` in the name — `/link-name builder@frontend` — and that terminal lists, messages and compacts only names ending in the same `@frontend`; a plain `builder` elsewhere no longer appears. The hub still serves everyone, and `pi-link --status` shows all groups. Full rule under [Configuration](#configuration).
+With two projects open, you may not want their terminals to see each other. Put a group after `@` in the name — `pi --link-name builder@frontend`, or `/link-name builder@frontend` from inside — and that terminal lists, messages and compacts only names ending in the same `@frontend`; a plain `builder` elsewhere no longer appears. The hub still serves everyone, and `pi-link --status` shows all groups. Full rule under [Configuration](#configuration).
 
 ---
 
