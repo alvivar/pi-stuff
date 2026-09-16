@@ -7,7 +7,7 @@ description: How `link_send`, `link_list` and `link_compact` behave between Pi t
 
 - Each terminal has its own conversation and prior context.
 - Sending a message does not share the rest of yours.
-- Every message you send enters another terminal's reasoning, spends its turn and can redirect its work.
+- Messages that reach another terminal enter its reasoning and can redirect its work.
 
 ---
 
@@ -44,7 +44,7 @@ description: How `link_send`, `link_list` and `link_compact` behave between Pi t
 - Messages that reach the receiver close together are batched before entering its model. A batch arrives as one `[Link: N message(s) received]` block, in arrival order, containing one `From "name":` block per message.
 - The receiver's state is read when that batch is delivered, not when you send and not when you last ran `link_list`. If the receiver is still running then, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. Otherwise it starts a turn. There is no way to send without entering the receiver's reasoning.
 - Each call has one recipient; there is no broadcast.
-- The call returns send status, not the receiver's eventual work result. A target absent from your local, group-filtered list — a typo, an offline terminal or a name in another group — fails immediately; the error lists the names currently visible to you. A successful send means the message was accepted for delivery, not that it arrived. If the target has vanished, the routing failure is shown to the human as a notification and never reaches the sending model. A terminal's queued messages are invisible to you, and silence alone does not tell you whether your message was received or acted on.
+- The call returns send status, not the receiver's eventual work result. A target absent from your local, group-filtered list — a typo, an offline terminal or a name in another group — fails immediately; the error lists the names currently visible to you. A successful send means the message was accepted for delivery, not that it arrived. For a client, if the target has vanished, the routing failure is shown to the human as a notification and never reaches the sending model. A terminal's queued messages are invisible to you, and silence alone does not tell you whether your message was received or acted on.
 - Messages are held while the target's delivery gate is raised, and the sender is not told.
 
 ### `link_compact`
@@ -66,7 +66,7 @@ description: How `link_send`, `link_list` and `link_compact` behave between Pi t
 - Your ordinary reply stays in your own conversation; use `link_send` to send a result to the requester or the designated recipient. If you need a reply, say who should receive it; a label in the request and reply can help distinguish concurrent exchanges.
 - Waiting for one requires no live run: if the terminal is idle when the batch is delivered, the message starts a turn by itself. Keeping a run alive only to wait — by sleeping or polling `link_list` — can postpone delivery to the model until active tool calls end.
 - A callback can be sent before its sender's run settles; receiving it does not prove the sender is idle, so a `link_compact` aimed at it can still decline as busy.
-- An accepted send does not wait for a reply, so several requests can be sent before any callback arrives, and callbacks may arrive separately or batched into one of your turns. For the same reason nothing ends an exchange except a terminal choosing not to reply; the protocol supplies no exit condition for an A → B → C → A chain.
+- An accepted send does not wait for a reply, so several requests can be sent before any callback arrives, and callbacks may arrive separately or batched into one of your turns. The protocol does not decide when an exchange is complete; it supplies no exit condition for an A → B → C → A chain.
 
 ---
 
