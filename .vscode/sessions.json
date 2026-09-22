@@ -1,5 +1,5 @@
 {
-  "active": "pi-link",
+  "active": "pi-sub",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -178,6 +178,72 @@
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-dock"
+        ]
+      },
+      {
+        "name": "bash",
+        "icon": "terminal-bash",
+        "color": "terminal.ansiWhite",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
+        ]
+      }
+    ],
+    "pi-sub": [
+      {
+        "name": "archon@pi-sub",
+        "icon": "organization",
+        "color": "terminal.ansiBrightWhite",
+        "focus": true,
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-sub"
+        ]
+      },
+      {
+        "name": "designer@pi-sub",
+        "icon": "compass",
+        "color": "terminal.ansiBrightMagenta",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link designer@pi-sub"
+        ]
+      },
+      {
+        "name": "implementer@pi-sub",
+        "icon": "tools",
+        "color": "terminal.ansiBlue",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link implementer@pi-sub"
+        ]
+      },
+      {
+        "name": "reviewer@pi-sub",
+        "icon": "eye",
+        "color": "terminal.ansiBrightCyan",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link reviewer@pi-sub"
+        ]
+      },
+      {
+        "name": "compactor@pi-sub",
+        "icon": "fold",
+        "color": "terminal.ansiCyan",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link compactor@pi-sub"
+        ]
+      },
+      {
+        "name": "committer@pi-sub",
+        "icon": "git-commit",
+        "color": "terminal.ansiYellow",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-sub"
         ]
       },
       {
