@@ -54,15 +54,15 @@ export function parseOpencodeGoQuota(body: unknown): Quota | undefined {
 /** Read the OpenCode Go quota, or report why it is unavailable. No API key means no request. */
 export async function fetchOpencodeGoQuota(options: QuotaRequestOptions): Promise<QuotaResult> {
   const apiKey = await resolveApiKey(options.auth, "opencode-go");
-  if (apiKey === undefined) return { ok: false, error: SIGN_IN_REQUIRED };
+  if (apiKey === undefined) return { ok: false, identity: undefined, error: SIGN_IN_REQUIRED };
 
   const response = await requestUsageJson(
     USAGE_URL,
     { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
     options,
   );
-  if (!response.ok) return response;
+  if (!response.ok) return { ok: false, identity: apiKey, error: response.error };
 
   const quota = parseOpencodeGoQuota(response.body);
-  return quota ? { ok: true, quota } : { ok: false, error: UNEXPECTED_RESPONSE };
+  return quota ? { ok: true, identity: apiKey, quota } : { ok: false, identity: apiKey, error: UNEXPECTED_RESPONSE };
 }

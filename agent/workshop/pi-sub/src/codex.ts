@@ -59,17 +59,21 @@ export function parseCodexQuota(body: unknown): Quota | undefined {
 export async function fetchCodexQuota(options: QuotaRequestOptions): Promise<QuotaResult> {
   const accessToken = await resolveApiKey(options.auth, "openai-codex");
   const accountId = accessToken === undefined ? undefined : accountIdFromToken(accessToken);
-  if (accessToken === undefined || accountId === undefined) return { ok: false, error: SIGN_IN_REQUIRED };
+  if (accessToken === undefined || accountId === undefined) {
+    return { ok: false, identity: undefined, error: SIGN_IN_REQUIRED };
+  }
 
   const response = await requestUsageJson(
     USAGE_URL,
     { Accept: "application/json", Authorization: `Bearer ${accessToken}`, "ChatGPT-Account-Id": accountId },
     options,
   );
-  if (!response.ok) return response;
+  if (!response.ok) return { ok: false, identity: accountId, error: response.error };
 
   const quota = parseCodexQuota(response.body);
-  return quota ? { ok: true, quota } : { ok: false, error: UNEXPECTED_RESPONSE };
+  return quota
+    ? { ok: true, identity: accountId, quota }
+    : { ok: false, identity: accountId, error: UNEXPECTED_RESPONSE };
 }
 
 /**

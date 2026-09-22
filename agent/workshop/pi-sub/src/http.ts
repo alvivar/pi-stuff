@@ -23,7 +23,14 @@ export type QuotaFailure = {
   retryAfterMs?: number;
 };
 
-export type QuotaResult = { ok: true; quota: Quota } | { ok: false; error: QuotaFailure };
+/**
+ * `identity` is an opaque credential identity used in memory to notice account or
+ * key changes; it is never shown, logged or persisted. Codex reports its stable
+ * account ID, OpenCode Go has no such field and reports the key itself.
+ */
+export type QuotaResult =
+  | { ok: true; identity: string; quota: Quota }
+  | { ok: false; identity: string | undefined; error: QuotaFailure };
 
 export const SIGN_IN_REQUIRED: QuotaFailure = { kind: "auth", message: "Sign in required" };
 export const UNEXPECTED_RESPONSE: QuotaFailure = { kind: "failed", message: "Unexpected response" };

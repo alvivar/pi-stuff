@@ -45,6 +45,7 @@ test("codex: queries the fixed endpoint with bearer token and account header", a
 
   assert.deepEqual(result, {
     ok: true,
+    identity: "acct-fake-1",
     quota: {
       provider: "openai-codex",
       windows: [
@@ -89,7 +90,7 @@ test("codex: no credential, no account claim and failed resolution never reach t
 
     const result = await fetchCodexQuota({ auth, fetch: fetchImpl });
 
-    assert.deepEqual(result, { ok: false, error: { kind: "auth", message: "Sign in required" } });
+    assert.deepEqual(result, { ok: false, identity: undefined, error: { kind: "auth", message: "Sign in required" } });
     assert.equal(calls.length, 0);
   }
 });
@@ -100,11 +101,15 @@ test("codex: an unusable payload is reported as an unexpected response", async (
 
     const result = await fetchCodexQuota({ auth: authWith(CODEX_TOKEN), fetch: fetchImpl });
 
-    assert.deepEqual(result, { ok: false, error: { kind: "failed", message: "Unexpected response" } });
+    assert.deepEqual(result, {
+      ok: false,
+      identity: "acct-fake-1",
+      error: { kind: "failed", message: "Unexpected response" },
+    });
   }
 });
 
-test("codex: transport failures surface unchanged and never leak the token", async () => {
+test("codex: transport failures surface unchanged and never leak the token in the error", async () => {
   const { fetchImpl } = stubFetch(
     () => new Response("token acct-fake-1 rejected", { status: 429, headers: { "retry-after": "30" } }),
   );
@@ -113,10 +118,13 @@ test("codex: transport failures surface unchanged and never leak the token", asy
 
   assert.deepEqual(result, {
     ok: false,
+    // identity is the account id: memory-only, never rendered or persisted.
+    identity: "acct-fake-1",
     error: { kind: "rate-limit", message: "Rate limited", retryAfterMs: 30_000 },
   });
-  assert.equal(JSON.stringify(result).includes(CODEX_TOKEN), false);
-  assert.equal(JSON.stringify(result).includes("acct-fake-1"), false);
+  assert.equal(result.ok, false);
+  assert.equal(JSON.stringify(result.ok === false && result.error).includes(CODEX_TOKEN), false);
+  assert.equal(JSON.stringify(result.ok === false && result.error).includes("acct-fake-1"), false);
 });
 
 test("opencode-go: queries the fixed endpoint with the API key as bearer", async () => {
@@ -133,6 +141,7 @@ test("opencode-go: queries the fixed endpoint with the API key as bearer", async
 
   assert.deepEqual(result, {
     ok: true,
+    identity: "oc-key-fake",
     quota: {
       provider: "opencode-go",
       windows: [
@@ -157,7 +166,7 @@ test("opencode-go: a missing API key never reaches the network", async () => {
 
     const result = await fetchOpencodeGoQuota({ auth, fetch: fetchImpl });
 
-    assert.deepEqual(result, { ok: false, error: { kind: "auth", message: "Sign in required" } });
+    assert.deepEqual(result, { ok: false, identity: undefined, error: { kind: "auth", message: "Sign in required" } });
     assert.equal(calls.length, 0);
   }
 });
@@ -167,7 +176,11 @@ test("opencode-go: an unusable payload is reported as an unexpected response", a
 
   const result = await fetchOpencodeGoQuota({ auth: authWith("oc-key-fake"), fetch: fetchImpl });
 
-  assert.deepEqual(result, { ok: false, error: { kind: "failed", message: "Unexpected response" } });
+  assert.deepEqual(result, {
+    ok: false,
+    identity: "oc-key-fake",
+    error: { kind: "failed", message: "Unexpected response" },
+  });
 });
 
 test("opencode-go: caller cancellation reaches the transport", async () => {
@@ -186,6 +199,10 @@ test("opencode-go: caller cancellation reaches the transport", async () => {
     signal: controller.signal,
   });
 
-  assert.deepEqual(result, { ok: false, error: { kind: "failed", message: "Request failed" } });
+  assert.deepEqual(result, {
+    ok: false,
+    identity: "oc-key-fake",
+    error: { kind: "failed", message: "Request failed" },
+  });
   assert.equal(seen?.aborted, true);
 });
