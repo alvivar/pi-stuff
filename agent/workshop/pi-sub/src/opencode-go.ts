@@ -7,6 +7,14 @@
  */
 
 import {
+  type QuotaRequestOptions,
+  type QuotaResult,
+  requestUsageJson,
+  resolveApiKey,
+  SIGN_IN_REQUIRED,
+  UNEXPECTED_RESPONSE,
+} from "./http.ts";
+import {
   asRecord,
   remainingFromUsedPercent,
   resetFromIsoDate,
@@ -14,6 +22,8 @@ import {
   type QuotaWindow,
   type WindowKind,
 } from "./quota.ts";
+
+const USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
 /** Known usage windows, in presentation order. */
 const WINDOWS: ReadonlyArray<readonly [field: string, kind: WindowKind]> = [
@@ -39,4 +49,20 @@ export function parseOpencodeGoQuota(body: unknown): Quota | undefined {
   }
 
   return windows.length > 0 ? { provider: "opencode-go", windows } : undefined;
+}
+
+/** Read the OpenCode Go quota, or report why it is unavailable. No API key means no request. */
+export async function fetchOpencodeGoQuota(options: QuotaRequestOptions): Promise<QuotaResult> {
+  const apiKey = await resolveApiKey(options.auth, "opencode-go");
+  if (apiKey === undefined) return { ok: false, error: SIGN_IN_REQUIRED };
+
+  const response = await requestUsageJson(
+    USAGE_URL,
+    { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
+    options,
+  );
+  if (!response.ok) return response;
+
+  const quota = parseOpencodeGoQuota(response.body);
+  return quota ? { ok: true, quota } : { ok: false, error: UNEXPECTED_RESPONSE };
 }
