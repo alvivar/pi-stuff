@@ -1,0 +1,36 @@
+{
+  "name": "pi-sub",
+  "version": "0.1.0",
+  "description": "Pi extension showing remaining subscription quota and reset time for Codex and OpenCode Go.",
+  "author": "alvivar",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "quota",
+    "usage",
+    "codex",
+    "opencode"
+  ],
+  "files": [
+    "extensions",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "test": "node --test \"tests/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "typescript": "^5.9.3"
+  }
+}
