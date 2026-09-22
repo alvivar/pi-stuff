@@ -1,6 +1,6 @@
 # pi-sub — Visor mínimo de cuotas, desde primeros principios
 
-Estado: plan aprobado; implementación pendiente.
+Estado: implementación completada; migración a la instalación activa pendiente de autorización.
 Directorio de trabajo: `C:\Users\andre\.pi\agent\workshop\pi-sub`
 Referencia funcional auditada: `@bacnh85/pi-sub@0.1.46`, commit `b1111d2f67f998fb0b79c3b7b9552d234fc5cf67`.
 Objetivo inicial de compatibilidad: Pi 0.87.0; comprobar la versión instalada al comenzar.
