@@ -1472,6 +1472,14 @@ export default function (pi: ExtensionAPI) {
     pushStatus(true);
   });
 
+  pi.on("model_select", async () => {
+    pushStatus(true); // the window, and so the usage percentage, belongs to the model
+  });
+
+  pi.on("session_tree", async () => {
+    pushStatus(true); // context usage belongs to the active branch
+  });
+
   pi.on("tool_execution_start", async (event) => {
     const before = statusIdentity(deriveStatus());
     activeTools.set(event.toolCallId, event.toolName);
