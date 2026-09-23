@@ -8,6 +8,14 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ## Unreleased
 
+### Fixed
+
+- **pi-link's tools are callable directly under Oh My Pi.** The three tools are registered with `loadMode: "essential"`, so harnesses that hide extension tools by default, such as Oh My Pi, list them with the other callable tools instead of behind a discovery path. Pi has no such field and ignores it.
+
+---
+
+## 0.5.0 — 2026-09-16
+
 ### Added
 
 - **A terminal named `local@group` sees and reaches only its own group.** The group is the text after the **first** `@` — `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h` — and every name without an `@`, or ending in one like `a@`, belongs to the single implicit group of plain names, which behaves exactly as before among themselves. `link_list` lists only that group and reports status, cwd and context for nobody else, `/link` and the footer count the same way, join and leave toasts stay silent for strangers, and `link_send`/`link_compact` to a name outside the group fail with the same `not found` result a typo gets, suggesting only your own group. The hub enforces the boundary while routing too, for chat, compaction requests and compaction responses alike: from the sender's side a terminal of another group simply does not exist. Nothing new is stored or sent — the rule is read from names at the moment it is used, so renaming a terminal with `/link-name` moves it between groups as soon as the new name takes effect — at once on the hub, and on the next welcome for a client, whose rename reconnects first. No group is reserved or privileged.
@@ -27,10 +35,6 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 - **Internal cleanup: one set of roster maps instead of two, and checks that defended against nothing removed.** The hub and the client kept separate status/cwd/context maps for the same peers, with the hub's `register` handler filtering the newcomer out of its own welcome and deleting entries by hand on close. There is now one set: the getters read it directly, and the hub learns and forgets a peer through its own delivery of the `terminal_joined`/`terminal_left` frames it already broadcasts. A terminal that loses its hub now also drops that network's snapshots, so the maps cannot describe a peer from a connection that ended — previously the inactive set was simply never read.
 
 - **Internal cleanup: checks that defended against nothing were removed.** The context snapshot no longer tests whether Pi provides `getContextUsage` — every supported Pi version does, and older ones are refused at load — and its formatter no longer re-checks a context window its only producer already validated. `agent_start` no longer clears the active-tool set, because `agent_end` always precedes it and already does; that clear stays where it has a cause. The two loops that fail pending compactions now use the entry they are already iterating instead of looking it up a second time. No behavior changes.
-
-### Fixed
-
-- **pi-link's tools are callable directly under Oh My Pi.** The three tools are registered with `loadMode: "essential"`, so harnesses that hide extension tools by default, such as Oh My Pi, list them with the other callable tools instead of behind a discovery path. Pi has no such field and ignores it.
 
 ### Compatibility
 
