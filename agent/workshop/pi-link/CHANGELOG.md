@@ -28,6 +28,10 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 - **Internal cleanup: checks that defended against nothing were removed.** The context snapshot no longer tests whether Pi provides `getContextUsage` — every supported Pi version does, and older ones are refused at load — and its formatter no longer re-checks a context window its only producer already validated. `agent_start` no longer clears the active-tool set, because `agent_end` always precedes it and already does; that clear stays where it has a cause. The two loops that fail pending compactions now use the entry they are already iterating instead of looking it up a second time. No behavior changes.
 
+### Fixed
+
+- **pi-link's tools are callable directly under Oh My Pi.** The three tools are registered with `loadMode: "essential"`, so harnesses that hide extension tools by default, such as Oh My Pi, list them with the other callable tools instead of behind a discovery path. Pi has no such field and ignores it.
+
 ### Compatibility
 
 - **Isolation holds only when every terminal runs the same version; upgrade and restart together.** There is no compatibility code. Against an old hub a new client filters its own view and its own sends, but the hub does not refuse cross-group traffic, so a terminal of another group can still deliver a message or start a compaction on it. Against a new hub an old client still sees everyone and its cross-group send is refused by the hub, arriving as the already-documented invisible routing failure.

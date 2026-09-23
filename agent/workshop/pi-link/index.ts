@@ -44,6 +44,9 @@ const BATCH_MAX_ITEMS = 20;
 const BATCH_MAX_CHARS = 16_000;
 // Visual rows of an incoming message kept while Pi's global expansion is off.
 const PREVIEW_ROWS = 6;
+// Consumed by harnesses that hide extension tools by default (Oh My Pi);
+// ignored by Pi, whose ToolDefinition has no such field.
+const TOP_LEVEL_TOOL = { loadMode: "essential" } as const;
 
 // ─── Protocol ────────────────────────────────────────────────────────────────
 
@@ -1566,6 +1569,7 @@ export default function (pi: ExtensionAPI) {
   // ── Tools ────────────────────────────────────────────────────────────────
 
   pi.registerTool({
+    ...TOP_LEVEL_TOOL,
     name: "link_send",
     label: "Link Send",
     description: [
@@ -1630,6 +1634,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    ...TOP_LEVEL_TOOL,
     name: "link_compact",
     label: "Link Compact",
     description: [
@@ -1742,6 +1747,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    ...TOP_LEVEL_TOOL,
     name: "link_list",
     label: "Link List",
     description: "List the Pi terminals in your group currently connected to the link.",
