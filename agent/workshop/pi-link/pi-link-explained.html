@@ -64,16 +64,18 @@
   figcaption { font-size: 13.5px; color: var(--muted); margin-top: 12px; }
 
   /* SVG vocabulary */
-  svg text { font-family: var(--sans); fill: var(--fg); font-size: 14px; }
+  svg { font: 14px var(--sans); }
+  svg text { fill: var(--fg); }
   svg .mono { font-family: var(--mono); font-size: 12.5px; }
   svg .muted { fill: var(--muted); }
   svg .small { font-size: 12px; }
   svg .box { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
   svg .box.accent { fill: var(--accent-soft); stroke: var(--accent); }
-  svg .box.dashed { stroke-dasharray: 5 5; fill: none; }
   svg .wire { stroke: var(--muted); stroke-width: 1.5; fill: none; }
   svg .wire.accent { stroke: var(--accent); stroke-width: 2; }
   svg .wire.dash { stroke-dasharray: 4 5; }
+  svg .wire.warn { stroke: var(--warn); }
+  svg .wire.ok { stroke: var(--ok); }
   svg .dot { fill: var(--accent); }
   svg .ok { fill: var(--ok); } svg .warn { fill: var(--warn); } svg .hot { fill: var(--hot); }
   svg .arrowhead { fill: var(--muted); }
@@ -230,31 +232,27 @@
 
     <figure class="reveal">
       <svg viewBox="0 0 760 300" role="img" aria-label="Hub and spoke topology">
-        <g class="draw-group">
-          <path class="wire accent draw" d="M380 150 L 150 60"/>
-          <path class="wire accent draw" d="M380 150 L 150 240"/>
-          <path class="wire accent draw" d="M380 150 L 610 60"/>
-          <path class="wire accent draw" d="M380 150 L 610 240"/>
-        </g>
+        <path class="wire accent draw" d="M380 150 L 150 60"/>
+        <path class="wire accent draw" d="M380 150 L 150 240"/>
+        <path class="wire accent draw" d="M380 150 L 610 60"/>
+        <path class="wire accent draw" d="M380 150 L 610 240"/>
         <circle cx="380" cy="150" r="64" class="box accent"/>
         <text x="380" y="142" text-anchor="middle" font-weight="600">hub</text>
         <text x="380" y="162" text-anchor="middle" class="mono small">:9900</text>
         <text x="380" y="180" text-anchor="middle" class="small muted">WS + GET /status</text>
 
-        <g>
-          <rect class="box" x="70" y="34" width="150" height="52" rx="10"/>
-          <text x="145" y="58" text-anchor="middle" font-weight="600">builder</text>
-          <text x="145" y="76" text-anchor="middle" class="small muted">client</text>
-          <rect class="box" x="70" y="214" width="150" height="52" rx="10"/>
-          <text x="145" y="238" text-anchor="middle" font-weight="600">reviewer</text>
-          <text x="145" y="256" text-anchor="middle" class="small muted">client</text>
-          <rect class="box" x="540" y="34" width="150" height="52" rx="10"/>
-          <text x="615" y="58" text-anchor="middle" font-weight="600">archon@pi-link</text>
-          <text x="615" y="76" text-anchor="middle" class="small muted">client</text>
-          <rect class="box" x="540" y="214" width="150" height="52" rx="10"/>
-          <text x="615" y="238" text-anchor="middle" font-weight="600">t-a1b2</text>
-          <text x="615" y="256" text-anchor="middle" class="small muted">client · random name</text>
-        </g>
+        <rect class="box" x="70" y="34" width="150" height="52" rx="10"/>
+        <text x="145" y="58" text-anchor="middle" font-weight="600">builder</text>
+        <text x="145" y="76" text-anchor="middle" class="small muted">client</text>
+        <rect class="box" x="70" y="214" width="150" height="52" rx="10"/>
+        <text x="145" y="238" text-anchor="middle" font-weight="600">reviewer</text>
+        <text x="145" y="256" text-anchor="middle" class="small muted">client</text>
+        <rect class="box" x="540" y="34" width="150" height="52" rx="10"/>
+        <text x="615" y="58" text-anchor="middle" font-weight="600">archon@pi-link</text>
+        <text x="615" y="76" text-anchor="middle" class="small muted">client</text>
+        <rect class="box" x="540" y="214" width="150" height="52" rx="10"/>
+        <text x="615" y="238" text-anchor="middle" font-weight="600">t-a1b2</text>
+        <text x="615" y="256" text-anchor="middle" class="small muted">client · random name</text>
       </svg>
       <figcaption>The hub is just a terminal that got there first. It is also a participant: it has its own model, tools and inbox.</figcaption>
     </figure>
@@ -416,11 +414,9 @@
 
         <rect class="box" x="480" y="130" width="260" height="70" rx="10"/>
         <text x="496" y="154" font-weight="600">inbox</text>
-        <g>
-          <rect x="560" y="146" width="22" height="14" rx="3" class="dot"/>
-          <rect x="588" y="146" width="22" height="14" rx="3" class="dot" opacity=".7"/>
-          <rect x="616" y="146" width="22" height="14" rx="3" class="dot" opacity=".45"/>
-        </g>
+        <rect x="560" y="146" width="22" height="14" rx="3" class="dot"/>
+        <rect x="588" y="146" width="22" height="14" rx="3" class="dot" opacity=".7"/>
+        <rect x="616" y="146" width="22" height="14" rx="3" class="dot" opacity=".45"/>
         <text x="496" y="184" class="small muted">first arrival arms a 200 ms window</text>
 
         <rect class="box" x="220" y="130" width="220" height="70" rx="10"/>
@@ -464,7 +460,7 @@
       <svg viewBox="0 0 760 330" role="img" aria-label="Status derivation and publication">
         <text x="20" y="26" class="small muted">Pi events</text>
         <g class="mono small">
-          <rect class="box" x="20" y="38" width="150" height="26" rx="6"/><text x="30" y="56">agent_start / settled</text>
+          <rect class="box" x="20" y="38" width="150" height="26" rx="6"/><text x="30" y="56">agent_*</text>
           <rect class="box" x="20" y="72" width="150" height="26" rx="6"/><text x="30" y="90">tool_execution_*</text>
           <rect class="box" x="20" y="106" width="150" height="26" rx="6"/><text x="30" y="124">session_*compact</text>
         </g>
@@ -546,7 +542,7 @@
 
         <rect class="box accent" x="270" y="144" width="300" height="30" rx="8"/>
         <text x="284" y="164" class="mono small">compactRunning = true</text>
-        <path class="wire hot draw" d="M570 159 H 644" stroke="var(--warn)" marker-end="url(#ah)"/>
+        <path class="wire warn draw" d="M570 159 H 644" marker-end="url(#ah)"/>
         <text x="578" y="151" class="small warn">held</text>
 
         <rect class="box" x="270" y="186" width="300" height="30" rx="8"/>
@@ -557,7 +553,7 @@
 
         <rect class="box" x="270" y="270" width="300" height="30" rx="8"/>
         <text x="284" y="290" class="mono small">onComplete / onError → finish()</text>
-        <path class="wire draw" d="M570 285 H 644" stroke="var(--ok)" marker-end="url(#ah)"/>
+        <path class="wire ok draw" d="M570 285 H 644" marker-end="url(#ah)"/>
         <text x="578" y="277" class="small ok">drains</text>
 
         <path class="wire accent draw" d="M414 330 H 116" marker-end="url(#aha)"/>
@@ -656,7 +652,7 @@
   const bar = document.getElementById("progress");
   addEventListener("scroll", () => {
     const h = document.documentElement;
-    bar.style.transform = `scaleX(${h.scrollTop / (h.scrollHeight - h.clientHeight || 1)})`;
+    bar.style.transform = `scaleX(${h.scrollTop / (h.scrollHeight - h.clientHeight)})`;
   }, { passive: true });
 
   const reveal = new IntersectionObserver((entries) => {
@@ -668,7 +664,7 @@
   const spy = new IntersectionObserver((entries) => {
     for (const e of entries) if (e.isIntersecting) {
       links.forEach((a) => a.classList.remove("active"));
-      links.get(e.target.id)?.classList.add("active");
+      links.get(e.target.id).classList.add("active");
     }
   }, { rootMargin: "-40% 0px -55% 0px" });
   document.querySelectorAll("section[id]").forEach((s) => spy.observe(s));
