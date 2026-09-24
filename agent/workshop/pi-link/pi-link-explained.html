@@ -132,7 +132,7 @@
 <main>
   <header class="hero">
     <div class="eyebrow">pi-link · how it works</div>
-    <h1>Several Pi terminals,<br>one conversation between them.</h1>
+    <h1>Several Pi terminals,<br>talking to each other.</h1>
     <p class="lede">A Pi extension that lets terminals on the same machine find each other, send
       each other work, see who is busy, and ask each other to compact. This page follows the
       real code, one piece at a time.</p>
@@ -144,7 +144,8 @@
     <div class="num">01</div>
     <h2>The pieces</h2>
     <p>Three files do the work, plus Pi itself. The extension is the core: every terminal loads the
-      same <code>index.ts</code> and ends up either hosting the network or joining it.</p>
+      same <code>index.ts</code> and, once linked (<code>--link</code>, the launcher or <code>/link-connect</code>),
+      either hosts the network or joins it.</p>
 
     <div class="cards reveal">
       <div class="card"><span class="path">index.ts</span><b>The extension</b>
@@ -314,9 +315,7 @@
   <section id="joining">
     <div class="num">04</div>
     <h2>Joining, and who you are</h2>
-    <p>A client's first frame is <code>register</code>, carrying the name it wants, its cwd and its
-      context. The hub answers with <code>welcome</code>, the assigned name plus a snapshot of everyone
-      already connected, then tells the others with <code>terminal_joined</code>.</p>
+    <p>A client introduces itself with <code>register</code>; the hub answers and tells everyone else.</p>
 
     <figure class="reveal">
       <svg viewBox="0 0 760 250" role="img" aria-label="Join sequence">
@@ -329,7 +328,7 @@
         <text x="130" y="72" class="mono">register { name, cwd, context }</text>
 
         <path class="wire accent draw" d="M380 130 H 126" marker-end="url(#aha)"/>
-        <text x="136" y="122" class="mono">welcome { name, everyone's snapshot }</text>
+        <text x="136" y="122" class="mono">welcome { name, peers' snapshots }</text>
 
         <path class="wire draw" d="M380 180 H 634" marker-end="url(#ah)"/>
         <text x="390" y="172" class="mono">terminal_joined</text>
@@ -341,15 +340,15 @@
     </figure>
 
     <h3>Names</h3>
-    <p>The requested name is resolved once per session, in this order:</p>
+    <p>The requested name is resolved at session start, in this order (<code>/link-name</code> changes it later):</p>
     <div class="chips">
       <span class="chip">--link-name</span><span class="chip"><i>›</i> PI_LINK_NAME</span>
       <span class="chip"><i>›</i> saved via /link-name</span><span class="chip"><i>›</i> session name</span>
       <span class="chip"><i>›</i> random <b>t-a1b2</b></span>
     </div>
     <p>The hub keeps names unique with <code>uniqueName()</code>: a second <code>builder</code> becomes
-      <code>builder-2</code>. The name you <em>asked</em> for is what gets saved and requested again on
-      reconnect, not the suffixed one.</p>
+      <code>builder-2</code>. A name you set explicitly (flag, launcher or <code>/link-name</code>) is saved and
+      requested again on reconnect; a hub suffix never is.</p>
 
     <h3>Groups</h3>
     <p>A name like <code>archon@pi-link</code> belongs to group <code>pi-link</code>, the text after the
@@ -369,7 +368,7 @@
       <table>
         <tr><th>Frame</th><th>Direction</th><th>Purpose</th></tr>
         <tr><td><code>register</code></td><td>client → hub</td><td>Ask for a name; report cwd and context</td></tr>
-        <tr><td><code>welcome</code></td><td>hub → client</td><td>Assigned name and everyone's snapshot</td></tr>
+        <tr><td><code>welcome</code></td><td>hub → client</td><td>Assigned name and the peers' snapshots</td></tr>
         <tr><td><code>terminal_joined</code></td><td>hub → all</td><td>Someone arrived</td></tr>
         <tr><td><code>terminal_left</code></td><td>hub → all</td><td>Someone left</td></tr>
         <tr><td><code>chat</code></td><td>any → any</td><td>A message for the receiver's model</td></tr>
@@ -491,7 +490,7 @@
         <path class="wire accent draw" d="M675 132 V 196" marker-end="url(#aha)"/>
         <rect class="box" x="480" y="200" width="260" height="56" rx="10"/>
         <text x="496" y="222" class="mono small">status_update { status, context }</text>
-        <text x="496" y="242" class="small muted">context = tokens / contextWindow, read now</text>
+        <text x="496" y="242" class="small muted">context = { tokens, contextWindow } or null, read now</text>
 
         <text x="20" y="220" font-weight="600">Forced pushes</text>
         <text x="20" y="240" class="small muted">publish even when the status is unchanged,</text>
@@ -509,9 +508,9 @@
 
     <p><b>Why compacting comes first.</b> Reporting <code>compacting</code> and holding delivery are the
       same condition, <code>compactionGated()</code>, so a peer's view and the inbox cannot drift apart.</p>
-    <p><b>Why context rides along.</b> The context snapshot is read at push time, so every status change
-      carries a fresh figure. The forced pushes cover changes that alter usage without changing status:
-      after a compaction, a model switch (the window changes, so the percentage does too) and a move
+    <p><b>Why context rides along.</b> Every push reads the context again and carries it, or null when there is
+      none; peers compute the percentage when they show it. The forced pushes cover changes that alter usage without changing status:
+      after a compaction, a model switch (the window can change, and with it the percentage) and a move
       to another branch of the session tree.</p>
     <p><b>Parallel tools don't churn.</b> The displayed tool is the first still-running call; a second
       starting behind it is silent.</p>
@@ -527,11 +526,11 @@
       and waits for the answer, at most five minutes. The target decides.</p>
 
     <figure class="reveal">
-      <svg viewBox="0 0 760 360" role="img" aria-label="Remote compaction sequence">
+      <svg viewBox="0 0 760 400" role="img" aria-label="Remote compaction sequence">
         <text x="110" y="26" text-anchor="middle" font-weight="600">requester</text>
         <text x="420" y="26" text-anchor="middle" font-weight="600">target</text>
         <text x="650" y="26" text-anchor="middle" font-weight="600">target's inbox</text>
-        <path class="wire dash" d="M110 38 V 350"/><path class="wire dash" d="M420 38 V 350"/><path class="wire dash" d="M650 38 V 350"/>
+        <path class="wire dash" d="M110 38 V 390"/><path class="wire dash" d="M420 38 V 390"/><path class="wire dash" d="M650 38 V 390"/>
 
         <path class="wire accent draw" d="M110 66 H 414" marker-end="url(#aha)"/>
         <text x="120" y="58" class="mono">compact_request { instructions }</text>
@@ -548,26 +547,33 @@
         <rect class="box" x="270" y="186" width="300" height="30" rx="8"/>
         <text x="284" y="206" class="mono small">ctx.compact()</text>
 
-        <rect class="box" x="270" y="228" width="300" height="30" rx="8"/>
-        <text x="284" y="248" class="mono small">session_before_compact → localCompacting</text>
+        <rect class="box" x="270" y="228" width="300" height="44" rx="8"/>
+        <text x="284" y="246" class="mono small">session_before_compact</text>
+        <text x="284" y="263" class="small muted">if reached → localCompacting = true</text>
 
-        <rect class="box" x="270" y="270" width="300" height="30" rx="8"/>
-        <text x="284" y="290" class="mono small">onComplete / onError → finish()</text>
-        <path class="wire ok draw" d="M570 285 H 644" marker-end="url(#ah)"/>
-        <text x="578" y="277" class="small ok">drains</text>
+        <rect class="box" x="270" y="284" width="300" height="30" rx="8"/>
+        <text x="284" y="304" class="mono small">onComplete → finish()</text>
+        <path class="wire ok draw" d="M570 299 H 644" marker-end="url(#ah)"/>
+        <text x="578" y="291" class="small ok">drains</text>
 
-        <path class="wire accent draw" d="M414 330 H 116" marker-end="url(#aha)"/>
-        <text x="130" y="322" class="mono">compact_response { ok, reason? }</text>
+        <rect class="box" x="270" y="324" width="300" height="30" rx="8"/>
+        <text x="284" y="344" class="mono small">onError → finish()</text>
+        <path class="wire warn draw" d="M570 339 H 644" marker-end="url(#ah)"/>
+        <text x="578" y="331" class="small warn">held*</text>
+
+        <path class="wire accent draw" d="M414 376 H 116" marker-end="url(#aha)"/>
+        <text x="130" y="368" class="mono">compact_response { ok, reason? }</text>
       </svg>
-      <figcaption>Two gates, one condition: a remote request raises <span class="mono">compactRunning</span> before Pi's own hook raises <span class="mono">localCompacting</span>.</figcaption>
+      <figcaption>Two gates, one condition: a remote request raises <span class="mono">compactRunning</span> before Pi's own hook raises <span class="mono">localCompacting</span>. *Held only if the error came after the hook; see below.</figcaption>
     </figure>
 
     <p><b>Why hold the inbox at all.</b> A message delivered while the context is being rebuilt would be
       reasoned about against context that is about to disappear. Automatic compaction is left alone:
       it runs inside an agent run, where Pi already queues steered messages.</p>
     <p><b>Timeouts bound waiting, nothing else.</b> A requester that gives up does not abort the target;
-      the compaction runs to its own end. A local gate left up by a failure is released by the next
-      run, a later compaction, or a 300&nbsp;s backstop.</p>
+      the compaction runs to its own end. An error before Pi's hook drains the inbox at once; one after it
+      leaves <code>localCompacting</code> up until the next run, a later successful compaction, or a
+      300&nbsp;s backstop.</p>
   </section>
 
   <!-- 9 ─────────────────────────────────────────── -->
@@ -575,8 +581,8 @@
     <div class="num">09</div>
     <h2>When the hub dies</h2>
     <p>Clients see their socket close, go <code>disconnected</code>, and schedule a reconnect after a
-      random 2–5 seconds. Then they run the same <code>initialize()</code> as at startup. The first to
-      retry finds no hub, binds the port and becomes one; the rest join it.</p>
+      random 2–5 seconds. Then they run the same <code>initialize()</code> as at startup. Whoever first
+      binds the port becomes the hub; the rest join it, or retry if they lose the race.</p>
 
     <figure class="reveal">
       <svg viewBox="0 30 760 110" role="img" aria-label="Hub promotion timeline">
@@ -590,7 +596,7 @@
         <text x="300" y="124" text-anchor="middle" class="small muted">in-flight messages can be lost</text>
 
         <circle cx="470" cy="90" r="9" class="ok"/>
-        <text x="470" y="70" text-anchor="middle" class="small" font-weight="600">first retry → hub</text>
+        <text x="470" y="70" text-anchor="middle" class="small" font-weight="600">first bind → hub</text>
         <text x="470" y="120" text-anchor="middle" class="small muted">keeps its name</text>
 
         <circle cx="620" cy="90" r="9" class="dot"/>
@@ -613,8 +619,9 @@
         <p>Resumes the session named <code>builder</code> in this cwd (or creates it) and starts
           <code>pi --link</code>, handing the name over through <code>PI_LINK_NAME</code>, which the
           extension reads once and deletes.</p></div>
-      <div class="card"><span class="path">pi-link --list</span><b>Find sessions</b>
-        <p>Scans Pi's session directory with the same lookup rules Pi uses, so it sees what Pi sees.</p></div>
+      <div class="card"><span class="path">pi-link --list · --resolve</span><b>Find sessions</b>
+        <p><code>--list</code> shows saved pi-link sessions for this cwd (every cwd with
+          <code>--global</code>); <code>--resolve &lt;name&gt;</code> prints one's path.</p></div>
       <div class="card"><span class="path">pi-link --status [--json]</span><b>Ask the hub</b>
         <p>Plain HTTP <code>GET /status</code> on the hub's port. The hub owns the HTTP server its
           WebSocket server rides on, which is what makes this possible.</p></div>
@@ -634,7 +641,7 @@
         <tr><td>Names & groups</td><td><code>normalizeName</code> <code>groupOf</code> <code>uniqueName</code></td></tr>
         <tr><td>Inbox & gate</td><td><code>scheduleFlush</code> <code>flushInbox</code> <code>compactionGated</code> <code>releaseInbox</code></td></tr>
         <tr><td>Routing</td><td><code>routeMessage</code> <code>handleIncoming</code> <code>hubBroadcast</code> <code>hubHandleClient</code></td></tr>
-        <tr><td>Connection</td><td><code>initialize</code> <code>connectAsClient</code> <code>startHub</code> <code>scheduleReconnect</code> <code>disconnect</code> <code>cleanup</code></td></tr>
+        <tr><td>Connection</td><td><code>initialize</code> <code>runAttempt</code> <code>connectAsClient</code> <code>startHub</code> <code>scheduleReconnect</code> <code>disconnect</code> <code>cleanup</code></td></tr>
         <tr><td>Pi integration</td><td><code>pi.on(…)</code> handlers · <code>registerTool</code> × 3 · <code>registerCommand</code> × 4</td></tr>
       </table>
     </div>
