@@ -81,13 +81,13 @@
   svg .arrowhead { fill: var(--muted); }
   svg .arrowhead.accent { fill: var(--accent); }
 
-  /* draw-in on reveal */
-  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
-  .reveal.in { opacity: 1; transform: none; }
-  .reveal .draw { stroke-dasharray: 600; stroke-dashoffset: 600; transition: stroke-dashoffset 1.4s ease .2s; }
-  .reveal.in .draw { stroke-dashoffset: 0; }
+  /* draw-in on reveal; hidden only once the script that reveals it runs */
+  .js .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
+  .js .reveal.in { opacity: 1; transform: none; }
+  .js .reveal .draw { stroke-dasharray: 600; stroke-dashoffset: 600; transition: stroke-dashoffset 1.4s ease .2s; }
+  .js .reveal.in .draw { stroke-dashoffset: 0; }
   @media (prefers-reduced-motion: reduce) {
-    .reveal, .reveal .draw { transition: none; opacity: 1; transform: none; stroke-dashoffset: 0; }
+    .js .reveal, .js .reveal .draw { transition: none; opacity: 1; transform: none; stroke-dashoffset: 0; }
     .scroll-hint span { animation: none; }
   }
 
@@ -206,13 +206,13 @@
         <rect class="box" x="580" y="40" width="160" height="70" rx="10"/>
         <text x="596" y="66" font-weight="600">Skill</text>
         <text x="596" y="86" class="small muted">read by the model</text>
-        <path class="wire dash draw" d="M580 75 H 540" marker-end="url(#ah)"/>
+        <path class="wire dash" d="M580 75 H 540" marker-end="url(#ah)"/>
 
         <rect class="box" x="580" y="140" width="160" height="80" rx="10"/>
         <text x="596" y="166" font-weight="600">pi-link CLI</text>
         <text x="596" y="186" class="small muted">launches Pi,</text>
         <text x="596" y="202" class="small muted">reads GET /status</text>
-        <path class="wire dash draw" d="M580 180 H 540" marker-end="url(#ah)"/>
+        <path class="wire dash" d="M580 180 H 540" marker-end="url(#ah)"/>
 
         <rect class="box" x="580" y="250" width="160" height="60" rx="10"/>
         <text x="596" y="276" font-weight="600">Other terminals</text>
@@ -300,7 +300,7 @@
         <path class="wire draw" d="M515 95 V 58" marker-end="url(#ah)"/>
         <path class="wire draw" d="M590 125 C 650 125, 680 135, 680 166" marker-end="url(#ah)"/>
         <text x="640" y="116" class="small muted">port busy</text>
-        <path class="wire dash draw" d="M620 210 C 300 250, 95 240, 95 159" marker-end="url(#ah)"/>
+        <path class="wire dash" d="M620 210 C 300 250, 95 240, 95 159" marker-end="url(#ah)"/>
       </svg>
       <figcaption><span class="mono">runAttempt()</span>: a client first, a hub if nobody answers, a randomized retry if both lose a race.</figcaption>
     </figure>
@@ -501,7 +501,7 @@
           <rect class="box" x="252" y="270" width="104" height="26" rx="6"/><text x="262" y="288">model_select</text>
           <rect class="box" x="364" y="270" width="104" height="26" rx="6"/><text x="374" y="288">session_tree</text>
         </g>
-        <path class="wire dash draw" d="M470 283 C 520 283, 520 256, 540 258" marker-end="url(#ah)"/>
+        <path class="wire dash" d="M470 283 C 520 283, 520 256, 540 258" marker-end="url(#ah)"/>
       </svg>
       <figcaption><span class="mono">statusIdentity()</span> is the single definition of "the same status": the dedupe and the "since" clock both use it, so they can never disagree.</figcaption>
     </figure>
@@ -662,6 +662,7 @@
     bar.style.transform = `scaleX(${h.scrollTop / (h.scrollHeight - h.clientHeight)})`;
   }, { passive: true });
 
+  document.documentElement.classList.add("js");
   const reveal = new IntersectionObserver((entries) => {
     for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); reveal.unobserve(e.target); }
   }, { threshold: 0.15 });
