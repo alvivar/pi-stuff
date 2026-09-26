@@ -1,6 +1,6 @@
 ---
 name: pi-link-review-loop
-description: Minimal implement→review→fix loop across PI terminals over pi-link. For the ORCHESTRATOR — hold the goal, hand work to an implementer, get every change reviewed by an independent reviewer, and relay findings until approved. Leaves how to build, verify and review to the models. Requires pi-link-tools for transport.
+description: Minimal implement→review→fix→commit loop across PI terminals over pi-link. For the ORCHESTRATOR — hold the goal, hand work to an implementer, get every change reviewed by an independent reviewer, relay findings until approved, then have a committer commit it. Leaves how to build, verify and review to the models. Requires pi-link-tools for transport.
 ---
 
 # Review loop
@@ -10,19 +10,24 @@ inconsistent or could be better. An independent reviewer catches most of it. Thi
 skill is the smallest structure that keeps that loop working: direction, review,
 convergence. Everything else is judgment.
 
-Read **pi-link-tools** first: messages are one-way, callbacks are ordinary
-messages, and a send ends your turn.
+Read **pi-link-tools** first for how messages, callbacks and remote compaction
+actually behave.
 
 ## Roles
 
 - **Orchestrator** (you): understands the goal, keeps it, splits it into tasks if
-  needed, and decides when it is done. Does not implement or review: that is what
-  makes the other two roles independent, and what keeps your context free for the
-  whole goal.
+  needed, shows the user the task split before the first TASK, and decides when
+  it is done. Does not implement or review: that is what makes the other roles
+  independent, and what keeps your context free for the whole goal.
 - **Implementer**: does the task with its own judgment and verifies its own work.
+  Does not commit.
 - **Reviewer**: a different terminal from the implementer. Reads the actual change
   and judges it against the goal, the project's principles and quality, not
   against a checklist.
+- **Committer**: a fourth terminal. Commits exactly the approved change, by
+  explicit paths, and reports the hash. Blocks rather than cleans if the worktree
+  is not what it expected. Separate from the reviewer so the commit is a check,
+  not a formality.
 
 ## The loop
 
@@ -33,10 +38,13 @@ DONE      ← implementer   what changed, how it was verified, what it decided a
 REVIEW    → reviewer      the goal, where to see the change, the DONE report verbatim
 APPROVE   ← reviewer      or CHANGES: concrete findings (what, where, why, how to fix)
 FIX       → implementer   the findings verbatim; then REVIEW again
+COMMIT    → committer     paths, branch, message; the hash goes to your task list
+COMMITTED ← committer     or BLOCKED: what the worktree looked like
 ```
 
-Each message ends your turn; you resume when the reply arrives. One task in flight
-per implementer. Each task should be one coherent, reviewable change.
+Each message ends your turn; you resume when the reply arrives. Each task is one
+coherent, reviewable change. Commit a task before starting the next: uncommitted
+changes from two tasks are inseparable in `git diff`.
 
 Example TASK:
 
@@ -47,6 +55,7 @@ Goal: HTTP client retries idempotent requests on 502/503/504, up to 3 times,
 Why: flaky upstream during deploys; callers currently fail on the first 503.
 Boundaries: src/http/client.ts and its tests only; no new dependencies.
 Done when: existing tests pass, new tests cover retry and the no-retry case.
+Do not commit.
 Reply DONE (what changed, how verified, decisions you made) or BLOCKED.
 ```
 
@@ -70,5 +79,5 @@ Reply DONE (what changed, how verified, decisions you made) or BLOCKED.
 
 ## Outside the loop
 
-- Committing is not part of the loop unless the user says so.
+- Pushing, amending, version bumps and lockfile changes: only if the user says so.
 - Anything beyond the stated goal goes back to the user, not into a task.
