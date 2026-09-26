@@ -29,7 +29,7 @@ Rules:
 - BLOCK on out-of-scope staged changes, unexpected branch/HEAD, detached HEAD,
   merge/rebase, unauthorized partial staging, a listed path missing/renamed,
   broad line-ending churn or hooks mutating files. Do not clean others' work.
-- No push/amend, skipped hooks, version/lockfile changes unless permitted.
+- No push/amend, skipped hooks, version/lockfile changes unless authorized.
 - Verify staged scope before commit and report post-commit status.
 
 Callback via link_send to <orchestrator>: <task-id> COMMITTED <hash>, with

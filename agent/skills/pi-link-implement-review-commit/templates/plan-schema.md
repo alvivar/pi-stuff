@@ -8,7 +8,7 @@ self-contained; observations do not each need an ID, audit table or deliverable.
 - Approved outcome and exclusions.
 - Absolute repository path, expected branch/HEAD and known baseline state.
 - Ordered tasks and allowed paths; standing constraints/permissions declared once.
-- Autonomy/go, or pending go; baseline verification to perform.
+- Autonomy/go, or pending authorization; baseline verification to perform.
 
 ## Each task
 
@@ -33,5 +33,5 @@ or turn every observed nit into scope.
 
 Record permitted run-through corrections and explicit path changes before edits;
 retain required user ratification for changed outcomes or material risk under
-SKILL.md §8. Review amendments with their implementation. Run-state transitions
+SKILL.md §3. Review amendments with their implementation. Run-state transitions
 belong in the ledger, not repeated throughout this plan.

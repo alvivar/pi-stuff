@@ -11,7 +11,7 @@ Diff: git -C <root> diff -- <in-scope paths>
 New/untracked in-scope files, read directly: <absolute paths or none>.
 Expected dirt/stage and ownership: <including protected ledger path if present>.
 
-Scope/outcome: <task only, including permitted amendments>.
+Scope/outcome: <task only, including authorized amendments>.
 Highest-risk checks:
 - <few properties to scrutinize, including sensitive invariants>
 Material declarations from implementer (verbatim): <declarations or none>.
