@@ -8,7 +8,7 @@ self-contained; observations do not each need an ID, audit table or deliverable.
 - Approved outcome and exclusions.
 - Absolute repository path, expected branch/HEAD and known baseline state.
 - Ordered tasks and allowed paths; standing constraints/permissions declared once.
-- Autonomy/go, or pending authorization; baseline verification to perform.
+- Autonomy/go, or pending go; baseline verification to perform.
 
 ## Each task
 

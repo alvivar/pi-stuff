@@ -1,6 +1,7 @@
 # Run ledger — temporary, never stage
 
-Update at dispatch, callback, verdict and commit, not just at ADVANCE. Default
+Enough to resume after the orchestrator's own compaction. Update at dispatch,
+callback, verdict and commit, not just at ADVANCE. Default
 location: next to the plan; another agreed absolute path is also valid. Delete
 only this run-state file at run end.
 
@@ -10,7 +11,7 @@ only this run-state file at run end.
 - Repo/branch/baseline HEAD: <values>
 - Baseline gate/status: <required evidence, result, expected dirt/stage>
 - User go: "<quote>"
-- Autonomy: <run-through | gate-per-task>
+- Autonomy: <run-through | approve-per-task>
 - Bindings from link_list: <role → full terminal name + cwd>
 
 ## Tasks
@@ -21,8 +22,8 @@ only this run-state file at run end.
 
 ## Decisions and routed findings
 
-- Amendments: <change, authority, affected paths/task>.
-- Should-fix: <finding → authorized task or run-end disclosure; disposition>.
+- Amendments: <change, permission, affected paths/task>.
+- Should-fix: <finding → permitted task or run-end disclosure; disposition>.
 - Material declarations/dissent: <record or durable location; relay declarations verbatim>.
 - Blockers/permissions: <what is paused, what is needed>.
 
