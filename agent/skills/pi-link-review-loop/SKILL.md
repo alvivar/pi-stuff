@@ -5,21 +5,23 @@ description: Minimal implement→review→fix→commit loop across PI terminals 
 
 # Review loop
 
-A first attempt is rarely right, even for a capable model: something is missed,
-inconsistent or could be better. An independent reviewer does not share its blind
-spots. This skill is the smallest structure that keeps that loop working:
-direction, review, convergence. Everything else is judgment.
+Even a capable model cannot see its own blind spots; an independent reviewer
+has different ones. This skill is the smallest structure that keeps that loop
+working: direction, review, convergence. Everything else is judgment.
 
 Read **pi-link-tools** first for how messages, callbacks and remote compaction
 actually behave.
 
 ## Roles
 
+Roles limit what each may act on and own, not what it may think about.
+
 - **Orchestrator** (you): understands the goal, keeps it, splits it into tasks if
   needed, shows the user the task split before the first TASK, and decides when
-  the goal, not only each task, is done. Does not implement or review: that is
-  what makes the other roles independent, and what keeps your context free for
-  the whole goal.
+  the goal, not only each task, is done. Does not implement, and does not own
+  the verdict on the code; reading it to judge the goal is fine. That is what
+  makes the other roles independent, and what keeps your context free for the
+  whole goal.
 - **Implementer**: does the task with its own judgment and verifies its own work.
   Does not stage or commit.
 - **Reviewer**: a different terminal from the implementer. Reads the actual change,
@@ -38,7 +40,8 @@ DONE      ← implementer   what changed, how it was verified, decisions affecti
                           goal, scope or behavior (or BLOCKED: what is missing)
 REVIEW    → reviewer      the goal, where to see the change, the DONE report verbatim
 APPROVE   ← reviewer      or CHANGES: concrete findings (what, where, why, how to fix)
-FIX       → implementer   the findings verbatim; then REVIEW again
+FIX       → implementer   the findings verbatim, your dissent alongside if any;
+                          then REVIEW again
 COMMIT    → committer     paths, branch, message; the hash goes to your task list
 COMMITTED ← committer     or BLOCKED: what the worktree looked like
 ```
@@ -68,9 +71,9 @@ scope or behavior) or "add-retry BLOCKED" via link_send to designer@pi-link.
   and name new files; `git diff` does not show untracked ones.
 - **Unverified is not done.** The implementer says how it verified; the reviewer
   checks that the verification actually exercises the change.
-- **Bounded convergence.** Two fix rounds usually suffice. If it is not
-  converging, the disagreement belongs to the user: bring both positions and
-  your recommendation.
+- **Bounded convergence.** Two fix rounds usually suffice. A round that brings
+  no new information is not converging: then the disagreement belongs to the
+  user; bring both positions and your recommendation.
 - **Compaction can come at any time,** yours or a worker's. Keep the goal, the
   task list and what is pending in a small file, and do not repeat a step just
   because a summary lost its callback. Check a worker's context (`link_list`)
