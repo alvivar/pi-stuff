@@ -33,5 +33,5 @@ or turn every observed nit into scope.
 
 Record permitted run-through corrections and explicit path changes before edits;
 retain required user ratification for changed outcomes or material risk under
-SKILL.md §3. Review amendments with their implementation. Run-state transitions
+SKILL.md §8. Review amendments with their implementation. Run-state transitions
 belong in the ledger, not repeated throughout this plan.

@@ -23,7 +23,7 @@ References (their fields are required; their wording is an example):
 1. Read a self-contained plan on disk: approved outcome, tasks in order, paths,
    invariants, risks, verification and standing constraints. Repair an incomplete
    plan before delegating; group coherent changes rather than making every
-   observation a task.
+   observation a task, and size each task so a full review/repair cycle fits.
 2. Bind roles with `link_list`, using full terminal names and verifying cwd/repo.
    Record bindings; do not start with an absent or ambiguous required role.
 
@@ -43,25 +43,26 @@ References (their fields are required; their wording is an example):
 5. Dispatch the implementer to verify branch/HEAD, worktree and staged state, and
    run the applicable baseline gate before edits. Unexpected staged changes or a
    red baseline block implementation: report the facts; do not clean others' work
-   or silently repair the baseline.
+   or silently repair the baseline. *Expected dirt* means the uncommitted changes
+   you expect in the worktree, and who owns them; briefs and the ledger record it.
 
-## 2. Run one task at a time
+## 2. The task loop
 
 The pipeline is **serial-only**. All worker communication routes through you;
 workers do not delegate to each other.
 
 ```
-PREPARE    check worker availability/context (§6); send self-contained brief
+PREPARE    check worker availability/context (§7); send self-contained brief (§3)
 IMPLEMENT  implementer reads plan against current source before editing;
            contradictions → BLOCKED with proposed correction and affected behavior
 WAIT       end your turn; resume on the named DONE/BLOCKED callback
-GATE       required evidence passed? otherwise bounded repair or escalate (§5)
-REVIEW     send actual diff/new-file paths and material declarations to reviewer
+GATE       required evidence passed (§4)? otherwise bounded repair or escalate (§5)
+REVIEW     send actual diff/new-file paths and material declarations to reviewer (§3)
 WAIT       end your turn; resume on APPROVE / CHANGES-NEEDED / BLOCKED
 CONVERGE   relay findings, repair and re-review within §5's cap
 HOLD       approve-per-task only: explain outcome/verdict; await user's commit go
-COMMIT     dispatch committer; wait for hash and final worktree status
-ADVANCE    record completion; assess context for next task
+COMMIT     dispatch committer (§6); wait for hash and final worktree status
+ADVANCE    record completion (§9); assess context for next task (§7)
 ```
 
 **WAIT means end your turn**, not sleep or poll. If a callback asks for something
@@ -72,30 +73,7 @@ result.
 **Commit before the next IMPLEMENT.** Each review covers that task's uncommitted
 changes, not a batch of tasks.
 
-## 3. The go and scope changes during a run
-
-Every execution dispatch carries the user's go in its body. Under
-run-through, the orchestrator may incorporate small, directly necessary
-corrections to achieve the approved outcome, including related documentation.
-They must not expand the approved external behavior or add dependencies, cost,
-destructive data operations, security changes or material risk. This is not
-permission for unrelated cleanup or new features in an already-approved file.
-
-Record these amendments in the plan/ledger, update the plan's task path list
-before edits and the committer's path list before dispatch, and have the reviewer
-evaluate them. If the plan is tracked in git, commit its amendments with that
-task's implementation; otherwise the ledger record suffices.
-
-**Changed outcomes or material risk require user ratification**; a worker
-declaration alone never permits expansion. Outside run-through, request
-approval for scope amendments before executing them.
-
-**Escalation format.** An escalation to the user is self-contained: what was
-found, why a decision or permission is needed, the proposed action and
-recommendation, and what is paused or can continue. Do not make the user
-reconstruct worker messages.
-
-## 4. Briefs and evidence
+## 3. Briefs and results
 
 A brief plus the plan it references must suffice, with no prior conversation
 needed; the templates list the required fields. Every brief carries the go, task
@@ -117,7 +95,7 @@ command and name untracked files to read: `git diff` does not show them. Prior
 approvals retained through compaction are completion records, not evidence for
 the current diff.
 
-Evidence:
+## 4. Evidence
 
 - The plan names each task's **required verification and what it covers**,
   separately from optional evidence: builds/tests and task-relevant checks such as
@@ -156,12 +134,20 @@ and obtain review of the resulting changes before commit.
 - **Unresolved nonblocking preference:** the implementer's final choice wins;
   record the dissent. This tie-break never ships a failed required gate or an
   unresolved correctness/security defect. This is how opinion loops stay bounded.
-- **Stop and escalate** to the user in §3's escalation format when the cap is
+- **Stop and escalate** to the user in §8's escalation format when the cap is
   reached with a must-fix or required-evidence failure open. Escalate factual
   behavior disputes and sensitive correctness conflicts whatever the task's risk
   label.
 
-## 6. Predictive context management
+## 6. Commit
+
+The committer checks **scope and hygiene, not correctness**, following the
+[commit brief](templates/commit-brief.md): explicit pathspecs only; block rather
+than clean on unexpected state; no push, amend, skipped hooks, version or lockfile
+changes without permission. It returns hash, committed paths and post-commit
+status, or the exact failure and whether a commit landed anyway.
+
+## 7. Predictive context management
 
 **When to check.** At ADVANCE and before each new step dispatch, use `link_list`
 (or ask the worker) to assess the recipient's headroom. Estimate the coming work
@@ -172,8 +158,7 @@ successful compaction is fresh context, not a reason to compact again.
 
 **Before a task.** Compact an idle worker before it starts a task if headroom is
 doubtful, especially for large or sensitive work. Aim the summary at discoveries
-**not already in the plan**, plus standing constraints. Size tasks so a full
-review/repair cycle fits.
+**not already in the plan**, plus standing constraints.
 
 **During a task.** Once a worker has begun its step of a task, preserve its
 context through that task's commit: no compaction while it may need to repair or
@@ -185,13 +170,30 @@ work, escalate rather than silently shedding in-flight state.
 next state. Keep a brief context decision in the ledger when useful; no separate
 context-accounting table is required.
 
-## 7. Commit and run state
+## 8. Scope changes and escalation
 
-The committer checks **scope and hygiene, not correctness**, following the
-[commit brief](templates/commit-brief.md): explicit pathspecs only; block rather
-than clean on unexpected state; no push, amend, skipped hooks, version or lockfile
-changes without permission. It returns hash, committed paths and post-commit
-status, or the exact failure and whether a commit landed anyway.
+Every execution dispatch carries the user's go in its body. Under
+run-through, the orchestrator may incorporate small, directly necessary
+corrections to achieve the approved outcome, including related documentation.
+They must not expand the approved external behavior or add dependencies, cost,
+destructive data operations, security changes or material risk. This is not
+permission for unrelated cleanup or new features in an already-approved file.
+
+Record these amendments in the plan/ledger, update the plan's task path list
+before edits and the committer's path list before dispatch, and have the reviewer
+evaluate them. If the plan is tracked in git, commit its amendments with that
+task's implementation; otherwise the ledger record suffices.
+
+A worker declaration alone never permits expansion: **changed outcomes or
+material risk require user ratification**. Outside run-through, request approval
+for scope amendments before executing them.
+
+**Escalation format.** An escalation to the user is self-contained: what was
+found, why a decision or permission is needed, the proposed action and
+recommendation, and what is paused or can continue. Do not make the user
+reconstruct worker messages.
+
+## 9. Run state and closing
 
 The ledger holds enough to resume after your own compaction: roles, task and
 step, pending dispatch/callback, gate and uncovered surfaces, verdict,
@@ -202,11 +204,11 @@ After the last commit, report tasks/hashes, gate and review results, remaining
 limitations and routed/skipped items. Mark the run complete and delete its ledger.
 Do not delete other plans or prototypes merely because the run finished.
 
-## 8. Recovery
+## 10. Recovery
 
 | Observation | Action |
 | --- | --- |
-| No callback; worker idle and its context grew (it worked but did not report) | Check for an approval/context hold; restate the go and callback if needed |
+| Worker idle, context grew, no callback | It likely worked but did not report: check for an approval/context hold; restate the go and callback if needed |
 | Worker busy | Wait; silence is not failure |
 | Worker absent | Rebind, or ask the user to reconnect it, before sending; offline delivery is not queued |
 | Unexpected staged work, branch or hook mutation | Report exact status; do not reset or clean someone else's changes |
