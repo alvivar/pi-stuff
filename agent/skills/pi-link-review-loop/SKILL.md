@@ -19,15 +19,15 @@ Roles limit what each may act on and own, not what it may think about.
 - **Orchestrator** (you): understands the goal, keeps it, splits it into tasks if
   needed, shows the user the task split before the first TASK, and decides when
   the goal, not only each task, is done. Does not implement, and does not own
-  the verdict on the code; reading it to judge the goal is fine. That is what
-  makes the other roles independent, and what keeps your context free for the
-  whole goal.
+  the verdict on the code; reading it to judge the goal is fine. Not owning the
+  verdict keeps the review independent; not implementing keeps your context free
+  for the whole goal.
 - **Implementer**: does the task with its own judgment and verifies its own work.
   Does not stage or commit.
 - **Reviewer**: a different terminal from the implementer. Reads the actual change,
   read-only, and judges it against the goal, the project's principles and
   quality: a change can match the task and still miss the goal.
-- **Committer**: commits exactly the approved change, by
+- **Committer**: its own terminal. Commits exactly the approved change, by
   explicit paths, and reports the hash. Blocks rather than cleans if the worktree
   or index is not what it expected. Separate from the reviewer so the commit is
   a check, not a formality.
@@ -46,8 +46,8 @@ COMMIT    → committer     paths, branch, message; the hash goes to your task l
 COMMITTED ← committer     or BLOCKED: what the worktree looked like
 ```
 
-Each message ends your turn; you resume when the reply arrives. Replies carry the
-task id and reach you by `link_send`. Each task is one coherent, reviewable
+After dispatching work, end your turn; the callback resumes you. Replies carry
+the task id and reach you by `link_send`. Each task is one coherent, reviewable
 change. Commit a task before starting the next: this loop does not track which
 uncommitted change belongs to which task.
 
@@ -67,17 +67,17 @@ scope or behavior) or "add-retry BLOCKED" via link_send to designer@pi-link.
 
 ## What makes it work
 
-- **The reviewer reads the change, not the summary.** Give it the diff command
+- **Point the reviewer at the change, not the summary.** Give it the diff command
   and name new files; `git diff` does not show untracked ones.
 - **Unverified is not done.** The implementer says how it verified; the reviewer
   checks that the verification actually exercises the change.
-- **Bounded convergence.** Two fix rounds usually suffice. A round that brings
-  no new information is not converging: then the disagreement belongs to the
-  user; bring both positions and your recommendation.
+- **Bounded convergence.** Two fix rounds usually suffice. A round that resolves
+  nothing and settles nothing is not converging: then the disagreement belongs
+  to the user; bring both positions and your recommendation.
 - **Compaction can come at any time,** yours or a worker's. Keep the goal, the
   task list and what is pending in a small file, and do not repeat a step just
   because a summary lost its callback. Check a worker's context (`link_list`)
-  before a task and compact it then, not mid-task.
+  before a task and compact it then if needed, never mid-task.
 
 ## Outside the loop
 
