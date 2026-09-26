@@ -1,9 +1,9 @@
 ---
-name: pi-link-review-loop
-description: Minimal implement→review→fix→commit loop across PI terminals over pi-link. For the ORCHESTRATOR — hold the goal, hand work to an implementer, get every change reviewed by an independent reviewer, relay findings until approved, then have a committer commit it. Leaves how to build, verify and review to the models. Requires pi-link-tools for transport.
+name: pi-link-goal-loop
+description: Goal-driven implement→review→fix→commit loop across PI terminals over pi-link. For the ORCHESTRATOR — hold the goal, hand work to an implementer, get every change reviewed by an independent reviewer, relay findings until approved, then have a committer commit it. Leaves how to build, verify and review to the models. Requires pi-link-tools for transport.
 ---
 
-# Review loop
+# Goal loop
 
 Even a capable model cannot see its own blind spots; an independent reviewer
 has different ones. This skill is the smallest structure that keeps that loop
