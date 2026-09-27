@@ -75,8 +75,9 @@ scope or behavior) or "add-retry BLOCKED" via link_send to designer@pi-link.
   nothing and settles nothing is not converging: then the disagreement belongs
   to the user; bring both positions and your recommendation.
 - **Compaction can come at any time,** yours or a worker's. Keep the goal, the
-  task list and what is pending in a small file, and do not repeat a step just
-  because a summary lost its callback. Check a worker's context (`link_list`)
+  task list and what is pending in a small untracked file at the repo root,
+  `GOAL-<name>.md`, and delete it when the goal is done. Do not repeat a step
+  just because a summary lost its callback. Check a worker's context (`link_list`)
   before a task and compact it then if needed, never mid-task.
 
 ## Outside the loop
