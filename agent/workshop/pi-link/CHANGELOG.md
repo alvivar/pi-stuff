@@ -6,6 +6,22 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Session-directory errors no longer look like an empty session history.** If the CLI cannot enumerate the session root for a reason other than a missing directory, it reports the error and exits with code `1`. The launcher no longer starts a new session on that false absence, `--list` no longer reports no sessions, and `--resolve` no longer reports the name as not found. A missing root still means no sessions yet; handling of individual session files and subdirectories is unchanged.
+
+- **A terminal named `__proto__` keeps its status, cwd and context snapshots.** The name-keyed records in the initial welcome and `link_list` details now use dictionaries without a prototype, so that accepted name is copied into those records and serialized as an ordinary own property rather than lost through JavaScript's inherited setter. No names are newly reserved.
+
+- **`pi-link --version` fails explicitly when package metadata cannot supply a version.** An unreadable or malformed `package.json`, or a missing version, now produces an error and a nonzero exit instead of printing `unknown` and exiting successfully. A healthy installation still prints only its version.
+
+### Changed
+
+- **Internal cleanup reuses existing status and delivery helpers.** Status formatting uses the existing identity formatter, disconnect relies on the inbox scheduler's existing timer guard, and client status updates use the shared hub broadcast path instead of duplicating it. Those updates keep their authoritative sender name, recipients and context rules; the hub now stores them through self-delivery after sending to peers, as the shared path already does. Two unreachable CLI `break` statements after `process.exit(0)` were also removed.
+
+---
+
 ## 0.5.1 — 2026-09-22
 
 ### Fixed
