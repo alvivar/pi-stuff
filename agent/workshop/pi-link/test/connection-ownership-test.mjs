@@ -1244,6 +1244,33 @@ async function bootClientNamed(name, terminals, extra = {}) {
     !("status" in r2Row) && !("cwd" in r2Row) && r2Row.context === null, JSON.stringify(r2Row));
 }
 
+// ── 14. Snapshot records keep every accepted name ───────────────────────────
+
+{
+  // Names are keys of the snapshot records. On a plain `{}`, assigning the
+  // accepted name `__proto__` hits the inherited setter and the entry vanishes.
+  const { t, server } = await bootHub();
+  const proto = fakeIncoming();
+  server.emit("connection", proto);
+  proto.receive({ type: "register", name: "__proto__", cwd: "C:/proto" });
+  proto.receive({
+    type: "status_update", status: { kind: "thinking", since: 1 }, context: { tokens: 5, contextWindow: 50 },
+  });
+  await tick();
+  const keepsProto = (records) => ["statuses", "cwds", "contexts"].every(
+    (field) => Object.hasOwn(records[field], "__proto__"),
+  );
+  const welcome = register(server, "observer").sent.find((f) => f.type === "welcome");
+  check("14: welcome carries __proto__'s status, cwd and context",
+    keepsProto(welcome) && welcome.cwds.__proto__ === "C:/proto" &&
+      welcome.statuses.__proto__.kind === "thinking" && welcome.contexts.__proto__.tokens === 5,
+    JSON.stringify(welcome));
+  const { details } = await t.tool("link_list");
+  check("14: link_list details carry __proto__'s status, cwd and context",
+    keepsProto(details) && details.cwds.__proto__ === "C:/proto" && details.contexts.__proto__.tokens === 5,
+    JSON.stringify(details));
+}
+
 // ── Teardown: every instance closes its own transports and timers ───────────
 
 for (const { t, ctx } of booted) await t.emit("session_shutdown", { reason: "quit" }, ctx);

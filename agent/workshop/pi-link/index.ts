@@ -963,14 +963,15 @@ export default function (pi: ExtensionAPI) {
         hubClients.set(clientWs, clientName);
         const list = terminalList();
 
-        // Confirm to the new client (with status, cwd and context snapshots)
-        const statuses: Record<string, LinkStatus> = {};
+        // Confirm to the new client (with status, cwd and context snapshots).
+        // Keyed by terminal name, so no prototype: a plain {} would swallow "__proto__".
+        const statuses: Record<string, LinkStatus> = Object.create(null);
         statuses[terminalName] = deriveStatus(); // hub's own status
         for (const [name, status] of terminalStatuses) statuses[name] = status;
-        const cwds: Record<string, string> = {};
+        const cwds: Record<string, string> = Object.create(null);
         if (currentCwd) cwds[terminalName] = currentCwd; // hub's own cwd
         for (const [name, cwd] of terminalCwds) cwds[name] = cwd;
-        const contexts: Record<string, ContextSnapshot> = {};
+        const contexts: Record<string, ContextSnapshot> = Object.create(null);
         const hubContext = captureContext();
         if (hubContext) contexts[terminalName] = hubContext; // hub's own context
         for (const [name, c] of terminalContexts) contexts[name] = c;
@@ -1765,9 +1766,10 @@ export default function (pi: ExtensionAPI) {
     async execute() {
       if (role === "disconnected") return notConnectedResult();
 
-      const statuses: Record<string, string> = {};
-      const cwds: Record<string, string> = {};
-      const contexts: Record<string, ContextSnapshot> = {};
+      // Keyed by terminal name, so no prototype (see the welcome snapshots).
+      const statuses: Record<string, string> = Object.create(null);
+      const cwds: Record<string, string> = Object.create(null);
+      const contexts: Record<string, ContextSnapshot> = Object.create(null);
       const visible = visibleTerminals();
       const list = visible
         .map((name) => {
