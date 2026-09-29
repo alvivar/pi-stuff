@@ -421,9 +421,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function formatStatus(s: LinkStatus): string {
-    const dur = formatDuration(s.since);
-    if (s.kind === "tool") return `tool:${s.toolName} (${dur})`;
-    return `${s.kind} (${dur})`;
+    return `${statusIdentity(s)} (${formatDuration(s.since)})`;
   }
 
   function formatTokens(n: number): string {
@@ -1341,7 +1339,7 @@ export default function (pi: ExtensionAPI) {
     updateStatus();
 
     // Inbox survives disconnect; flush unless a local /compact still gates it.
-    if (!flushTimer) releaseInbox();
+    releaseInbox();
   }
 
   function cleanup() {
