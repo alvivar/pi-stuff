@@ -183,14 +183,17 @@ async function loadSessionRecord(filePath, scopeCwd) {
 // Returns meta + mtime + path for every readable session in `dir`, or only
 // those from `scopeCwd` when it is given. Custom layout is flat
 // (<dir>/*.jsonl); default layout has one subdir level per encoded cwd
-// (<dir>/<sub>/*.jsonl). Errors on individual files/dirs are silently skipped
-// — active or partially-written sessions are tolerated.
+// (<dir>/<sub>/*.jsonl). A missing `dir` means no sessions yet; any other
+// failure to read it is fatal, since reporting no sessions would be a lie.
+// Errors on individual files/dirs are silently skipped — active or
+// partially-written sessions are tolerated.
 async function scanSessions(dir, isCustom, scopeCwd) {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    fail(`cannot read session directory: ${err.message}`);
   }
 
   const tasks = [];
@@ -315,14 +318,14 @@ function printHelp() {
 }
 
 function printVersion() {
+  let pkg;
   try {
-    const pkg = JSON.parse(
-      readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
-    );
-    console.log(pkg.version ?? "unknown");
-  } catch {
-    console.log("unknown");
+    pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
+  } catch (err) {
+    fail(`cannot read pi-link's package.json: ${err.message}`);
   }
+  if (!pkg.version) fail("pi-link's package.json has no version");
+  console.log(pkg.version);
 }
 
 function describeMode(mode) {

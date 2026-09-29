@@ -302,6 +302,23 @@ runCase("H5c: custom flat sessionDir scopes locally and stays global-visible", (
   ];
 });
 
+// Only a missing root reads as "no sessions". A root that exists but cannot be
+// listed must fail, not resolve as absent or launch a new session.
+runCase("H5f: unreadable sessionDir fails instead of reading as empty", () => {
+  const notADir = join(stubDir, "sessions-file");
+  writeFileSync(notADir, "");
+  const env = { PI_CODING_AGENT_SESSION_DIR: notADir };
+  const resolved = run(["--resolve", "any"], env);
+  const launched = run(["any"], env);
+  const failsWithCause = (r) => r.code === 1 && r.stderr.includes("ENOTDIR") && r.stderr.includes(notADir);
+  const ok = failsWithCause(resolved) && failsWithCause(launched) && launched.record === null;
+  return [
+    ok,
+    `resolve: exit ${resolved.code} stderr=${JSON.stringify(resolved.stderr)}; ` +
+      `launcher: exit ${launched.code} stderr=${JSON.stringify(launched.stderr)} record=${JSON.stringify(launched.record)}`,
+  ];
+});
+
 // POSIX root normalizes to the empty string, which is a real scope. Only an
 // absent scope may widen a lookup, so this guards the one platform where a
 // truthiness check on the scope would silently behave like --global.
