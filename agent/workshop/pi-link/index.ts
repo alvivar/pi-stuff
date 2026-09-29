@@ -1000,21 +1000,16 @@ export default function (pi: ExtensionAPI) {
       // Ignore messages from unregistered clients
       if (!clientName) return;
 
-      // Status update — store and fan out to other clients only (not back to hub)
+      // Status update: rebuilt under the authoritative name, fanned out to the other
+      // clients, and stored by the hub through its own self-delivery.
       if (msg.type === "status_update") {
-        terminalStatuses.set(clientName, msg.status);
-        if (msg.context) terminalContexts.set(clientName, msg.context);
-        else if (msg.context === null) terminalContexts.delete(clientName);
         const normalized: StatusUpdateMsg = {
           type: "status_update",
           name: clientName,
           status: msg.status,
           context: msg.context, // undefined omitted by JSON; null forwarded to clear
         };
-        const json = JSON.stringify(normalized);
-        for (const [otherWs, name] of hubClients) {
-          if (name !== clientName) otherWs.send(json);
-        }
+        hubBroadcast(normalized, clientName);
         return;
       }
 
