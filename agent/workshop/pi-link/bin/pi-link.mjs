@@ -518,11 +518,9 @@ switch (state.mode) {
   case "help":
     printHelp();
     process.exit(0);
-    break; // unreachable; present to satisfy no-fallthrough lints
   case "version":
     printVersion();
     process.exit(0);
-    break; // unreachable; present to satisfy no-fallthrough lints
   case "list":
     await runList(state);
     break;
