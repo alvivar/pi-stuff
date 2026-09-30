@@ -1,27 +1,27 @@
 {
-  "active": "pi-link",
+  "active": "pi-dock",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
   "sessions": {
     "pi-link": [
       {
-        "name": "archon@pi-link",
+        "name": "polaris@pi-link",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-link"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link polaris@pi-link"
         ]
       },
       {
-        "name": "designer@pi-link",
+        "name": "vega@pi-link",
         "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link designer@pi-link"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-link"
         ]
       },
       {
@@ -126,49 +126,49 @@
     ],
     "pi-dock": [
       {
-        "name": "archon@pi-dock",
+        "name": "polaris@pi-dock",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-dock"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link polaris@pi-dock"
         ]
       },
       {
-        "name": "fable@pi-dock",
-        "icon": "flame",
-        "color": "terminal.ansiBrightRed",
+        "name": "vega@pi-dock",
+        "icon": "compass",
+        "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link fable@pi-dock"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-dock"
         ]
       },
       {
-        "name": "sol@pi-dock",
-        "icon": "star-full",
-        "color": "terminal.ansiBrightYellow",
+        "name": "implementer@pi-dock",
+        "icon": "tools",
+        "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-dock"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link implementer@pi-dock"
         ]
       },
       {
-        "name": "terra@pi-dock",
-        "icon": "globe",
-        "color": "terminal.ansiGreen",
+        "name": "reviewer@pi-dock",
+        "icon": "eye",
+        "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link terra@pi-dock"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link reviewer@pi-dock"
         ]
       },
       {
-        "name": "luna@pi-dock",
-        "icon": "color-mode",
-        "color": "terminal.ansiBrightBlue",
+        "name": "compactor@pi-dock",
+        "icon": "fold",
+        "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link luna@pi-dock"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link compactor@pi-dock"
         ]
       },
       {
@@ -192,22 +192,22 @@
     ],
     "pi-sub": [
       {
-        "name": "archon@pi-sub",
+        "name": "polaris@pi-sub",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-sub"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link polaris@pi-sub"
         ]
       },
       {
-        "name": "designer@pi-sub",
+        "name": "vega@pi-sub",
         "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link designer@pi-sub"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-sub"
         ]
       },
       {
@@ -297,13 +297,13 @@
     ],
     "pi-chrome": [
       {
-        "name": "archon@pi-chrome",
+        "name": "polaris@pi-chrome",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-chrome"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link polaris@pi-chrome"
         ]
       },
       {
@@ -363,22 +363,22 @@
     ],
     "pi-rules": [
       {
-        "name": "archon@pi-rules",
+        "name": "polaris@pi-rules",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi-rules"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link polaris@pi-rules"
         ]
       },
       {
-        "name": "designer@pi-rules",
+        "name": "vega@pi-rules",
         "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link designer@pi-rules"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-rules"
         ]
       },
       {
@@ -429,13 +429,13 @@
     ],
     "pi.claude.hack": [
       {
-        "name": "archon@pi.claude.hack",
+        "name": "polaris@pi.claude.hack",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link archon@pi.claude.hack"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link polaris@pi.claude.hack"
         ]
       },
       {
