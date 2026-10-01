@@ -8,6 +8,18 @@ this checkout, dated by the day it was completed.
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **The skill states two facts from real use.** A `done` (or an idle agent) does not mean a
+  team of agents has finished: extension callbacks such as pi-link replies can start later
+  work, so a team's conclusion is an agreed signal in its `text`, and the artifact still needs
+  checking. And `wait` or `send --wait` printing nothing means the run's last turn wrote no
+  text; the earlier text is in `logs`.
+
+---
+
 ## 0.2.0 — 2026-10-01
 
 A usability release: prompts get ids and results you can wait for, argument validation is

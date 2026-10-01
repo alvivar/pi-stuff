@@ -49,7 +49,10 @@ of every command.
   a time, each after any work that extensions started while the agent was idle has settled.
 - `pi-dock wait <name> <id>` waits for that prompt's run. It exits 0 when the run is done and
   prints its final text: the text after the run's last turn, or nothing if that turn produced
-  none. A run that already ended is reported at once, so you can re-attach at any time.
+  none. Empty output does not mean the run wrote nothing: read `pi-dock logs <name>` for the text
+  of its earlier turns. Exit 0 means this run ended, not that a collaboration is over (see
+  `done` under Reading logs). A run that already ended is reported at once, so you can re-attach
+  at any time.
 - `send --wait` is `send` plus `wait`; its exit code is wait's. Keep the id from stderr: after an
   interruption, `wait <name> <id>` re-attaches.
 - `wait` exits 1 with one of these reasons:
@@ -117,6 +120,10 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 
 - `done` proves that run ended, not that the agent is idle: queued prompts or extension work
   may keep it running. Use `ls` or `show` for the state.
+- `done` of an initial mission does not end a collaboration: extension callbacks (e.g. pi-link
+  replies) can start later work in the same agent. A team's conclusion is an application
+  signal, such as an agreed final marker in a `text` event, and the artifact must still be
+  verified. Never treat `done` or idle as "the team finished".
 - Ids follow the run. Work that extensions steer into an active run (e.g. a pi-link message)
   carries that run's id; only work that extensions start while the agent is idle logs `turn` and
   `text` without an id.
