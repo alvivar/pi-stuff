@@ -356,7 +356,7 @@ try {
       setImmediate(() => {
         void stopSoon();
       });
-      return { ok: true };
+      return { ok: true, pid: process.pid };
     }
 
     return { ok: false, error: 'unknown' };

@@ -725,6 +725,16 @@ async function main() {
       assert.deepEqual(await fs.readFile(liveSetFile), beforeLiveSet, 'live pipe refusal preserves manifest bytes');
     });
 
+    const lingeringName = `stop-lingering-${randomUUID()}`;
+    await writeSetFixture(dock, lingeringName);
+    const lingeringServer = serve(pipePath(lingeringName), () => ({ ok: true, pid: process.pid }));
+    await withOwnedServer(lingeringServer, new Set(), async () => {
+      const lingering = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', lingeringName]);
+      assert.equal(lingering.code, 1);
+      assert.equal(lingering.stdout, '');
+      assert.equal(lingering.stderr, `agent ${lingeringName} did not exit within 5s; terminate PID ${process.pid} externally\n`);
+    });
+
     const timeoutSetName = `set-timeout-${randomUUID()}`;
     const timeoutSetFile = await writeSetFixture(dock, timeoutSetName);
     const timeoutSockets = new Set();
@@ -861,6 +871,7 @@ async function main() {
     const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const stop = async (name, child) => {
       assert.equal((await runOwnedNode(sandbox, cli, ['stop', name])).stdout, 'stopped\n');
+      assert.throws(() => process.kill(child.pid, 0), { code: 'ESRCH' }, 'stop returns only after the runner exited');
       await waitForExit(child);
     };
     const corrName = `corr-${randomUUID()}`;
@@ -968,6 +979,8 @@ async function main() {
     assert(await waitForStatus(pipePath(corrName)), 'correlation runner restarts');
     assert.deepEqual(await wait(corrName, crashId), lost, 'a restart after the crash does not leave wait polling');
     await stop(corrName, restarted);
+    const setAfterStop = await runOwnedNode(sandbox, cli, ['set', corrName, '--x', 'after-stop']);
+    assert.equal(setAfterStop.code, 0, `set right after stop finds the pipe gone: ${setAfterStop.stderr}`);
 
     const idleName = `idle-${randomUUID()}`;
     const idleHold = held(textReply('idle reply'));
@@ -1041,7 +1054,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 37 cases passed');
+    console.log('regression: 39 cases passed');
   } catch (error) {
     primaryError = error;
   }
