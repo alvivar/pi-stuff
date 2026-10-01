@@ -28,19 +28,9 @@ Ordered by how much each item improves pi-dock (polaris review of 0.2.0, 2026-10
 
 ## Release — only if pi-dock is going to be used by others
 
-6. [ ] **README** — install, the 11 commands, resident model (stop = power-off, memory kept),
-       where results appear (`send --wait`, `wait`, `logs`), model/thinking rules, opaque
-       `--x` + pi-link usage, compact semantics, crash/wedge recovery and PID warning,
-       platform honesty (Windows verified, Unix inspected only).
-       **Required:** headless trust warning — the runner loads `<cwd>/.pi` config and
-       extensions without Pi's project-trust prompt; use only in trusted directories.
-       Today this warning lives only in `--help`.
-       Also: there are no limits; an agent runs until stop or a crash.
-       Lockfile honesty: `package-lock.json` reproduces this checkout, it does not pin
-       consumer transitives.
-7. [ ] **CHANGELOG** for `0.2.0`.
-8. [ ] **Publish** — `package.json` has `"private": true` (npm refuses to publish); not pushed.
-9. [ ] **`docs/pi-dock.html`** — outdated (still describes the budget, among others); owner
+6. [ ] **CHANGELOG** for `0.2.0`.
+7. [ ] **Publish** — `package.json` has `"private": true` (npm refuses to publish); not pushed.
+8. [ ] **`docs/pi-dock.html`** — outdated (still describes the budget, among others); owner
        updates it.
 
 ## Ideas — need design before building

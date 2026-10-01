@@ -12,8 +12,9 @@ keep its memory across several prompts. For a single prompt you will wait on any
 is simpler.
 
 Every command exits 0 on success and 1 on error, with the reason on stderr. Arguments are strict:
-unknown options and extra arguments fail with the command's usage line. Run `pi-dock --help` for
-the usage of every command.
+unknown options and extra arguments fail with the command's usage line, except `compact`, which
+takes all remaining arguments (even `--help`) as instructions. Run `pi-dock --help` for the usage
+of every command.
 
 ## Workflow
 
