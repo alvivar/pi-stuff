@@ -591,6 +591,8 @@ async function main() {
       models: 'pi-dock models [filter]',
       send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
       wait: 'pi-dock wait <name> <id>',
+      '--help': 'pi-dock [--help | -h]',
+      '-h': 'pi-dock [--help | -h]',
       spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
     };
     const emptyPrompt = path.join(sandbox, 'empty-prompt.txt');
@@ -614,6 +616,8 @@ async function main() {
       [['wait', 'v1'], undefined],
       [['wait', 'v1', 'p1', 'p2'], "Unexpected argument 'p2'"],
       [['wait', 'v1', 'p1', '--json'], "Unknown option '--json'"],
+      [['--help', 'extra'], "Unexpected argument 'extra'"],
+      [['-h', '--json'], "Unknown option '--json'"],
     ];
     for (const [commandArgs, reason] of rejected) {
       const result = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
@@ -1054,7 +1058,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 39 cases passed');
+    console.log('regression: 40 cases passed');
   } catch (error) {
     primaryError = error;
   }
