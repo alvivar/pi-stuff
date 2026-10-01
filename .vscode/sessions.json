@@ -163,6 +163,15 @@
         ]
       },
       {
+        "name": "explorer",
+        "icon": "telescope",
+        "color": "terminal.ansiBrightGreen",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link explorer@pi-dock"
+        ]
+      },
+      {
         "name": "compactor",
         "icon": "fold",
         "color": "terminal.ansiCyan",
