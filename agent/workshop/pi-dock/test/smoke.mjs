@@ -12,10 +12,11 @@ const e = `smoke-${process.pid}-e`;
 const names = [a, b, c, d, e];
 const results = [];
 
-function run(args) {
+function run(args, timeout) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd: process.cwd(),
     encoding: 'utf8',
+    timeout,
   });
 }
 
@@ -161,37 +162,29 @@ try {
   const pidA = findRunnerPid(a);
   expect('A runner process alive after spawn', Number.isInteger(pidA) && pidAlive(pidA), String(pidA));
 
-  result = run(['send', a, 'Remember the token ALPHA-31. Reply exactly: alpha saved']);
-  const firstId = result.stdout.trim();
-  expect('send A first prompt prints its id', result.status === 0 && /^p[0-9a-f]{12}$/.test(firstId), result.stderr || result.stdout);
+  const first = run(['send', a, '--wait', 'Remember the token ALPHA-31. Reply exactly: alpha saved'], 120000);
+  const firstId = first.stderr.trim();
+  expect('send --wait A first prompt prints its id on stderr', first.status === 0 && /^p[0-9a-f]{12}$/.test(firstId), first.stderr || first.stdout);
+  expect('send --wait A prints the final text', first.stdout.includes('alpha saved'), first.stdout);
 
-  await waitFor(() => {
-    const logs = logText(a);
-    const ls = run(['ls']);
-    return logs.includes('alpha saved') && logs.includes(` done id=${firstId}`) && lsState(ls.stdout, a) === 'idle';
-  });
+  result = run(['wait', a, firstId]);
+  expect('wait A re-attaches to the finished first prompt', result.status === 0 && result.stdout === first.stdout, result.stderr || result.stdout);
 
-  result = run(['ls']);
-  let logs = logText(a);
-  expect('A returns to idle after first prompt', result.status === 0 && lsState(result.stdout, a) === 'idle', result.stdout || result.stderr);
+  result = await waitLsState(a, 'idle');
+  const logs = logText(a);
+  expect('A returns to idle after first prompt', result?.status === 0 && lsState(result.stdout, a) === 'idle', result?.stdout || result?.stderr);
   expect('A log has spawned queued run turn text done', logs.includes(' spawned') && [' queued', ' run', ' turn', ' done'].every((event) => logs.includes(`${event} id=${firstId}`)) && logs.includes('alpha saved'), logs);
   expect('A reply text carries the send id', logEvents(a).some((event) => event.event === 'text' && event.id === firstId && event.text.includes('alpha saved')), logs);
   expect('A runner stays alive after first prompt', findRunnerPid(a) === pidA && pidAlive(pidA), String(findRunnerPid(a)));
 
-  result = run(['send', a, 'What token did I ask you to remember? Reply exactly: ALPHA-31']);
-  const secondId = result.stdout.trim();
-  expect('send A second prompt prints a new id', result.status === 0 && /^p[0-9a-f]{12}$/.test(secondId) && secondId !== firstId, result.stderr || result.stdout);
+  result = run(['send', a, '--wait', 'What token did I ask you to remember? Reply exactly: ALPHA-31'], 120000);
+  const secondId = result.stderr.trim();
+  expect('send --wait A second prompt prints a new id', result.status === 0 && /^p[0-9a-f]{12}$/.test(secondId) && secondId !== firstId, result.stderr || result.stdout);
+  expect('A remembers across resident runs', result.stdout.includes('ALPHA-31'), result.stdout);
+  expect('A log has done for the second id', logText(a).includes(` done id=${secondId}`), logText(a));
 
-  await waitFor(() => {
-    const currentLogs = logText(a);
-    const ls = run(['ls']);
-    return currentLogs.includes('ALPHA-31') && currentLogs.includes(` done id=${secondId}`) && lsState(ls.stdout, a) === 'idle';
-  });
-
-  result = run(['ls']);
-  logs = logText(a);
-  expect('A remembers across resident runs', logs.includes('ALPHA-31'), logs);
-  expect('A returns to idle after second prompt', result.status === 0 && lsState(result.stdout, a) === 'idle', result.stdout || result.stderr);
+  result = await waitLsState(a, 'idle');
+  expect('A returns to idle after second prompt', result?.status === 0 && lsState(result.stdout, a) === 'idle', result?.stdout || result?.stderr);
   expect('A runner stays alive after second prompt', findRunnerPid(a) === pidA && pidAlive(pidA), String(findRunnerPid(a)));
 
   const manifestBytes = readFileSync(dockFile(a, '.json'));

@@ -15,7 +15,8 @@ const command = process.argv[2];
 const args = process.argv.slice(3);
 const USAGE = {
   spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
-  send: 'pi-dock send <name> <text>',
+  send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
+  wait: 'pi-dock wait <name> <id>',
   start: 'pi-dock start <name>',
   stop: 'pi-dock stop <name>',
   ls: 'pi-dock ls',
@@ -382,19 +383,103 @@ async function deliver(manifest, msg, timeoutMs) {
 }
 
 async function sendCommand(argv) {
-  const [name, ...textParts] = argv;
-  const text = textParts.join(' ');
-  if (name === undefined || text.length === 0) {
+  const { values, positionals: [name, ...words] } = parseCommand(argv, {
+    wait: { type: 'boolean' },
+    file: { type: 'string' },
+  }, Infinity);
+  if (name === undefined || (values.file === undefined) === (words.length === 0)) {
     failUsage();
   }
 
   validateAgentName(name);
-  const reply = await deliver(await requireManifest(name), { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
+  const text = values.file === undefined ? words.join(' ') : readFileSync(values.file, 'utf8');
+  if (text.length === 0) {
+    failUsage('empty prompt');
+  }
+
+  const manifest = await requireManifest(name);
+  const reply = await deliver(manifest, { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
   if (!reply.ok) {
     fail(JSON.stringify(reply));
   }
+  if (!values.wait) {
+    console.log(reply.id);
+    return;
+  }
 
-  console.log(reply.id);
+  console.error(reply.id);
+  await waitForPrompt(manifest, reply.id);
+}
+
+async function waitForPrompt(manifest, id) {
+  const { name } = manifest;
+  const lost = { error: `agent ${name} stopped or crashed before prompt ${id} finished` };
+  let end = 0;
+  let seen = false;
+  let text = '';
+  // Reads new log lines; returns { text } once prompt <id> is done, { error } once it can no longer finish.
+  const readOutcome = () => {
+    let lines;
+    ({ lines, end } = readCompleteLines(name, end));
+    for (const event of lines.map((line) => JSON.parse(line))) {
+      if (seen && event.event === 'spawned') {
+        return lost;
+      }
+      if (event.id !== id && !event.ids?.includes(id)) {
+        continue;
+      }
+
+      seen = true;
+      if (event.event === 'turn') {
+        text = '';
+      } else if (event.event === 'text') {
+        text = event.text;
+      } else if (event.event === 'done') {
+        return { text };
+      } else if (event.event === 'run_failed') {
+        return { error: `prompt ${id} failed: ${event.reason}` };
+      } else if (event.event === 'dropped') {
+        return { error: `prompt ${id} was dropped before it ran` };
+      } else if (event.event === 'stopped') {
+        return { error: `agent ${name} stopped during prompt ${id}` };
+      } else if (event.event === 'failed') {
+        return { error: `agent ${name} failed during prompt ${id}: ${event.reason}` };
+      }
+    }
+
+    return seen ? undefined : { error: `unknown prompt id: ${id}` };
+  };
+
+  let outcome = readOutcome();
+  while (outcome === undefined) {
+    const responds = await request(manifest.pipe, { cmd: 'status' }, PIPE_REQUEST_TIMEOUT_MS).then(() => true, (error) => {
+      if (isTimeout(error)) {
+        failNotResponding(name);
+      }
+      return false;
+    });
+    if (responds) {
+      await sleep(500);
+    }
+    outcome = readOutcome() ?? (responds ? undefined : lost);
+  }
+
+  if (outcome.error) {
+    fail(outcome.error);
+  }
+  if (outcome.text) {
+    console.log(outcome.text);
+  }
+}
+
+async function waitCommand(argv) {
+  const { positionals: [name, id] } = parseCommand(argv, {}, 2);
+  if (id === undefined) {
+    failUsage();
+  }
+
+  validateAgentName(name);
+  await waitForPrompt(await requireManifest(name), id);
 }
 
 async function startCommand(argv) {
@@ -634,9 +719,9 @@ const HELP = `pi-dock — resident AI agents with durable Pi sessions
 Usage:
 ${Object.values(USAGE).map((line) => `  ${line}`).join('\n')}
 
-Agents are resident. spawn creates an idle identity in the current cwd and never takes work; spawn and start print <name> <state> <provider/id>. models lists the provider/id refs usable with --model (models with configured credentials; filter is a case-insensitive substring of provider/id, or provider-part/id-part when it contains a slash); --thinking is off|minimal|low|medium|high|xhigh|max. send never creates an agent: it only queues text and prints the prompt id (p + 12 hex). The log correlates each prompt: queued id, run id when it starts, turn and text events of that run carry the id (work extensions start while idle has none), then done id, or run_failed id reason when the final turn ended in an unrecovered provider error or abort (the agent stays on); dropped ids lists queued prompts that never ran, and stopped/failed carry the id of the run they interrupted. logs prints each event as a <ts> <event> [key=value]... line; a text event's text follows verbatim on its own lines, each indented two spaces. logs --raw prints the stored NDJSON lines instead, --tail <n> only the last n events, and --follow keeps printing new events until interrupted. show prints name, state, model, thinking (- when unset), flags (JSON array), cwd, session, and created, one key value per line, without waking the agent.
+Agents are resident. spawn creates an idle identity in the current cwd and never takes work; spawn and start print <name> <state> <provider/id>. models lists the provider/id refs usable with --model (models with configured credentials; filter is a case-insensitive substring of provider/id, or provider-part/id-part when it contains a slash); --thinking is off|minimal|low|medium|high|xhigh|max. send never creates an agent: it only queues the prompt and prints its id (p + 12 hex). The prompt is the remaining arguments joined by spaces or, with --file, the UTF-8 contents of path (exactly one of the two, not empty); -- ends options, so text may start with -. wait prints the final text of that prompt's run (nothing when the last turn had none) and exits 0 once it is done, or exits 1 with the reason when it failed, was dropped, was interrupted, or the agent stopped or crashed; it has no timeout, never wakes the agent, and Ctrl-C only stops waiting, so a run that already ended is reported at once. send --wait queues and then waits: the id goes to stderr so wait <name> <id> can re-attach, and only the final text goes to stdout. The log correlates each prompt: queued id, run id when it starts, turn and text events of that run carry the id (work extensions start while idle has none), then done id, or run_failed id reason when the final turn ended in an unrecovered provider error or abort (the agent stays on); dropped ids lists queued prompts that never ran, and stopped/failed carry the id of the run they interrupted. logs prints each event as a <ts> <event> [key=value]... line; a text event's text follows verbatim on its own lines, each indented two spaces. logs --raw prints the stored NDJSON lines instead, --tail <n> only the last n events, and --follow keeps printing new events until interrupted. show prints name, state, model, thinking (- when unset), flags (JSON array), cwd, session, and created, one key value per line, without waking the agent.
 
-stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log; its columns are name, state, model, and age (time since creation in its largest whole unit: s, m, h, or d). Unknown options and extra arguments are rejected with the command's usage; send and compact take all remaining arguments as text. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
+stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log; its columns are name, state, model, and age (time since creation in its largest whole unit: s, m, h, or d). Unknown options and extra arguments are rejected with the command's usage; compact takes all remaining arguments as instructions. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
 
 compact is idle-only and waits without a timeout until the runner replies (Ctrl-C only stops waiting); the agent stays on, and a failed compaction is logged as {event:"compact_failed",reason}. set requires a stopped/failed agent; it changes model, thinking, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
 
@@ -647,6 +732,8 @@ try {
     await spawnCommand(args);
   } else if (command === 'send') {
     await sendCommand(args);
+  } else if (command === 'wait') {
+    await waitCommand(args);
   } else if (command === 'start') {
     await startCommand(args);
   } else if (command === 'ls') {

@@ -128,13 +128,17 @@ function launchRunner(sandbox, args) {
   });
 }
 
-// A local OpenAI-compatible provider that answers each request with the next scripted reply.
+// A local OpenAI-compatible provider that records each request's last message and answers with the next scripted reply.
 function startFauxProvider() {
   const replies = [];
+  const prompts = [];
   let unexpected = 0;
   const server = http.createServer((req, res) => {
-    req.resume();
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
     req.once('end', () => {
+      prompts.push(JSON.parse(body).messages.at(-1).content);
       const reply = replies.shift();
       if (reply) {
         reply(res);
@@ -147,6 +151,7 @@ function startFauxProvider() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({
     server,
     replies,
+    prompts,
     baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
     unexpected: () => unexpected,
   })));
@@ -584,8 +589,12 @@ async function main() {
       start: 'pi-dock start <name>',
       logs: 'pi-dock logs <name> [--tail <n>] [--raw] [--follow]',
       models: 'pi-dock models [filter]',
+      send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
+      wait: 'pi-dock wait <name> <id>',
       spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
     };
+    const emptyPrompt = path.join(sandbox, 'empty-prompt.txt');
+    await fs.writeFile(emptyPrompt, '');
     const rejected = [
       [['ls', '--json'], "Unknown option '--json'"],
       [['stop', 'v1', 'extra', 'junk'], "Unexpected argument 'extra'"],
@@ -596,12 +605,21 @@ async function main() {
       [['spawn', '-n', 'v1'], "Unknown option '-n'"],
       [['spawn', '--name'], "Option '--name <value>' argument missing"],
       [['spawn', '--name', '--model', 'x'], "Option '--name' argument is ambiguous"],
+      [['send', 'v1', '--wait-for', 'x'], "Unknown option '--wait-for'"],
+      [['send', 'v1', 'text', '--file'], "Option '--file <value>' argument missing"],
+      [['send', 'v1', ''], 'empty prompt'],
+      [['send', 'v1', '--file', emptyPrompt], 'empty prompt'],
+      [['send', 'v1'], undefined],
+      [['send', 'v1', '--file', emptyPrompt, 'text'], undefined],
+      [['wait', 'v1'], undefined],
+      [['wait', 'v1', 'p1', 'p2'], "Unexpected argument 'p2'"],
+      [['wait', 'v1', 'p1', '--json'], "Unknown option '--json'"],
     ];
     for (const [commandArgs, reason] of rejected) {
       const result = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
       assert.equal(result.code, 1, commandArgs.join(' '));
       assert.equal(result.stdout, '');
-      assert.equal(result.stderr, `${reason}\nusage: ${usage[commandArgs[0]]}\n`, commandArgs.join(' '));
+      assert.equal(result.stderr, `${reason ? `${reason}\n` : ''}usage: ${usage[commandArgs[0]]}\n`, commandArgs.join(' '));
     }
 
     const ageCases = [['s', 0, /^\ds$/], ['m', 12.5 * 60, /^12m$/], ['h', 5.5 * 3600, /^5h$/], ['d', 43.5 * 86400, /^43d$/]];
@@ -838,6 +856,9 @@ async function main() {
       assert.match(result.stdout, /^p[0-9a-f]{12}\n$/, 'send prints only the prompt id');
       return result.stdout.trim();
     };
+    const wait = (name, id) => runOwnedNode(sandbox, cli, ['wait', name, id]);
+    const exited = (code, stdout, stderr) => ({ code, signal: null, stdout, stderr });
+    const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const stop = async (name, child) => {
       assert.equal((await runOwnedNode(sandbox, cli, ['stop', name])).stdout, 'stopped\n');
       await waitForExit(child);
@@ -859,6 +880,8 @@ async function main() {
       { event: 'text', id: helloId, text: 'faux hello' },
       { event: 'done', id: helloId },
     ], 'a normal run is correlated from queue to done');
+    assert.deepEqual(await wait(corrName, helloId), exited(0, 'faux hello\n', ''), 'wait reports a run that ended before it started');
+    assert.deepEqual(await wait(corrName, 'p000000000000'), exited(1, '', 'unknown prompt id: p000000000000\n'));
 
     provider.replies.push(serverError, serverError);
     const failId = await send(corrName, 'fail');
@@ -866,11 +889,16 @@ async function main() {
     const failRun = eventsOf(logged, failId);
     assert.deepEqual(failRun.map((event) => event.event), ['queued', 'run', 'turn', 'turn', 'run_failed'], 'an exhausted retry ends the run, not the agent');
     assert.match(failRun.at(-1).reason, /500/);
+    assert.deepEqual(await wait(corrName, failId), exited(1, '', `prompt ${failId} failed: ${failRun.at(-1).reason}\n`));
     assert.equal((await request(pipePath(corrName), { cmd: 'status' })).state, 'idle', 'a failed run leaves the agent idle and on');
 
     provider.replies.push(serverError, textReply('recovered'));
-    const retryId = await send(corrName, 'retry');
-    logged = await waitForLog(dock, corrName, (all) => all.some((event) => event.id === retryId && event.event === 'done'));
+    const retried = await runOwnedNode(sandbox, cli, ['send', corrName, '--wait', 'retry']);
+    assert.equal(retried.code, 0, retried.stderr);
+    assert.equal(retried.stdout, 'recovered\n', 'send --wait prints only the final text on stdout');
+    assert.match(retried.stderr, /^p[0-9a-f]{12}\n$/, 'send --wait prints the id on stderr');
+    const retryId = retried.stderr.trim();
+    logged = await logEvents(dock, corrName);
     assert.deepEqual(eventsOf(logged, retryId), [
       { event: 'queued', id: retryId },
       { event: 'run', id: retryId },
@@ -894,16 +922,52 @@ async function main() {
       { event: 'turn', id: emptyId },
       { event: 'done', id: emptyId },
     ], 'an empty final turn has no text after its turn event');
+    assert.deepEqual(await wait(corrName, emptyId), exited(0, '', ''), 'a done run without final text prints nothing');
+
+    const promptFile = path.join(sandbox, 'prompt.txt');
+    await fs.writeFile(promptFile, '-n línea uno\nline two');
+    provider.replies.push(textReply('from file'));
+    const fromFile = await runOwnedNode(sandbox, cli, ['send', corrName, '--wait', '--file', promptFile]);
+    assert.equal(fromFile.stdout, 'from file\n', fromFile.stderr);
+    assert.deepEqual(provider.prompts.at(-1), [{ type: 'text', text: '-n línea uno\nline two' }], '--file sends the UTF-8 file contents');
+    provider.replies.push(textReply('dashes'));
+    const dashed = await runOwnedNode(sandbox, cli, ['send', corrName, '--wait', '--', '--wait', '-x', 'text']);
+    assert.equal(dashed.stdout, 'dashes\n', dashed.stderr);
+    assert.deepEqual(provider.prompts.at(-1), [{ type: 'text', text: '--wait -x text' }], '-- ends options');
 
     const corrHold = held(textReply('late'));
     provider.replies.push(corrHold.reply);
     const stopIds = [await send(corrName, 'one'), await send(corrName, 'two'), await send(corrName, 'three')];
     await corrHold.arrived;
+    const stopWaits = stopIds.slice(0, 2).map((id) => wait(corrName, id));
+    await pause(1000);
     await stop(corrName, corr);
     assert.deepEqual(withoutTimes(await logEvents(dock, corrName)).slice(-2), [
       { event: 'dropped', ids: stopIds.slice(1) },
       { event: 'stopped', id: stopIds[0] },
     ], 'stop lists the queued ids as dropped and names the interrupted run');
+    assert.deepEqual(await Promise.all(stopWaits), [
+      exited(1, '', `agent ${corrName} stopped during prompt ${stopIds[0]}\n`),
+      exited(1, '', `prompt ${stopIds[1]} was dropped before it ran\n`),
+    ], 'waits end when the agent stops mid-wait');
+
+    const crashHold = held(textReply('never sent'));
+    provider.replies.push(crashHold.reply);
+    const crashing = own(launchRunner(sandbox, ['--name', corrName]), corrName);
+    assert(await waitForStatus(pipePath(corrName)), 'correlation runner wakes');
+    const crashId = await send(corrName, 'crash');
+    await crashHold.arrived;
+    const crashWait = wait(corrName, crashId);
+    await pause(1000);
+    crashing.kill();
+    await waitForExit(crashing);
+    const lost = exited(1, '', `agent ${corrName} stopped or crashed before prompt ${crashId} finished\n`);
+    assert.deepEqual(await crashWait, lost, 'a crash mid-wait is reported');
+    await assert.rejects(request(pipePath(corrName), { cmd: 'status' }), { code: 'ENOENT' }, 'wait does not wake a crashed agent');
+    const restarted = own(launchRunner(sandbox, ['--name', corrName]), corrName);
+    assert(await waitForStatus(pipePath(corrName)), 'correlation runner restarts');
+    assert.deepEqual(await wait(corrName, crashId), lost, 'a restart after the crash does not leave wait polling');
+    await stop(corrName, restarted);
 
     const idleName = `idle-${randomUUID()}`;
     const idleHold = held(textReply('idle reply'));
@@ -977,7 +1041,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 30 cases passed');
+    console.log('regression: 37 cases passed');
   } catch (error) {
     primaryError = error;
   }
