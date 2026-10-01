@@ -179,7 +179,7 @@ through the last complete newline (deliberately simple; not an append-only reade
 
 ## Verified
 
-Windows: regression passes on every change; the paid smoke last passed (69/69) at 968f4f4,
-before the 0.2.0 UX changes. Unix: inspected, not runtime-tested.
+Windows: regression passes on every change; the paid smoke passed 50/50 at 2e6644f on 0.2.0
+(2026-10-01, `openai-codex/gpt-6.1-sol`). Unix: inspected, not runtime-tested.
 Real usage: RV lab (2026-08-18) — 3 residents, ~145 piped prompts, ~50 min, zero tool
 failures.
