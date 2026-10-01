@@ -394,7 +394,7 @@ async function sendCommand(argv) {
     fail(JSON.stringify(reply));
   }
 
-  console.log(JSON.stringify(reply));
+  console.log(reply.id);
 }
 
 async function startCommand(argv) {
@@ -634,7 +634,7 @@ const HELP = `pi-dock — resident AI agents with durable Pi sessions
 Usage:
 ${Object.values(USAGE).map((line) => `  ${line}`).join('\n')}
 
-Agents are resident. spawn creates an idle identity in the current cwd and never takes work; spawn and start print <name> <state> <provider/id>. models lists the provider/id refs usable with --model (models with configured credentials; filter is a case-insensitive substring of provider/id, or provider-part/id-part when it contains a slash); --thinking is off|minimal|low|medium|high|xhigh|max. send never creates an agent: it only delivers text and acknowledges; replies are {event:"text"} records in logs <name>. logs prints each event as a <ts> <event> [key=value]... line; a text event's text follows verbatim on its own lines, each indented two spaces. logs --raw prints the stored NDJSON lines instead, --tail <n> only the last n events, and --follow keeps printing new events until interrupted. show prints name, state, model, thinking (- when unset), flags (JSON array), cwd, session, and created, one key value per line, without waking the agent.
+Agents are resident. spawn creates an idle identity in the current cwd and never takes work; spawn and start print <name> <state> <provider/id>. models lists the provider/id refs usable with --model (models with configured credentials; filter is a case-insensitive substring of provider/id, or provider-part/id-part when it contains a slash); --thinking is off|minimal|low|medium|high|xhigh|max. send never creates an agent: it only queues text and prints the prompt id (p + 12 hex). The log correlates each prompt: queued id, run id when it starts, turn and text events of that run carry the id (work extensions start while idle has none), then done id, or run_failed id reason when the final turn ended in an unrecovered provider error or abort (the agent stays on); dropped ids lists queued prompts that never ran, and stopped/failed carry the id of the run they interrupted. logs prints each event as a <ts> <event> [key=value]... line; a text event's text follows verbatim on its own lines, each indented two spaces. logs --raw prints the stored NDJSON lines instead, --tail <n> only the last n events, and --follow keeps printing new events until interrupted. show prints name, state, model, thinking (- when unset), flags (JSON array), cwd, session, and created, one key value per line, without waking the agent.
 
 stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log; its columns are name, state, model, and age (time since creation in its largest whole unit: s, m, h, or d). Unknown options and extra arguments are rejected with the command's usage; send and compact take all remaining arguments as text. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
 

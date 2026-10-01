@@ -85,19 +85,16 @@ function logText(name) {
   return result.status === 0 ? result.stdout : '';
 }
 
-function count(text, needle) {
-  return text.split(needle).length - 1;
-}
-
 function manifest(name) {
   return JSON.parse(readFileSync(dockFile(name, '.json'), 'utf8'));
 }
 
+function logEvents(name) {
+  return readFileSync(dockFile(name, '.log'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+}
+
 function latestSpawned(name) {
-  return readFileSync(dockFile(name, '.log'), 'utf8').trim().split('\n')
-    .map((line) => JSON.parse(line))
-    .filter((event) => event.event === 'spawned')
-    .at(-1);
+  return logEvents(name).filter((event) => event.event === 'spawned').at(-1);
 }
 
 function findRunnerPid(name) {
@@ -165,28 +162,30 @@ try {
   expect('A runner process alive after spawn', Number.isInteger(pidA) && pidAlive(pidA), String(pidA));
 
   result = run(['send', a, 'Remember the token ALPHA-31. Reply exactly: alpha saved']);
-  expect('send A first prompt acks', result.status === 0 && result.stdout.trim() === '{"ok":true}', result.stderr || result.stdout);
+  const firstId = result.stdout.trim();
+  expect('send A first prompt prints its id', result.status === 0 && /^p[0-9a-f]{12}$/.test(firstId), result.stderr || result.stdout);
 
   await waitFor(() => {
     const logs = logText(a);
     const ls = run(['ls']);
-    return logs.includes('alpha saved') && count(logs, ' idle') >= 1 && lsState(ls.stdout, a) === 'idle';
+    return logs.includes('alpha saved') && logs.includes(` done id=${firstId}`) && lsState(ls.stdout, a) === 'idle';
   });
 
   result = run(['ls']);
   let logs = logText(a);
   expect('A returns to idle after first prompt', result.status === 0 && lsState(result.stdout, a) === 'idle', result.stdout || result.stderr);
-  expect('A log has spawned turn text idle', logs.includes(' spawned') && logs.includes(' turn\n') && logs.includes('alpha saved') && logs.includes(' idle'), logs);
-  expect('A log has no done event', !logs.includes(' done'), logs);
+  expect('A log has spawned queued run turn text done', logs.includes(' spawned') && [' queued', ' run', ' turn', ' done'].every((event) => logs.includes(`${event} id=${firstId}`)) && logs.includes('alpha saved'), logs);
+  expect('A reply text carries the send id', logEvents(a).some((event) => event.event === 'text' && event.id === firstId && event.text.includes('alpha saved')), logs);
   expect('A runner stays alive after first prompt', findRunnerPid(a) === pidA && pidAlive(pidA), String(findRunnerPid(a)));
 
   result = run(['send', a, 'What token did I ask you to remember? Reply exactly: ALPHA-31']);
-  expect('send A second prompt acks', result.status === 0 && result.stdout.trim() === '{"ok":true}', result.stderr || result.stdout);
+  const secondId = result.stdout.trim();
+  expect('send A second prompt prints a new id', result.status === 0 && /^p[0-9a-f]{12}$/.test(secondId) && secondId !== firstId, result.stderr || result.stdout);
 
   await waitFor(() => {
     const currentLogs = logText(a);
     const ls = run(['ls']);
-    return currentLogs.includes('ALPHA-31') && count(currentLogs, ' idle') >= 2 && lsState(ls.stdout, a) === 'idle';
+    return currentLogs.includes('ALPHA-31') && currentLogs.includes(` done id=${secondId}`) && lsState(ls.stdout, a) === 'idle';
   });
 
   result = run(['ls']);

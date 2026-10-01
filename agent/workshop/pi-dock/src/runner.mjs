@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -32,9 +33,10 @@ const pipe = pipePath(name);
 let session;
 let server;
 let unsubscribe = () => {};
-let running = false;
+let current;
+let runError;
 let compacting = false;
-let pending = 0;
+const queued = new Set();
 let terminal = false;
 let queue = Promise.resolve();
 
@@ -119,29 +121,30 @@ function closeServerThenExit(code) {
   server.close(() => process.exit(code));
 }
 
-async function shutdown(event, code) {
+async function shutdown(event, details, code) {
   if (terminal) {
     return;
   }
 
   terminal = true;
-  const dropped = pending;
+  const dropped = [...queued];
+  const interrupted = current;
   unsubscribe();
   await session?.abort().catch(() => {});
   session?.dispose();
-  if (dropped > 0) {
-    appendLog({ event: 'dropped', n: dropped });
+  if (dropped.length > 0) {
+    appendLog({ event: 'dropped', ids: dropped });
   }
-  appendLog(event);
+  appendLog({ event, ...(interrupted && { id: interrupted }), ...details });
   closeServerThenExit(code);
 }
 
 function fail(error) {
-  return shutdown({ event: 'failed', reason: error.message }, 1);
+  return shutdown('failed', { reason: error.message }, 1);
 }
 
 function stopSoon() {
-  return shutdown({ event: 'stopped' }, 0);
+  return shutdown('stopped', {}, 0);
 }
 
 function subscribeToSession() {
@@ -151,52 +154,64 @@ function subscribeToSession() {
     }
 
     if (event.type === 'turn_start') {
-      appendLog({ event: 'turn' });
+      appendLog({ event: 'turn', ...(current && { id: current }) });
       return;
     }
 
     if (event.type === 'turn_end') {
+      if (current) {
+        const { stopReason, errorMessage } = event.message;
+        runError = stopReason === 'error' || stopReason === 'aborted' ? errorMessage || stopReason : undefined;
+      }
       const text = textFromMessage(event.message);
       if (text) {
-        appendLog({ event: 'text', text });
+        appendLog({ event: 'text', ...(current && { id: current }), text });
       }
     }
   });
 }
 
-async function runOnePrompt(text) {
-  pending -= 1;
-  if (terminal || !session) {
+async function runOnePrompt(id, text) {
+  // Idle extension work finishes first and keeps no id; until then the prompt stays queued.
+  await session.waitForIdle();
+  if (terminal) {
     return;
   }
 
-  running = true;
+  queued.delete(id);
+  current = id;
+  runError = undefined;
+  appendLog({ event: 'run', id });
 
   try {
     await session.prompt(text, { streamingBehavior: 'followUp' });
+    // A prompt that joined an already streaming run returns at once; its outcome is that run's.
+    await session.waitForIdle();
     if (!terminal) {
-      appendLog({ event: 'idle' });
+      appendLog(runError === undefined ? { event: 'done', id } : { event: 'run_failed', id, reason: runError });
     }
   } catch (error) {
     await fail(error);
   } finally {
-    running = false;
+    current = undefined;
   }
 }
 
 function runPrompt(text) {
   if (terminal || !session) {
-    return false;
+    return undefined;
   }
 
-  pending += 1;
-  queue = queue.then(() => runOnePrompt(text));
+  const id = `p${randomBytes(6).toString('hex')}`;
+  queued.add(id);
+  appendLog({ event: 'queued', id });
+  queue = queue.then(() => runOnePrompt(id, text));
   void queue.catch(() => {});
-  return true;
+  return id;
 }
 
 function busyForCompact() {
-  return running || compacting || pending > 0 || session?.isStreaming;
+  return current || compacting || queued.size > 0 || session?.isStreaming;
 }
 
 async function runOneCompact(instructions) {
@@ -324,16 +339,13 @@ try {
         return { ok: false, error: 'terminal' };
       }
 
-      const state = compacting ? 'compacting' : running || session.isStreaming ? 'running' : 'idle';
+      const state = compacting ? 'compacting' : current || session.isStreaming ? 'running' : 'idle';
       return { ok: true, state, model: `${session.model.provider}/${session.model.id}`, pid: process.pid };
     }
 
     if (msg.cmd === 'prompt') {
-      if (!runPrompt(msg.text)) {
-        return { ok: false, error: 'terminal' };
-      }
-
-      return { ok: true };
+      const id = runPrompt(msg.text);
+      return id ? { ok: true, id } : { ok: false, error: 'terminal' };
     }
 
     if (msg.cmd === 'compact') {

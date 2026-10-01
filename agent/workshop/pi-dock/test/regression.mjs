@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import net from 'node:net';
 import { request, serve } from '../src/pipe.mjs';
 import { logPath, manifestPath, pipePath, validateAgentName } from '../src/paths.mjs';
@@ -119,12 +120,89 @@ async function worker(action, name, id) {
   }
 }
 
-function launchRunner(sandbox, cwd, name, fixture) {
-  return spawn(process.execPath, [runner, '--name', name, '--cwd', cwd, '--model', 'anthropic/claude-haiku-4-5', '--x', fixture, '--create'], {
+function launchRunner(sandbox, args) {
+  return spawn(process.execPath, [runner, ...args], {
     env: sandboxEnv(sandbox),
     stdio: 'ignore',
     windowsHide: true,
   });
+}
+
+// A local OpenAI-compatible provider that answers each request with the next scripted reply.
+function startFauxProvider() {
+  const replies = [];
+  let unexpected = 0;
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.once('end', () => {
+      const reply = replies.shift();
+      if (reply) {
+        reply(res);
+        return;
+      }
+      unexpected += 1;
+      res.writeHead(400).end();
+    });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({
+    server,
+    replies,
+    baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
+    unexpected: () => unexpected,
+  })));
+}
+
+function sse(chunks) {
+  return (res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    for (const chunk of chunks) {
+      res.write(`data: ${JSON.stringify({ id: 'faux', choices: [{ index: 0, ...chunk }] })}\n\n`);
+    }
+    res.end('data: [DONE]\n\n');
+  };
+}
+
+function textReply(text) {
+  return sse([{ delta: { content: text } }, { delta: {}, finish_reason: 'stop' }]);
+}
+
+function serverError(res) {
+  res.writeHead(500, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ error: { message: 'faux overloaded' } }));
+}
+
+function held(reply) {
+  let arrive;
+  let release;
+  const arrived = new Promise((resolve) => { arrive = resolve; });
+  const released = new Promise((resolve) => { release = resolve; });
+  return { reply: (res) => { arrive(); void released.then(() => reply(res)); }, arrived, release };
+}
+
+async function logEvents(dock, name) {
+  return (await fs.readFile(path.join(dock, `${name}.log`), 'utf8')).trim().split('\n').map(JSON.parse);
+}
+
+async function waitForLog(dock, name, predicate, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const events = await logEvents(dock, name);
+    if (predicate(events)) {
+      return events;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`log of ${name} did not reach the expected state: ${JSON.stringify(events)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+function withoutTimes(events) {
+  return events.filter((event) => event.event !== 'spawned').map(({ ts: _ts, ...event }) => event);
+}
+
+function eventsOf(events, id) {
+  return withoutTimes(events).filter((event) => event.id === id || event.ids?.includes(id));
 }
 
 function runOwnedNode(sandbox, script, args) {
@@ -325,6 +403,7 @@ async function main() {
   const dock = path.join(sandbox, '.pi', 'dock');
   const ownedRunners = [];
   const ownedRunnerPipes = new Map();
+  const provider = await startFauxProvider();
   let primaryError;
   try {
     const validNames = [
@@ -682,7 +761,7 @@ async function main() {
     await fs.writeFile(path.join(sandbox, 'agent', 'models.json'), JSON.stringify({
       providers: {
         regress: {
-          baseUrl: 'http://127.0.0.1:9/v1',
+          baseUrl: provider.baseUrl,
           api: 'openai-completions',
           apiKey: 'regress',
           models: [
@@ -692,6 +771,19 @@ async function main() {
         },
       },
     }));
+    await fs.writeFile(path.join(sandbox, 'agent', 'settings.json'), JSON.stringify({ retry: { enabled: true, maxRetries: 1, baseDelayMs: 1, provider: { maxRetries: 0 } } }));
+    await fs.mkdir(path.join(sandbox, 'agent', 'extensions'));
+    await fs.writeFile(path.join(sandbox, 'agent', 'extensions', 'idle-work.js'), [
+      'export default function (pi) {',
+      "  pi.registerFlag('idle-work', { type: 'boolean' });",
+      "  pi.on('session_start', () => {",
+      "    if (pi.getFlag('idle-work')) {",
+      "      setTimeout(() => pi.sendUserMessage('idle work'));",
+      '    }',
+      '  });',
+      '}',
+      '',
+    ].join('\n'));
     const cli = path.join(root, 'bin', 'pi-dock.mjs');
     const allRegress = await runOwnedNode(sandbox, cli, ['models', 'regress/']);
     assert.equal(allRegress.code, 0, allRegress.stderr);
@@ -735,11 +827,125 @@ async function main() {
       await assert.rejects(fs.access(path.join(dock, `${closedName}.log`)), { code: 'ENOENT' }, 'mid-request close does not wake a runner');
     });
 
+    const own = (child, name) => {
+      ownedRunners.push(child);
+      ownedRunnerPipes.set(child, pipePath(name));
+      return child;
+    };
+    const send = async (name, text) => {
+      const result = await runOwnedNode(sandbox, cli, ['send', name, text]);
+      assert.equal(result.code, 0, result.stderr);
+      assert.match(result.stdout, /^p[0-9a-f]{12}\n$/, 'send prints only the prompt id');
+      return result.stdout.trim();
+    };
+    const stop = async (name, child) => {
+      assert.equal((await runOwnedNode(sandbox, cli, ['stop', name])).stdout, 'stopped\n');
+      await waitForExit(child);
+    };
+    const corrName = `corr-${randomUUID()}`;
+    const corrCwd = path.join(sandbox, 'corr-cwd');
+    await fs.mkdir(corrCwd);
+    await fs.writeFile(path.join(corrCwd, 'note.txt'), 'note');
+    const corr = own(launchRunner(sandbox, ['--name', corrName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--create']), corrName);
+    assert(await waitForStatus(pipePath(corrName)), 'correlation runner starts');
+
+    provider.replies.push(textReply('faux hello'));
+    const helloId = await send(corrName, 'hello');
+    let logged = await waitForLog(dock, corrName, (all) => all.some((event) => event.event === 'done' && event.id === helloId));
+    assert.deepEqual(eventsOf(logged, helloId), [
+      { event: 'queued', id: helloId },
+      { event: 'run', id: helloId },
+      { event: 'turn', id: helloId },
+      { event: 'text', id: helloId, text: 'faux hello' },
+      { event: 'done', id: helloId },
+    ], 'a normal run is correlated from queue to done');
+
+    provider.replies.push(serverError, serverError);
+    const failId = await send(corrName, 'fail');
+    logged = await waitForLog(dock, corrName, (all) => all.some((event) => event.id === failId && event.event === 'run_failed'));
+    const failRun = eventsOf(logged, failId);
+    assert.deepEqual(failRun.map((event) => event.event), ['queued', 'run', 'turn', 'turn', 'run_failed'], 'an exhausted retry ends the run, not the agent');
+    assert.match(failRun.at(-1).reason, /500/);
+    assert.equal((await request(pipePath(corrName), { cmd: 'status' })).state, 'idle', 'a failed run leaves the agent idle and on');
+
+    provider.replies.push(serverError, textReply('recovered'));
+    const retryId = await send(corrName, 'retry');
+    logged = await waitForLog(dock, corrName, (all) => all.some((event) => event.id === retryId && event.event === 'done'));
+    assert.deepEqual(eventsOf(logged, retryId), [
+      { event: 'queued', id: retryId },
+      { event: 'run', id: retryId },
+      { event: 'turn', id: retryId },
+      { event: 'turn', id: retryId },
+      { event: 'text', id: retryId, text: 'recovered' },
+      { event: 'done', id: retryId },
+    ], 'a retried error followed by success is done');
+
+    provider.replies.push(
+      sse([{ delta: { content: 'reading', tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'note.txt' }) } }] } }, { delta: {}, finish_reason: 'tool_calls' }]),
+      sse([{ delta: {}, finish_reason: 'stop' }]),
+    );
+    const emptyId = await send(corrName, 'read the note');
+    logged = await waitForLog(dock, corrName, (all) => all.some((event) => event.id === emptyId && event.event === 'done'));
+    assert.deepEqual(eventsOf(logged, emptyId), [
+      { event: 'queued', id: emptyId },
+      { event: 'run', id: emptyId },
+      { event: 'turn', id: emptyId },
+      { event: 'text', id: emptyId, text: 'reading' },
+      { event: 'turn', id: emptyId },
+      { event: 'done', id: emptyId },
+    ], 'an empty final turn has no text after its turn event');
+
+    const corrHold = held(textReply('late'));
+    provider.replies.push(corrHold.reply);
+    const stopIds = [await send(corrName, 'one'), await send(corrName, 'two'), await send(corrName, 'three')];
+    await corrHold.arrived;
+    await stop(corrName, corr);
+    assert.deepEqual(withoutTimes(await logEvents(dock, corrName)).slice(-2), [
+      { event: 'dropped', ids: stopIds.slice(1) },
+      { event: 'stopped', id: stopIds[0] },
+    ], 'stop lists the queued ids as dropped and names the interrupted run');
+
+    const idleName = `idle-${randomUUID()}`;
+    const idleHold = held(textReply('idle reply'));
+    provider.replies.push(idleHold.reply);
+    const idle = own(launchRunner(sandbox, ['--name', idleName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--x', 'idle-work', '--create']), idleName);
+    await idleHold.arrived;
+    const pipeId = await send(idleName, 'pipe work');
+    provider.replies.push(textReply('pipe reply'));
+    assert.deepEqual(withoutTimes(await logEvents(dock, idleName)), [{ event: 'turn' }, { event: 'queued', id: pipeId }], 'the pipe prompt waits while idle extension work runs');
+    idleHold.release();
+    logged = await waitForLog(dock, idleName, (all) => all.some((event) => event.id === pipeId && event.event === 'done'));
+    assert.deepEqual(withoutTimes(logged), [
+      { event: 'turn' },
+      { event: 'queued', id: pipeId },
+      { event: 'text', text: 'idle reply' },
+      { event: 'run', id: pipeId },
+      { event: 'turn', id: pipeId },
+      { event: 'text', id: pipeId, text: 'pipe reply' },
+      { event: 'done', id: pipeId },
+    ], 'idle extension work stays id-less and the pipe run starts after it settles');
+    await stop(idleName, idle);
+
+    const wokenHold = held(textReply('never sent'));
+    provider.replies.push(wokenHold.reply);
+    const woken = own(launchRunner(sandbox, ['--name', idleName]), idleName);
+    await wokenHold.arrived;
+    const waitingId = await send(idleName, 'waiting work');
+    await stop(idleName, woken);
+    logged = await logEvents(dock, idleName);
+    assert.deepEqual(withoutTimes(logged.slice(logged.findLastIndex((event) => event.event === 'spawned'))), [
+      { event: 'turn' },
+      { event: 'queued', id: waitingId },
+      { event: 'dropped', ids: [waitingId] },
+      { event: 'stopped' },
+    ], 'a stop while waiting for idle drops the pipe prompt instead of interrupting it');
+    assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
+
     const runnerName = `t1-${randomUUID()}`;
     const runnerCwd = path.join(sandbox, 'trusted-empty-cwd');
     await fs.mkdir(runnerCwd);
     const fixtures = Array.from({ length: 6 }, (_, index) => `fixture-${index}`);
-    const runners = fixtures.map((fixture) => launchRunner(sandbox, runnerCwd, runnerName, fixture));
+    const runners = fixtures.map((fixture) => launchRunner(sandbox, ['--name', runnerName, '--cwd', runnerCwd, '--model', 'anthropic/claude-haiku-4-5', '--x', fixture, '--create']));
     const pipe = pipePath(runnerName);
     for (const child of runners) {
       ownedRunners.push(child);
@@ -771,12 +977,14 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 24 cases passed');
+    console.log('regression: 30 cases passed');
   } catch (error) {
     primaryError = error;
   }
 
   const cleanupErrors = [];
+  provider.server.closeAllConnections();
+  provider.server.close();
   for (const child of ownedRunners) {
     try {
       await stopOwnedRunner(child, ownedRunnerPipes.get(child));
