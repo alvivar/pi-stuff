@@ -499,6 +499,50 @@ async function main() {
     assert.equal(absentFollow.stderr.trim(), `no log for agent: ${absentLogName}`);
     assert.equal(absentFollow.stderr.includes(sandbox), false, 'absent follow does not leak a sandbox path');
 
+    const usage = {
+      ls: 'pi-dock ls',
+      stop: 'pi-dock stop <name>',
+      start: 'pi-dock start <name>',
+      logs: 'pi-dock logs <name> [--follow]',
+      models: 'pi-dock models [filter]',
+      spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
+    };
+    const rejected = [
+      [['ls', '--json'], "Unknown option '--json'"],
+      [['stop', 'v1', 'extra', 'junk'], "Unexpected argument 'extra'"],
+      [['start', 'v1', '--force'], "Unknown option '--force'"],
+      [['logs', 'v1', 'other'], "Unexpected argument 'other'"],
+      [['logs', 'v1', '--follow=yes'], "Option '-f, --follow' does not take an argument"],
+      [['models', 'a', 'b'], "Unexpected argument 'b'"],
+      [['spawn', '-n', 'v1'], "Unknown option '-n'"],
+      [['spawn', '--name'], "Option '--name <value>' argument missing"],
+      [['spawn', '--name', '--model', 'x'], "Option '--name' argument is ambiguous"],
+    ];
+    for (const [commandArgs, reason] of rejected) {
+      const result = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
+      assert.equal(result.code, 1, commandArgs.join(' '));
+      assert.equal(result.stdout, '');
+      assert.equal(result.stderr, `${reason}\nusage: ${usage[commandArgs[0]]}\n`, commandArgs.join(' '));
+    }
+
+    const ageCases = [['s', 0, /^\ds$/], ['m', 12.5 * 60, /^12m$/], ['h', 5.5 * 3600, /^5h$/], ['d', 43.5 * 86400, /^43d$/]];
+    for (const [suffix, seconds] of ageCases) {
+      const ageName = `age-${suffix}-${randomUUID()}`;
+      await fs.writeFile(path.join(dock, `${ageName}.json`), `${JSON.stringify({ ...manifest('age'), name: ageName, pipe: pipePath(ageName), startedAt: new Date(Date.now() - seconds * 1000).toISOString() })}\n`);
+    }
+    const agesLs = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['ls']);
+    assert.equal(agesLs.code, 0, agesLs.stderr);
+    const lsLines = agesLs.stdout.trimEnd().split('\n');
+    assert.equal(lsLines[0], 'name\tstate\tmodel\tage\tsession');
+    for (const [suffix, , age] of ageCases) {
+      const [name, state, model, shown, session, ...extra] = lsLines.find((line) => line.startsWith(`age-${suffix}-`)).split('\t');
+      assert.equal(state, 'failed', name);
+      assert.equal(model, 'test/model');
+      assert.match(shown, age);
+      assert.equal(session, 'session-age');
+      assert.deepEqual(extra, []);
+    }
+
     const stateCases = [
       ['stopped', '{"event":"stopped"}\n', 'stopped'],
       ['stopped-torn', '{"event":"stopped"}\n{"event":', 'stopped'],
@@ -679,7 +723,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 20 cases passed');
+    console.log('regression: 22 cases passed');
   } catch (error) {
     primaryError = error;
   }

@@ -13,11 +13,40 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runner = path.join(root, 'src', 'runner.mjs');
 const command = process.argv[2];
 const args = process.argv.slice(3);
+const USAGE = {
+  spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
+  send: 'pi-dock send <name> <text>',
+  start: 'pi-dock start <name>',
+  stop: 'pi-dock stop <name>',
+  ls: 'pi-dock ls',
+  logs: 'pi-dock logs <name> [--follow]',
+  set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
+  compact: 'pi-dock compact <name> [instructions]',
+  models: 'pi-dock models [filter]',
+};
 const VALID_THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 function fail(message) {
   console.error(message);
   process.exit(1);
+}
+
+function failUsage(reason) {
+  fail(reason ? `${reason}\nusage: ${USAGE[command]}` : `usage: ${USAGE[command]}`);
+}
+
+function parseCommand(argv, options, maxPositionals) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, options, allowPositionals: true });
+  } catch (error) {
+    failUsage(error.message.split(/\.\s/)[0]);
+  }
+  if (parsed.positionals.length > maxPositionals) {
+    failUsage(`Unexpected argument '${parsed.positionals[maxPositionals]}'`);
+  }
+
+  return parsed;
 }
 
 function sleep(ms) {
@@ -242,13 +271,15 @@ function stateFromLog(name) {
   return 'failed';
 }
 
-function formatElapsed(startedAt) {
-  const ms = Date.now() - Date.parse(startedAt);
-  if (!Number.isFinite(ms)) {
-    return '-';
+function formatAge(startedAt) {
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(startedAt)) / 1000));
+  for (const [unit, size] of [['d', 86400], ['h', 3600], ['m', 60]]) {
+    if (seconds >= size) {
+      return `${Math.floor(seconds / size)}${unit}`;
+    }
   }
 
-  return `${Math.max(0, Math.floor(ms / 1000))}s`;
+  return `${seconds}s`;
 }
 
 function formatLogLine(line) {
@@ -262,22 +293,16 @@ function formatLogLine(line) {
 }
 
 async function spawnCommand(argv) {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    options: {
-      name: { type: 'string' },
-      model: { type: 'string' },
-      thinking: { type: 'string' },
-      x: { type: 'string', multiple: true },
-    },
-  });
-
-  let name = values.name;
-  if (name === undefined || positionals.length > 0) {
-    fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...');
+  const { values } = parseCommand(argv, {
+    name: { type: 'string' },
+    model: { type: 'string' },
+    thinking: { type: 'string' },
+    x: { type: 'string', multiple: true },
+  }, 0);
+  if (values.name === undefined) {
+    failUsage();
   }
-  name = validateAgentName(name);
+  const name = validateAgentName(values.name);
 
   validateThinking(values.thinking);
 
@@ -351,7 +376,7 @@ async function sendCommand(argv) {
   const [name, ...textParts] = argv;
   const text = textParts.join(' ');
   if (name === undefined || text.length === 0) {
-    fail('usage: pi-dock send <name> <text>');
+    failUsage();
   }
 
   validateAgentName(name);
@@ -364,9 +389,9 @@ async function sendCommand(argv) {
 }
 
 async function startCommand(argv) {
-  const [name] = argv;
+  const { positionals: [name] } = parseCommand(argv, {}, 1);
   if (name === undefined) {
-    fail('usage: pi-dock start <name>');
+    failUsage();
   }
 
   validateAgentName(name);
@@ -401,11 +426,7 @@ function formatTokenCount(count) {
 }
 
 async function modelsCommand(argv) {
-  if (argv.length > 1) {
-    fail('usage: pi-dock models [filter]');
-  }
-
-  const [filter = ''] = argv;
+  const { positionals: [filter = ''] } = parseCommand(argv, {}, 1);
   const { ModelRuntime } = await import('@earendil-works/pi-coding-agent');
   const models = await matchingModels(await ModelRuntime.create(), filter);
   if (models.length === 0) {
@@ -428,15 +449,16 @@ async function modelsCommand(argv) {
   }
 }
 
-async function lsCommand() {
+async function lsCommand(argv) {
+  parseCommand(argv, {}, 0);
   const manifests = await listManifests();
-  console.log('name\tstate\telapsed\tsession');
+  console.log('name\tstate\tmodel\tage\tsession');
 
   for (const manifest of manifests) {
     const status = await tryStatus(manifest, 200);
     const state = status ? status.state : stateFromLog(manifest.name);
     const session = manifest.sessionFile ?? '-';
-    console.log(`${manifest.name}\t${state}\t${formatElapsed(manifest.startedAt)}\t${session}`);
+    console.log(`${manifest.name}\t${state}\t${manifest.model}\t${formatAge(manifest.startedAt)}\t${session}`);
   }
 }
 
@@ -472,15 +494,9 @@ function printFollowLog(name, offset) {
 }
 
 async function logsCommand(argv) {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    options: { follow: { type: 'boolean', short: 'f' } },
-  });
-
-  const name = positionals[0];
+  const { values, positionals: [name] } = parseCommand(argv, { follow: { type: 'boolean', short: 'f' } }, 1);
   if (name === undefined) {
-    fail('usage: pi-dock logs <name> [--follow]');
+    failUsage();
   }
 
   validateAgentName(name);
@@ -525,22 +541,16 @@ async function confirmPipeAbsent(manifest, name) {
 }
 
 async function setCommand(argv) {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    options: {
-      model: { type: 'string' },
-      thinking: { type: 'string' },
-      x: { type: 'string', multiple: true },
-    },
-  });
-
-  let name = positionals[0];
-  if (name === undefined || positionals.length > 1 || (!values.model && !values.thinking && values.x === undefined)) {
-    fail('usage: pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...');
+  const { values, positionals: [name] } = parseCommand(argv, {
+    model: { type: 'string' },
+    thinking: { type: 'string' },
+    x: { type: 'string', multiple: true },
+  }, 1);
+  if (name === undefined || (!values.model && !values.thinking && values.x === undefined)) {
+    failUsage();
   }
 
-  name = validateAgentName(name);
+  validateAgentName(name);
   validateThinking(values.thinking);
   const manifest = await requireManifest(name);
   await confirmPipeAbsent(manifest, name);
@@ -571,7 +581,7 @@ async function setCommand(argv) {
 async function compactCommand(argv) {
   const [name, ...instructionParts] = argv;
   if (name === undefined) {
-    fail('usage: pi-dock compact <name> [instructions]');
+    failUsage();
   }
 
   const instructions = instructionParts.join(' ');
@@ -589,9 +599,9 @@ async function compactCommand(argv) {
 }
 
 async function stopCommand(argv) {
-  const [name] = argv;
+  const { positionals: [name] } = parseCommand(argv, {}, 1);
   if (name === undefined) {
-    fail('usage: pi-dock stop <name>');
+    failUsage();
   }
 
   validateAgentName(name);
@@ -614,19 +624,11 @@ async function stopCommand(argv) {
 const HELP = `pi-dock — resident AI agents with durable Pi sessions
 
 Usage:
-  pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...
-  pi-dock send <name> <text>
-  pi-dock start <name>
-  pi-dock stop <name>
-  pi-dock ls
-  pi-dock logs <name> [--follow]
-  pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...
-  pi-dock compact <name> [instructions]
-  pi-dock models [filter]
+${Object.values(USAGE).map((line) => `  ${line}`).join('\n')}
 
 Agents are resident. spawn creates an idle identity in the current cwd and never takes work; spawn and start print <name> <state> <provider/id>. models lists the provider/id refs usable with --model (models with configured credentials; filter is a case-insensitive substring of provider/id, or provider-part/id-part when it contains a slash); --thinking is off|minimal|low|medium|high|xhigh|max. send never creates an agent: it only delivers text and acknowledges; replies are {event:"text"} records in logs <name>. logs --follow runs until interrupted.
 
-stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
+stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log; its columns are name, state, model, age (time since creation in its largest whole unit: s, m, h, or d), and session. Unknown options and extra arguments are rejected with the command's usage; send and compact take all remaining arguments as text. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
 
 compact is idle-only and waits without a timeout until the runner replies (Ctrl-C only stops waiting); the agent stays on, and a failed compaction is logged as {event:"compact_failed",reason}. set requires a stopped/failed agent; it changes model, thinking, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
 
@@ -640,7 +642,7 @@ try {
   } else if (command === 'start') {
     await startCommand(args);
   } else if (command === 'ls') {
-    await lsCommand();
+    await lsCommand(args);
   } else if (command === 'logs') {
     await logsCommand(args);
   } else if (command === 'set') {

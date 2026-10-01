@@ -159,6 +159,7 @@ try {
 
   result = await waitLsState(a, 'idle');
   expect('ls shows A idle after spawn', result?.status === 0 && lsState(result.stdout, a) === 'idle', result?.stdout || result?.stderr);
+  expect('ls shows A model and age', result?.stdout.split('\n').some((line) => /^\d+[smhd]$/.test(line.split('\t')[3]) && line.split('\t').slice(0, 3).join('\t') === `${a}\tidle\t${manifest(a).model}`), result?.stdout);
 
   const pidA = findRunnerPid(a);
   expect('A runner process alive after spawn', Number.isInteger(pidA) && pidAlive(pidA), String(pidA));
