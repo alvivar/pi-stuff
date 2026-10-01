@@ -107,16 +107,14 @@
     .file-path { font:10px/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
     .file-card p { color:var(--muted); font-size:13px; }
     .file-card ul { margin:20px 0 0; padding:18px 0 0; border-top:1px solid var(--line); list-style:none; font:11px/2 var(--mono); color:var(--muted); }
-    .budget { display:grid; grid-template-columns:1fr 1fr; gap:60px; padding:38px; border:1px solid var(--line); }
-    .budget-number { font-size:72px; line-height:1; font-weight:400; letter-spacing:-.07em; }
-    .budget-number span { font:12px var(--mono); color:var(--muted); letter-spacing:0; margin-left:12px; }
-    .budget-pair { display:flex; gap:35px; flex-wrap:wrap; margin:26px 0; }
-    .budget h3 { margin:0; font-size:18px; }
-    .budget p { margin:12px 0 0; font-size:13px; color:var(--muted); }
-    .budget-track { display:flex; height:30px; align-items:center; gap:4px; margin-top:23px; }
-    .budget-track i { flex:1; background:var(--green); height:15px; }
-    .budget-track i:nth-child(4) { background:var(--orange); }
-    .budget-track span { font:10px var(--mono); color:var(--muted); padding:0 8px; }
+    .boundary { display:grid; grid-template-columns:1fr 1fr; gap:60px; padding:38px; border:1px solid var(--line); }
+    .residence-mark { font:100px/1.2 Georgia,serif; color:#527049; margin:12px 0; }
+    .boundary h3 { margin:0; font-size:18px; }
+    .boundary p { margin:12px 0 0; font-size:13px; color:var(--muted); }
+    .attribution { display:flex; align-items:center; gap:10px; margin:28px 0; font:11px/1.7 var(--mono); }
+    .attribution span { flex:1; text-align:center; padding:12px 5px; background:#e9eedf; border:1px solid var(--line); }
+    .attribution small { font-size:10px; color:var(--muted); }
+    .attribution b { color:#527049; font-weight:400; }
     .commands { border-top:1px solid var(--line); }
     .command-row { display:grid; grid-template-columns:1fr 1.2fr; gap:30px; padding:20px 0; border-bottom:1px solid var(--line); align-items:baseline; }
     .command-row code { font-size:13px; overflow-wrap:anywhere; }
@@ -135,32 +133,32 @@
     .closing h2 em { color:var(--green); font-family:Georgia,serif; font-weight:400; }
     .footer-line { border-top:1px solid #4c6453; padding-top:24px; margin-top:55px; display:flex; justify-content:space-between; gap:20px; font:10px/1.7 var(--mono); color:#bdcabb; }
     @media (min-width:1450px) { .hero { padding-top:100px; } }
-    @media (max-width:1000px) { .wrap { width:calc(100% - 56px); } .edition { display:none; } nav { gap:18px; } .hero-grid { gap:20px; } .chapter-head { grid-template-columns:130px 1fr; } .architecture { padding:28px; } .architecture-flow { grid-template-columns:1fr 46px 1.2fr 46px 1fr; } .node { padding:20px 14px; } .node-title { font-size:15px; } .split { gap:30px; } .budget { gap:30px; } }
-    @media (max-width:700px) { html { scroll-padding-top:108px; } .wrap { width:calc(100% - 40px); } .topbar-inner { height:auto; min-height:88px; flex-wrap:wrap; gap:8px; padding-block:14px 8px; } .brand { font-size:20px; } nav { width:100%; gap:0; justify-content:space-between; } nav a { font-size:10px; padding:8px 0; } .hero { padding-top:42px; } .hero-grid { grid-template-columns:1fr; margin-top:30px; gap:28px; } h1 { font-size:57px; } .hero-copy { font-size:15px; } .hero-art { max-width:420px; margin:auto; } .hero-meta { margin-top:30px; font-size:9px; line-height:1.7; } .hero-meta span:last-child { text-align:right; } section.chapter { padding:54px 0; } .chapter-head { grid-template-columns:1fr; gap:18px; margin-bottom:28px; } .intro { font-size:14px; } .principles,.storage { grid-template-columns:1fr; } .principle { padding:25px; } .principle h3 { margin-top:16px; } .architecture { padding:24px; } .diagram-top { font-size:9px; } .architecture-flow { grid-template-columns:1fr; } .node { padding:22px; } .connector { display:flex; gap:12px; align-items:center; justify-content:center; padding:10px; } .connector .arrow { transform:rotate(90deg); } .architecture-bottom { flex-direction:column; gap:10px; } .split,.budget,.limits { grid-template-columns:1fr; gap:30px; } .timeline { grid-template-columns:1fr 1fr; gap:30px 14px; } .step { padding-right:12px; } .code-panel { padding:22px 18px; } pre { font-size:11px; } .storage { gap:12px; } .file-card { padding:24px; } .file-icon { float:right; } .budget { padding:26px; } .budget-number { font-size:62px; } .command-row { grid-template-columns:1fr; gap:8px; } .source-list { grid-template-columns:1fr; } .footer-line { flex-direction:column; } }
-    @media (max-width:370px) { h1 { font-size:49px; } .budget-pair { gap:20px; } .budget-number { font-size:52px; } }
+    @media (max-width:1000px) { .wrap { width:calc(100% - 56px); } .edition { display:none; } nav { gap:18px; } .hero-grid { gap:20px; } .chapter-head { grid-template-columns:130px 1fr; } .architecture { padding:28px; } .architecture-flow { grid-template-columns:1fr 46px 1.2fr 46px 1fr; } .node { padding:20px 14px; } .node-title { font-size:15px; } .split { gap:30px; } .boundary { gap:30px; } }
+    @media (max-width:700px) { html { scroll-padding-top:108px; } .wrap { width:calc(100% - 40px); } .topbar-inner { height:auto; min-height:88px; flex-wrap:wrap; gap:8px; padding-block:14px 8px; } .brand { font-size:20px; } nav { width:100%; gap:0; justify-content:space-between; } nav a { font-size:10px; padding:8px 0; } .hero { padding-top:42px; } .hero-grid { grid-template-columns:1fr; margin-top:30px; gap:28px; } h1 { font-size:57px; } .hero-copy { font-size:15px; } .hero-art { max-width:420px; margin:auto; } .hero-meta { margin-top:30px; font-size:9px; line-height:1.7; } .hero-meta span:last-child { text-align:right; } section.chapter { padding:54px 0; } .chapter-head { grid-template-columns:1fr; gap:18px; margin-bottom:28px; } .intro { font-size:14px; } .principles,.storage { grid-template-columns:1fr; } .principle { padding:25px; } .principle h3 { margin-top:16px; } .architecture { padding:24px; } .diagram-top { font-size:9px; } .architecture-flow { grid-template-columns:1fr; } .node { padding:22px; } .connector { display:flex; gap:12px; align-items:center; justify-content:center; padding:10px; } .connector .arrow { transform:rotate(90deg); } .architecture-bottom { flex-direction:column; gap:10px; } .split,.boundary,.limits { grid-template-columns:1fr; gap:30px; } .timeline { grid-template-columns:1fr 1fr; gap:30px 14px; } .step { padding-right:12px; } .code-panel { padding:22px 18px; } pre { font-size:11px; } .storage { gap:12px; } .file-card { padding:24px; } .file-icon { float:right; } .boundary { padding:26px; } .command-row { grid-template-columns:1fr; gap:8px; } .source-list { grid-template-columns:1fr; } .footer-line { flex-direction:column; } }
+    @media (max-width:370px) { h1 { font-size:49px; } .attribution { gap:5px; font-size:10px; } }
     @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
     @media print { .topbar,.sim-controls,.hero-link,.skip { display:none; } body { background:white; } .wrap { width:100%; } section.chapter { padding:32px 0; } .hero { padding:20px 0; } .architecture,.closing { background:#eee; color:#222; } .architecture *,.closing * { color:#222!important; } .chapter-head { grid-template-columns:100px 1fr; } .node,.file-card,.code-panel { break-inside:avoid; } details { display:block; } }
   </style>
 </head>
 <body>
-  <a class="skip" href="#contenido">Skip to content</a>
+  <a class="skip" href="#content">Skip to content</a>
   <header class="topbar">
     <div class="wrap topbar-inner">
-      <a class="brand" href="#inicio" aria-label="pi-dock, home"><span class="brand-mark" aria-hidden="true"></span>pi-dock</a>
+      <a class="brand" href="#home" aria-label="pi-dock, home"><span class="brand-mark" aria-hidden="true"></span>pi-dock</a>
       <nav aria-label="Chapters">
-        <a href="#idea">The idea</a><a href="#arquitectura">Architecture</a><a href="#ciclo">Lifecycle</a><a href="#memoria">Memory</a><a href="#referencia">Reference</a>
+        <a href="#idea">The idea</a><a href="#architecture">Architecture</a><a href="#lifecycle">Lifecycle</a><a href="#memory">Memory</a><a href="#reference">Reference</a>
       </nav>
-      <span class="edition">FIELD GUIDE / 0.1.0-dev</span>
+      <span class="edition">FIELD GUIDE / RESIDENT PI</span>
     </div>
     <div class="progress" aria-hidden="true"></div>
   </header>
-  <main id="contenido">
-    <div class="hero wrap" id="inicio">
+  <main id="content">
+    <div class="hero wrap" id="home">
       <div class="eyebrow"><span class="dot"></span> Resident agents · Durable sessions</div>
       <div class="hero-grid">
         <div>
           <h1>The terminal<br>closes.<br><em>The agent stays.</em></h1>
-          <p class="hero-copy">Create a named Pi agent. Give it work. Come back later. Its process runs independently of your terminal; its memory survives even when the agent is powered off.</p>
+          <p class="hero-copy">Create a named Pi agent. Give it work. Keep the run ID. Come back later. Its process lives outside your terminal; its conversation survives power-off.</p>
           <a class="hero-link" href="#idea">Understand pi-dock <span aria-hidden="true">↓</span></a>
         </div>
         <svg class="hero-art" viewBox="0 0 480 440" role="img" aria-labelledby="hero-title hero-desc">
@@ -191,9 +189,9 @@
 
     <section class="chapter" id="idea">
       <div class="wrap">
-        <div class="chapter-head"><div class="chapter-label"><span>01</span> THE IDEA</div><div><h2>Not a disposable task.<br>An agent to come back to.</h2><p class="intro">Finishing a prompt does not end the process. The agent returns to <code>idle</code> and waits. Turning it off does not erase its history either: when it wakes, it opens the same session.</p></div></div>
+        <div class="chapter-head"><div class="chapter-label"><span>01</span> THE IDEA</div><div><h2>Not a disposable task.<br>An agent to come back to.</h2><p class="intro">Finishing a prompt does not end the process. With no more work active, the agent returns to <code>idle</code> and waits. Turning it off does not erase its history either: when it wakes, it opens the same session.</p></div></div>
         <div class="principles">
-          <article class="principle"><span class="num">A / IDENTITY</span><h3>Create ≠ send work</h3><p><code>spawn</code> creates an idle identity. <code>send</code> only works with existing names. A typo never silently creates another agent.</p></article>
+          <article class="principle"><span class="num">A / IDENTITY</span><h3>Create ≠ send work</h3><p><code>spawn</code> creates an identity without sending a prompt. <code>send</code> only works with existing names. A typo never silently creates another agent.</p></article>
           <article class="principle"><span class="num">B / RESIDENCE</span><h3>Lives outside your shell</h3><p>The process is launched with <code>detached: true</code>, ignored stdio and <code>unref()</code>. It is still there when the CLI exits.</p></article>
           <article class="principle"><span class="num">C / CONTINUITY</span><h3>Power off, not memory loss</h3><p><code>stop</code> aborts and powers off the runner. Manifest, log and session remain. There is no destructive <code>rm</code> command.</p></article>
         </div>
@@ -201,7 +199,7 @@
       </div>
     </section>
 
-    <section class="chapter" id="arquitectura">
+    <section class="chapter" id="architecture">
       <div class="wrap">
         <div class="chapter-head"><div class="chapter-label"><span>02</span> THE PIECES</div><div><h2>No control center.<br>One process per agent.</h2><p class="intro">The CLI reads files and talks directly to the runner. The runner hosts an <code>AgentSession</code> in-process through the SDK; it does not wrap an interactive terminal.</p></div></div>
         <div class="architecture" role="group" aria-label="Architecture: CLI, pipe, runner with AgentSession, and storage">
@@ -209,7 +207,7 @@
           <div class="architecture-flow">
             <div class="node"><div class="node-title">pi-dock &lt;cmd&gt;</div><small>Daemon-free CLI<br>Query · send · exit</small></div>
             <div class="connector"><span>NDJSON</span><span class="arrow" aria-hidden="true">↔</span></div>
-            <div class="node runner-node"><div class="node-title">runner.mjs</div><small>Prompt queue · budget<br>Lifecycle control</small><div class="inner-session">AgentSession / Pi SDK</div></div>
+            <div class="node runner-node"><div class="node-title">runner.mjs</div><small>Prompt queue · run IDs<br>Lifecycle control</small><div class="inner-session">AgentSession / Pi SDK</div></div>
             <div class="connector"><span>disk</span><span class="arrow" aria-hidden="true">→</span></div>
             <div class="node"><div class="node-title">Persistence</div><small>Identity → manifest<br>Events → log<br>Memory → JSONL session</small></div>
           </div>
@@ -219,18 +217,21 @@
       </div>
     </section>
 
-    <section class="chapter" id="ciclo">
+    <section class="chapter" id="lifecycle">
       <div class="wrap">
-        <div class="chapter-head"><div class="chapter-label"><span>03</span> THE CYCLE</div><div><h2>The work ends.<br>The identity continues.</h2><p class="intro">Four states describe what we observe. There is no stored status field to become stale after a crash.</p></div></div>
+        <div class="chapter-head"><div class="chapter-label"><span>03</span> THE CYCLE</div><div><h2>The work ends.<br>The identity continues.</h2><p class="intro">Five states describe what we observe: three while powered on, two while off. There is no stored status field to become stale after a crash.</p></div></div>
         <div class="split">
           <div>
-            <div class="lifecycle" role="group" aria-label="Sending work moves the agent from idle to running; completion returns it to idle. Stop powers it off. A crash or budget breach leads to failed. Start or send wakes the agent.">
+            <div class="lifecycle" role="group" aria-label="Idle, running and compacting are powered-on states. Completion returns to idle when no other work remains. Stop powers off; a crash or fatal error leads to failed. Start, send or compact wakes the same identity.">
               <div class="state active"><strong>idle</strong><small>on · waiting</small></div><div class="state-arrow" aria-hidden="true">⇄</div><div class="state active"><strong>running</strong><small>on · working</small></div>
               <div class="state-caption">send → work &nbsp; / &nbsp; work done → idle</div>
-              <div class="state off"><strong>stopped</strong><small>explicitly powered off</small></div><div class="state-arrow" aria-hidden="true">/</div><div class="state off"><strong>failed</strong><small>crash · error · budget</small></div>
-              <div class="state-caption">↑ start or send wake the same identity</div>
+              <div class="state active" style="grid-column:1/-1"><strong>compacting</strong><small>on · explicit context summary</small></div>
+              <div class="state-caption">idle → compact → idle</div>
+              <div class="state off"><strong>stopped</strong><small>explicitly powered off</small></div><div class="state-arrow" aria-hidden="true">/</div><div class="state off"><strong>failed</strong><small>crash · fatal error</small></div>
+              <div class="state-caption">↑ start, send or compact wake the same identity</div>
             </div>
-            <p class="callout"><strong>Derived state.</strong> If the pipe responds, the runner is queried. If not, <code>ls</code> uses the last complete event: <code>stopped</code> or <code>failed</code>; any other final event means <code>failed</code>.</p>
+            <p class="callout"><strong>A failed run is not a failed agent.</strong> A reported turn error writes <code>run_failed</code> and normally leaves the runner on. A thrown prompt exception shuts it down. Failed explicit compaction also leaves it on.</p>
+            <p class="source">State comes from the live pipe. Without it, the last complete log event determines <code>stopped</code> or <code>failed</code>; any other ending means <code>failed</code>. The <code>compacting</code> state tracks explicit compaction, not automatic SDK compaction.</p>
           </div>
           <div class="simulator" id="simulator">
             <div class="sim-top"><span>LIFECYCLE LAB</span><span class="badge" id="sim-state">not created</span></div>
@@ -239,9 +240,9 @@ spawn → send → finish → stop → start
 
 Memory survives power-off.</div>
             <div class="sim-controls" aria-label="Local simulation">
-              <button type="button" data-action="spawn" disabled>spawn</button><button type="button" data-action="send" disabled>send</button><button type="button" data-action="finish" disabled>finish</button><button type="button" data-action="stop" disabled>stop</button><button type="button" data-action="start" disabled>start</button><button type="button" data-action="reset" disabled aria-label="Reset simulation">↺</button>
+              <button type="button" data-action="spawn" disabled>spawn</button><button type="button" data-action="send" disabled>send</button><button type="button" data-action="finish" disabled>finish</button><button type="button" data-action="compact" disabled>compact</button><button type="button" data-action="stop" disabled>stop</button><button type="button" data-action="start" disabled>start</button><button type="button" data-action="reset" disabled aria-label="Reset simulation">↺</button>
             </div>
-            <p class="sim-note">Simulation on this page. It runs no commands and calls no models. “Finish” represents the end of the work, not a real command.</p>
+            <p class="sim-note">Simulation on this page. It runs no commands and calls no models. “Finish” represents a successful prompt or compaction ending, not a real command. Other extension work and error paths are not simulated.</p>
             <noscript><p class="sim-note">Enable JavaScript to try the simulation; the rest of the guide does not need it.</p></noscript>
           </div>
         </div>
@@ -249,33 +250,36 @@ Memory survives power-off.</div>
       </div>
     </section>
 
-    <section class="chapter" id="trabajo">
+    <section class="chapter" id="work">
       <div class="wrap">
-        <div class="chapter-head"><div class="chapter-label"><span>04</span> ONE PROMPT</div><div><h2>“Received” does not mean<br>“done”.</h2><p class="intro"><code>send</code> confirms delivery and exits. The work continues separately from the CLI. Replies are read from the log, not from that command's stdout.</p></div></div>
+        <div class="chapter-head"><div class="chapter-label"><span>04</span> ONE PROMPT</div><div><h2>“Received” does not mean<br>“done”.</h2><p class="intro"><code>send</code> prints a prompt ID and exits after acceptance. The runner works independently. Use that ID to wait for the outcome, even from a later terminal.</p></div></div>
         <div class="timeline">
           <article class="step"><span class="step-index">01 / DELIVER</span><h3>Find the identity</h3><p>Reads the manifest. If the runner is off, wakes it and opens the saved session.</p></article>
-          <article class="step"><span class="step-index">02 / CONFIRM</span><h3>Queue and reply</h3><p>The pipe receives <code>prompt</code>. The runner accepts it into its queue and returns <code>{"ok":true}</code>.</p></article>
-          <article class="step"><span class="step-index">03 / EXECUTE</span><h3>One run at a time</h3><p>A promise chain serializes the work. When a run starts, it resets the budget's turns and clock.</p></article>
-          <article class="step"><span class="step-index">04 / OBSERVE</span><h3>Text, then idle</h3><p>Text is logged at the end of each turn. When the prompt resolves, <code>idle</code> is written; the runner stays alive.</p></article>
+          <article class="step"><span class="step-index">02 / CONFIRM</span><h3>Queue and reply</h3><p>The runner logs <code>queued</code> with a new ID. The pipe returns <code>{"ok":true,"id":"…"}</code>; the CLI prints only the ID.</p></article>
+          <article class="step"><span class="step-index">03 / EXECUTE</span><h3>One run at a time</h3><p>A promise chain serializes pipe prompts. After the SDK is idle, <code>run</code> marks the start. Turns and text carry the same ID.</p></article>
+          <article class="step"><span class="step-index">04 / OBSERVE</span><h3>Record the outcome</h3><p>Text is logged at turn end. After the SDK settles, <code>done</code> or <code>run_failed</code> ends the run. There is no <code>idle</code> log event.</p></article>
         </div>
-        <div class="code-panel"><div class="code-heading">Illustrative example · two commands, two responsibilities</div><pre><span class="dim">$</span> pi-dock send atlas "Remember the token ALPHA-31"
-{"ok":true}                       <span class="dim">← ACK, not the model's reply</span>
+        <div class="code-panel"><div class="code-heading">Illustrative example · delivery now, outcome later</div><pre><span class="dim">$</span> pi-dock send atlas "Remember the token ALPHA-31"
+p4a31b6c902ef                    <span class="dim">← acceptance, not the reply</span>
 
-<span class="dim">$</span> pi-dock logs atlas --follow
-<span class="dim">… turn</span> {"n":1}
-<span class="log-text">… text {"text":"I will remember ALPHA-31."}</span>
-<span class="dim">… idle                           ← still on</span></pre></div>
-        <p class="callout"><strong>Current limit:</strong> there is no <code>promptId</code> and no <code>send --await</code>. One prompt can produce several <code>text</code> events. Taking “the next text” as the final reply is not reliable correlation across concurrent requests.</p>
-        <p class="source">In code → <a href="../src/runner.mjs">src/runner.mjs</a> · runPrompt, runOnePrompt, subscribeToSession<br>Documented friction → <a href="../BACKLOG.md">BACKLOG.md, RV lab, F1 and F2</a></p>
+<span class="dim">$</span> pi-dock wait atlas p4a31b6c902ef
+<span class="log-text">I will remember ALPHA-31.</span>
+
+<span class="dim"># Or send and wait together:</span>
+<span class="dim">$</span> pi-dock send atlas --wait "What token did I give you?"
+<span class="dim">p71c204a93bef                    ← ID on stderr</span>
+<span class="log-text">ALPHA-31                        <span class="dim">← final-turn text on stdout</span></span></pre></div>
+        <p class="callout"><strong>Wait observes; it does not resend.</strong> It reads the correlated log and reports success or failure without waking or retrying the agent. Only the last turn's text is returned, not all turns joined together. A successful run with an empty final turn prints nothing.</p>
+        <p class="source">In code → <a href="../src/runner.mjs">src/runner.mjs</a> · runPrompt, runOnePrompt, subscribeToSession<br><a href="../bin/pi-dock.mjs">bin/pi-dock.mjs</a> · sendCommand, waitForPrompt &nbsp; / &nbsp; <a href="../test/regression.mjs">test/regression.mjs</a> · correlated runs, retries and empty final turns</p>
       </div>
     </section>
 
-    <section class="chapter" id="memoria">
+    <section class="chapter" id="memory">
       <div class="wrap">
         <div class="chapter-head"><div class="chapter-label"><span>05</span> WHAT LASTS</div><div><h2>Three conceptual files.<br>Three responsibilities.</h2><p class="intro">The name points to a configuration and to a standard Pi session. The log makes the agent easy to observe, but it does not replace its full conversation.</p></div></div>
         <div class="storage">
-          <article class="file-card"><div class="file-icon" aria-hidden="true">{ }</div><h3>atlas.json</h3><div class="file-path">~/.pi/dock/atlas.json</div><p>The durable identity. Says which session to open and which configuration to start with.</p><ul><li>name · cwd · sessionFile</li><li>model · thinking · budget</li><li>flags · pipe · startedAt</li></ul></article>
-          <article class="file-card"><div class="file-icon" aria-hidden="true">≡</div><h3>atlas.log</h3><div class="file-path">~/.pi/dock/atlas.log</div><p>NDJSON events appended in order. Each start records its PID; turns contribute text.</p><ul><li>spawned · turn · text · idle</li><li>compacted · dropped</li><li>stopped · failed</li></ul></article>
+          <article class="file-card"><div class="file-icon" aria-hidden="true">{ }</div><h3>atlas.json</h3><div class="file-path">~/.pi/dock/atlas.json</div><p>The durable identity. Says which session to open and which configuration to start with.</p><ul><li>name · cwd · sessionFile</li><li>model · thinking</li><li>flags · pipe · startedAt</li></ul></article>
+          <article class="file-card"><div class="file-icon" aria-hidden="true">≡</div><h3>atlas.log</h3><div class="file-path">~/.pi/dock/atlas.log</div><p>NDJSON events appended in order. Each start records its PID; turns contribute text.</p><ul><li>spawned · queued · run</li><li>turn · text · done · run_failed</li><li>compacted · compact_failed · dropped</li><li>stopped · failed</li></ul></article>
           <article class="file-card"><div class="file-icon" aria-hidden="true">↳</div><h3>Pi session .jsonl</h3><div class="file-path">Path given by sessionFile</div><p>The persistent conversation managed by the SDK. It uses Pi’s standard session format and does not necessarily live in the dock directory.</p><ul><li>Create → SessionManager.create(cwd)</li><li>Wake → SessionManager.open(…)</li><li>Power off → keep the session</li></ul></article>
         </div>
         <p class="callout"><strong>Identity is not overwritten under contention.</strong> Creation publishes the manifest with an exclusive hard link. The CLI verifies that the PID of the responding runner is its own child's. <code>set</code> replaces the manifest atomically, only after confirming the pipe is absent.</p>
@@ -283,30 +287,34 @@ Memory survives power-off.</div>
       </div>
     </section>
 
-    <section class="chapter" id="limites">
+    <section class="chapter" id="boundary">
       <div class="wrap">
-        <div class="chapter-head"><div class="chapter-label"><span>06</span> THE LIMITS</div><div><h2>Bound the work.<br>Not the agent's life.</h2><p class="intro">The budget applies to each pipe-delivered run. Sitting idle for hours does not consume it. The limit is turns and time, not a monetary cap.</p></div></div>
-        <div class="budget">
-          <div><h3>The default is bounded.</h3><div class="budget-pair"><div class="budget-number">20<span>turns</span></div><div class="budget-number">30<span>minutes</span></div></div><p><code>--budget 12,5</code> → 12 turns, 5 minutes.<br><code>--budget off</code> → neither limit, explicitly.<br>Numeric maximum: 35,791 minutes.</p></div>
-          <div><h3>Every run starts from zero.</h3><div class="budget-track" aria-hidden="true"><i></i><i></i><span>idle ↺</span><i></i><i></i></div><p>On exceeding the turns or running out the clock: abort, log <code>failed</code> with reason <code>budget</code>, and power off the runner.</p><p>Prompts that were accepted but are still queued are not durable: on power-off, <code>dropped</code> is logged with their count.</p><p><strong>Exceptions:</strong> <code>compact</code> has no run budget. Neither does work started by extensions while idle; if it joins an active pipe run, it shares that run's budget.</p></div>
+        <div class="chapter-head"><div class="chapter-label"><span>06</span> THE BOUNDARY</div><div><h2>Resident does not mean<br>restricted.</h2><p class="intro">There is no pi-dock turn, time or spending cap. Work can continue until you stop the agent or it crashes—including work started by extensions while no pipe prompt is active.</p></div></div>
+        <div class="boundary">
+          <div><h3>You own the off switch.</h3><div class="residence-mark" aria-hidden="true">∞</div><p>Closing a shell is not cancellation. <code>stop</code> aborts active work and powers off. Queued prompts are not resumed on wake: <code>dropped</code> lists their IDs. The conversation survives; the in-memory queue does not.</p></div>
+          <div><h3>An ID marks a run, not every input.</h3><div class="attribution" role="group" aria-label="Idle extension work has no prompt ID. A pipe prompt waits for it, then its run and turns carry a prompt ID."><span>extension work<br><small>no ID</small></span><b aria-hidden="true">→</b><span>SDK idle</span><b aria-hidden="true">→</b><span>pipe run<br><small>with ID</small></span></div><p>Existing idle extension work settles before the pipe run starts. Work that joins while that run is active can share its attribution until the SDK is idle again.</p><p>The dock log is an observation stream, not a complete input audit. The SDK session holds the conversation.</p></div>
         </div>
-        <div class="limits"><div><h3>Headless does not mean isolated.</h3><p>The runner loads project resources and extensions without Pi's interactive trust dialog. Use it only in trusted directories. It is not a security sandbox.</p></div><div><h3>pi-link is an option, not a required layer.</h3><p><code>--x link --x link-name=atlas</code> passes flags to installed extensions. pi-dock does not know what they mean. The dock log does not audit every external input either: that is what the JSONL session is for.</p></div></div>
-        <p class="source">In code → <a href="../src/budget.mjs">src/budget.mjs</a> · parseBudget<br><a href="../src/runner.mjs">src/runner.mjs</a> · startBudgetTimer, subscribeToSession, shutdown, parseExtensionFlags</p>
+        <div class="limits"><div><h3>Headless does not mean isolated.</h3><p>The runner loads project resources and extensions without Pi's interactive trust dialog. Use it only in trusted directories. It is not a security sandbox. Tools and model calls can have real effects and costs.</p></div><div><h3>Extensions are optional participants.</h3><p>Repeatable <code>--x key[=value]</code> supplies flags to installed extensions; it does not install them. pi-link can be one such extension, but pi-dock has no dependency on it. Headless UI prompts do not behave like an interactive terminal.</p></div></div>
+        <p class="source">In code → <a href="../src/runner.mjs">src/runner.mjs</a> · createAgentSessionServices, bindExtensions, headlessUIContext, runOnePrompt, shutdown, parseExtensionFlags<br><a href="../test/regression.mjs">test/regression.mjs</a> · idle extension work, queued IDs dropped on stop</p>
       </div>
     </section>
 
-    <section class="chapter" id="referencia">
+    <section class="chapter" id="reference">
       <div class="wrap">
-        <div class="chapter-head"><div class="chapter-label"><span>07</span> QUICK REFERENCE</div><div><h2>Eight commands.<br>One mental model.</h2><p class="intro">Create, work, observe, power off. Adjust or compact when needed. These are usage examples, not controls over your agents.</p></div></div>
+        <div class="chapter-head"><div class="chapter-label"><span>07</span> QUICK REFERENCE</div><div><h2>One mental model.<br>A few ways to use it.</h2><p class="intro">Discover, create, work, observe, power off. These twelve commands follow the same identity and session. The examples are not live controls.</p></div></div>
         <div class="commands">
-          <div class="command-row"><code>pi-dock <b>spawn</b> --name atlas</code><p>Creates it idle in the current directory. Options: <code>--model provider/id</code>, <code>--thinking</code>, <code>--budget</code>, repeatable <code>--x</code>.</p></div>
-          <div class="command-row"><code>pi-dock <b>send</b> atlas "Review this project"</code><p>Delivers text; wakes it if needed. Does not create identities. Returns an ACK.</p></div>
-          <div class="command-row"><code>pi-dock <b>start</b> atlas</code><p>Powers on without sending work. If it already responds, reports its state.</p></div>
-          <div class="command-row"><code>pi-dock <b>stop</b> atlas</code><p>Requests abort and power-off. Keeps configuration, log and memory.</p></div>
-          <div class="command-row"><code>pi-dock <b>ls</b></code><p>Lists name, derived state, turns, time since creation and session path.</p></div>
-          <div class="command-row"><code>pi-dock <b>logs</b> atlas --follow</code><p>Shows events and replies. <code>--follow</code> continues until interrupted; it does not stop on reaching idle.</p></div>
-          <div class="command-row"><code>pi-dock <b>set</b> atlas --budget 40,30</code><p>Powered off only. Changes model, thinking, budget or flags. <code>--x</code> replaces the whole list; applied on wake.</p></div>
-          <div class="command-row"><code>pi-dock <b>compact</b> atlas "Keep decisions"</code><p>Idle only, with no pending work. If it was off, wakes it. Summarizes context with the model and leaves it on.</p></div>
+          <div class="command-row"><code>pi-dock <b>models</b> haiku</code><p>Discovers models available with configured credentials. Optional case-insensitive filter; shows context, maximum output, thinking and image support.</p></div>
+          <div class="command-row"><code>pi-dock <b>spawn</b> --name atlas</code><p>Creates in the current directory, without a prompt. Options: <code>--model provider/id</code>, <code>--thinking</code>, repeatable <code>--x</code>. Extensions may start work of their own.</p></div>
+          <div class="command-row"><code>pi-dock <b>send</b> atlas --wait "Review this project"</code><p>Wakes if needed. Normally prints the accepted ID; <code>--wait</code> puts the ID on stderr and final-turn text on stdout. Use <code>--file path</code> instead of inline text.</p></div>
+          <div class="command-row"><code>pi-dock <b>wait</b> atlas p4a31b6c902ef</code><p>Reattaches to a run's outcome, including one already finished. Never resends the prompt or wakes the runner.</p></div>
+          <div class="command-row"><code>pi-dock <b>start</b> atlas</code><p>Powers on without sending a prompt. If it already responds, reports its state and model.</p></div>
+          <div class="command-row"><code>pi-dock <b>stop</b> atlas</code><p>Aborts and powers off; waits for process exit. Keeps configuration, log and memory, not queued work.</p></div>
+          <div class="command-row"><code>pi-dock <b>ls</b></code><p>Lists name, derived state, stored model and age since creation.</p></div>
+          <div class="command-row"><code>pi-dock <b>show</b> atlas</code><p>Shows state and stored configuration: model, thinking, flags, working directory, session path and creation time.</p></div>
+          <div class="command-row"><code>pi-dock <b>logs</b> atlas --tail 5 --follow</code><p>Human-readable events and text by default; <code>--raw</code> gives NDJSON. <code>--tail</code> limits initial history; <code>--follow</code> continues until interrupted.</p></div>
+          <div class="command-row"><code>pi-dock <b>set</b> atlas --thinking high</code><p>Powered off only. Changes model, thinking or extension flags for the next wake. <code>--x</code> replaces the entire flag list.</p></div>
+          <div class="command-row"><code>pi-dock <b>compact</b> atlas "Keep decisions"</code><p>Wakes if needed; rejects active or queued work. Summarizes context with the model, waits for the result and leaves the runner on.</p></div>
+          <div class="command-row"><code>pi-dock <b>skill</b></code><p>Prints the packaged operating guide for AI agents. Read it before operating the dock; use <code>--help</code> for the short command surface.</p></div>
         </div>
         <div class="limits"><div><h3>Portable names, explicit models.</h3><p>Lowercase names, up to 64 characters; alphanumeric segments separated by <code>.</code>, <code>_</code> or <code>-</code>. Windows reserved names are rejected. A model is resolved at creation; the stored <code>provider/id</code> is the authority on every wake. Preflight suggests available models when an unknown name has matches.</p></div><div><h3>A timeout is not the same as being off.</h3><p><code>set</code> fails without mutating if the pipe does not respond. For a stuck runner, look up the PID of the last <code>spawned</code>, verify it still belongs to that agent before terminating it externally, then use <code>start</code>. Do not repeat commands blindly.</p></div></div>
         <details>
@@ -314,18 +322,19 @@ Memory survives power-off.</div>
           <div class="source-list">
             <div><a href="../bin/pi-dock.mjs">bin/pi-dock.mjs</a><p>Public contract, help, preflight, wake, logs and mutation.</p></div>
             <div><a href="../src/runner.mjs">src/runner.mjs</a><p>SDK session, queue, events, compaction and power-off.</p></div>
-            <div><a href="../test/regression.mjs">test/regression.mjs</a><p>Prompt-free cases: creation races, names, UTF-8, budgets, and set against live or stuck pipes.</p></div>
+            <div><a href="../test/regression.mjs">test/regression.mjs</a><p>Local assertions for creation races, UTF-8, safe mutation, model discovery and correlated outcomes using a scripted provider.</p></div>
             <div><a href="../test/smoke.mjs">test/smoke.mjs</a><p>Integration flow on Windows. Includes two real prompts: it is not a free or purely local test.</p></div>
-            <div><a href="../DESIGN.md">DESIGN.md</a><p>Current contracts, architecture and behavior of the resident model.</p></div>
-            <div><a href="../BACKLOG.md">BACKLOG.md</a><p>Release preparation and real-usage proposals. Reply correlation and waiting for replies are still pending.</p></div>
+            <div><a href="../src/manifest.mjs">src/manifest.mjs</a><p>Exclusive creation and atomic replacement of durable identity.</p></div>
+            <div><a href="../src/pipe.mjs">src/pipe.mjs</a><p>Local NDJSON transport, request timeouts and Unix socket recovery.</p></div>
           </div>
         </details>
-        <p class="source">Scope: workshop implementation, version 0.1.0-dev. The project records document validation on Windows; the Unix branch was inspected, not validated at runtime. This guide does not rerun those tests.</p>
+        <p class="source">In code → <a href="../bin/pi-dock.mjs">bin/pi-dock.mjs</a> · USAGE, modelsCommand, showCommand, logsCommand, setCommand, skillCommand</p>
+        <p class="source">Scope: current workshop CLI and runner, including local uncommitted implementation updates. Examples and the lab are illustrative, not model guarantees. Source and test assertions were inspected; integration tests and paid model calls were not run for this guide.</p>
       </div>
     </section>
   </main>
   <footer class="closing">
-    <div class="wrap"><div class="eyebrow">The summary</div><h2 style="margin-top:24px">The process can power off.<br><em>The identity and the memory stay.</em></h2><div class="footer-line"><span>pi-dock / A code-based guide<br>Self-contained HTML · No external resources</span><a href="#inicio">Back to top ↑</a></div></div>
+    <div class="wrap"><div class="eyebrow">The summary</div><h2 style="margin-top:24px">The process can power off.<br><em>The identity and the memory stay.</em></h2><div class="footer-line"><span>pi-dock / A code-based guide<br>Self-contained HTML · No external resources</span><a href="#home">Back to top ↑</a></div></div>
   </footer>
   <script>
     (() => {
@@ -355,7 +364,9 @@ Memory survives power-off.</div>
       const buttons = [...document.querySelectorAll('[data-action]')];
       let state = 'new';
       let remembered = false;
-      const allowed = { new:['spawn'], idle:['send','stop','reset'], running:['finish','stop','reset'], stopped:['start','send','reset'] };
+      const allowed = { new:['spawn'], idle:['send','compact','stop','reset'], running:['finish','stop','reset'], compacting:['finish','stop','reset'], stopped:['start','send','compact','reset'] };
+      let runCount = 0;
+      let runId = '';
       function renderControls() {
         badge.textContent = state === 'new' ? 'not created' : state;
         badge.style.background = state === 'stopped' || state === 'new' ? '#eaece3' : '#c5e99b';
@@ -366,22 +377,33 @@ Memory survives power-off.</div>
         if (!allowed[state].includes(action)) return;
         if (action === 'spawn') {
           state = 'idle';
-          output.textContent = '$ pi-dock spawn --name atlas\natlas idle\n\nIdentity created. Runner on.\nNo work has been sent yet.';
+          output.textContent = '$ pi-dock spawn --name atlas\natlas idle provider/model\n\nIllustrative model. Runner on.\nNo prompt sent; extensions could start work.';
         } else if (action === 'send') {
           const wake = state === 'stopped';
           state = 'running';
-          output.textContent = '$ pi-dock send atlas "Remember ALPHA-31"\n{"ok":true}\n\n' + (wake ? 'The same session opens and the prompt is queued.' : 'Prompt queued. The run starts.') + '\nThe ACK does not contain the reply.';
+          runId = 'p' + (++runCount).toString(16).padStart(12, '0');
+          output.textContent = '$ pi-dock send atlas "Remember ALPHA-31"\n' + runId + '\n\n' + (wake ? 'The same session opens; the prompt is queued.' : 'Prompt queued. The run starts when the SDK is idle.') + '\nKeep the ID to wait for the outcome.';
+        } else if (action === 'compact') {
+          const wake = state === 'stopped';
+          state = 'compacting';
+          output.textContent = '$ pi-dock compact atlas "Keep decisions"\n\n' + (wake ? 'Same session reopened. ' : '') + 'Explicit compaction in progress.\nThe command waits for the result.';
         } else if (action === 'finish') {
-          state = 'idle'; remembered = true;
-          output.textContent = 'In logs atlas:\n… text {"text":"I will remember ALPHA-31."}\n… idle\n\nThe run finished. The runner stays alive.';
+          const wasCompacting = state === 'compacting';
+          state = 'idle';
+          if (wasCompacting) {
+            output.textContent = 'compacted\n\nThe context was summarized.\nRunner stays on; no pending work in this lab.';
+          } else {
+            remembered = true;
+            output.textContent = 'In logs atlas (timestamps omitted):\ntext id=' + runId + '\n  I will remember ALPHA-31.\ndone id=' + runId + '\n\nRun finished. Runner stays on.';
+          }
         } else if (action === 'stop') {
           state = 'stopped';
           output.textContent = '$ pi-dock stop atlas\nstopped\n\nRunner off. Files kept.\n' + (remembered ? 'ALPHA-31 remains in the session.' : 'The session remains; no completed reply is simulated.');
         } else if (action === 'start') {
           state = 'idle';
-          output.textContent = '$ pi-dock start atlas\natlas idle\n\nNew process, same session.\n' + (remembered ? 'The conversation still contains ALPHA-31.' : 'Ready to receive work.');
+          output.textContent = '$ pi-dock start atlas\natlas idle provider/model\n\nNew process, same session.\n' + (remembered ? 'The conversation still contains ALPHA-31.' : 'Ready to receive work.');
         } else {
-          state = 'new'; remembered = false;
+          state = 'new'; remembered = false; runCount = 0; runId = '';
           output.textContent = 'Simulation reset.\n\nspawn → send → finish → stop → start\nNo real agent was created or deleted.';
         }
         renderControls();
