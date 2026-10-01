@@ -1,12 +1,12 @@
 {
-  "active": "pi-link",
+  "active": "pi-dock",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
   "sessions": {
     "pi-link": [
       {
-        "name": "polaris@pi-link",
+        "name": "polaris",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
@@ -16,7 +16,7 @@
         ]
       },
       {
-        "name": "vega@pi-link",
+        "name": "vega",
         "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
@@ -25,7 +25,7 @@
         ]
       },
       {
-        "name": "implementer@pi-link",
+        "name": "implementer",
         "icon": "tools",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
@@ -34,7 +34,7 @@
         ]
       },
       {
-        "name": "reviewer@pi-link",
+        "name": "reviewer",
         "icon": "eye",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -43,7 +43,7 @@
         ]
       },
       {
-        "name": "compactor@pi-link",
+        "name": "compactor",
         "icon": "fold",
         "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
@@ -52,7 +52,7 @@
         ]
       },
       {
-        "name": "updater@pi-link",
+        "name": "updater",
         "icon": "sync",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
@@ -61,7 +61,7 @@
         ]
       },
       {
-        "name": "docs@pi-link",
+        "name": "docs",
         "icon": "book",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -70,7 +70,7 @@
         ]
       },
       {
-        "name": "test1@pi-link",
+        "name": "test1",
         "icon": "beaker",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -79,7 +79,7 @@
         ]
       },
       {
-        "name": "test2@pi-link",
+        "name": "test2",
         "icon": "beaker",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -88,7 +88,7 @@
         ]
       },
       {
-        "name": "test3@pi-link",
+        "name": "test3",
         "icon": "beaker",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -97,7 +97,7 @@
         ]
       },
       {
-        "name": "test4@pi-link",
+        "name": "test4",
         "icon": "beaker",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -106,7 +106,7 @@
         ]
       },
       {
-        "name": "committer@pi-link",
+        "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
@@ -126,7 +126,7 @@
     ],
     "pi-dock": [
       {
-        "name": "polaris@pi-dock",
+        "name": "polaris",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
@@ -136,7 +136,7 @@
         ]
       },
       {
-        "name": "vega@pi-dock",
+        "name": "vega",
         "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
@@ -145,7 +145,7 @@
         ]
       },
       {
-        "name": "implementer@pi-dock",
+        "name": "implementer",
         "icon": "tools",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
@@ -154,7 +154,7 @@
         ]
       },
       {
-        "name": "reviewer@pi-dock",
+        "name": "reviewer",
         "icon": "eye",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -163,7 +163,7 @@
         ]
       },
       {
-        "name": "compactor@pi-dock",
+        "name": "compactor",
         "icon": "fold",
         "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
@@ -172,7 +172,7 @@
         ]
       },
       {
-        "name": "committer@pi-dock",
+        "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
@@ -192,7 +192,7 @@
     ],
     "pi-sub": [
       {
-        "name": "polaris@pi-sub",
+        "name": "polaris",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
@@ -202,7 +202,7 @@
         ]
       },
       {
-        "name": "vega@pi-sub",
+        "name": "vega",
         "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
@@ -211,7 +211,7 @@
         ]
       },
       {
-        "name": "implementer@pi-sub",
+        "name": "implementer",
         "icon": "tools",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
@@ -220,7 +220,7 @@
         ]
       },
       {
-        "name": "reviewer@pi-sub",
+        "name": "reviewer",
         "icon": "eye",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -229,7 +229,7 @@
         ]
       },
       {
-        "name": "compactor@pi-sub",
+        "name": "compactor",
         "icon": "fold",
         "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
@@ -238,7 +238,7 @@
         ]
       },
       {
-        "name": "committer@pi-sub",
+        "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
@@ -258,7 +258,7 @@
     ],
     "pi-bugs": [
       {
-        "name": "fixer@pi-bugs",
+        "name": "fixer",
         "icon": "bug",
         "color": "terminal.ansiGreen",
         "focus": true,
@@ -268,7 +268,7 @@
         ]
       },
       {
-        "name": "docs@pi-bugs",
+        "name": "docs",
         "icon": "book",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -277,7 +277,7 @@
         ]
       },
       {
-        "name": "committer@pi-bugs",
+        "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
@@ -297,7 +297,7 @@
     ],
     "pi-chrome": [
       {
-        "name": "polaris@pi-chrome",
+        "name": "polaris",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
@@ -307,7 +307,7 @@
         ]
       },
       {
-        "name": "fable@pi-chrome",
+        "name": "fable",
         "icon": "flame",
         "color": "terminal.ansiBrightRed",
         "autoExecuteCommands": true,
@@ -316,7 +316,7 @@
         ]
       },
       {
-        "name": "opus@pi-chrome",
+        "name": "opus",
         "icon": "sparkle",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
@@ -325,7 +325,7 @@
         ]
       },
       {
-        "name": "sol@pi-chrome",
+        "name": "sol",
         "icon": "star-full",
         "color": "terminal.ansiBrightYellow",
         "autoExecuteCommands": true,
@@ -334,7 +334,7 @@
         ]
       },
       {
-        "name": "terra@pi-chrome",
+        "name": "terra",
         "icon": "globe",
         "color": "terminal.ansiGreen",
         "autoExecuteCommands": true,
@@ -343,7 +343,7 @@
         ]
       },
       {
-        "name": "committer@pi-chrome",
+        "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
@@ -363,7 +363,7 @@
     ],
     "pi-rules": [
       {
-        "name": "polaris@pi-rules",
+        "name": "polaris",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
@@ -373,7 +373,7 @@
         ]
       },
       {
-        "name": "vega@pi-rules",
+        "name": "vega",
         "icon": "compass",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
@@ -382,7 +382,7 @@
         ]
       },
       {
-        "name": "implementer@pi-rules",
+        "name": "implementer",
         "icon": "tools",
         "color": "terminal.ansiBlue",
         "autoExecuteCommands": true,
@@ -391,7 +391,7 @@
         ]
       },
       {
-        "name": "reviewer@pi-rules",
+        "name": "reviewer",
         "icon": "eye",
         "color": "terminal.ansiBrightCyan",
         "autoExecuteCommands": true,
@@ -400,7 +400,7 @@
         ]
       },
       {
-        "name": "compactor@pi-rules",
+        "name": "compactor",
         "icon": "fold",
         "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
@@ -409,7 +409,7 @@
         ]
       },
       {
-        "name": "committer@pi-rules",
+        "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
@@ -429,7 +429,7 @@
     ],
     "pi.claude.hack": [
       {
-        "name": "polaris@pi.claude.hack",
+        "name": "polaris",
         "icon": "organization",
         "color": "terminal.ansiBrightWhite",
         "focus": true,
@@ -439,7 +439,7 @@
         ]
       },
       {
-        "name": "claude@pi.claude.hack",
+        "name": "claude",
         "icon": "sparkle",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
@@ -448,7 +448,7 @@
         ]
       },
       {
-        "name": "gpt@pi.claude.hack",
+        "name": "gpt",
         "icon": "copilot",
         "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
@@ -457,7 +457,7 @@
         ]
       },
       {
-        "name": "committer@pi.claude.hack",
+        "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
@@ -477,7 +477,7 @@
     ],
     "claude-code-provider": [
       {
-        "name": "opus@claude-code-provider",
+        "name": "opus",
         "icon": "plug",
         "color": "terminal.ansiBrightMagenta",
         "focus": true,
@@ -487,7 +487,7 @@
         ]
       },
       {
-        "name": "gpt@claude-code-provider",
+        "name": "gpt",
         "icon": "plug",
         "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
@@ -505,7 +505,7 @@
         ]
       },
       {
-        "name": "committer@claude-code-provider",
+        "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
         "autoExecuteCommands": true,
