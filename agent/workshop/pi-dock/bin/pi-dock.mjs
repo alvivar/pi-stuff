@@ -19,7 +19,8 @@ const USAGE = {
   start: 'pi-dock start <name>',
   stop: 'pi-dock stop <name>',
   ls: 'pi-dock ls',
-  logs: 'pi-dock logs <name> [--follow]',
+  logs: 'pi-dock logs <name> [--tail <n>] [--raw] [--follow]',
+  show: 'pi-dock show <name>',
   set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
   compact: 'pi-dock compact <name> [instructions]',
   models: 'pi-dock models [filter]',
@@ -282,14 +283,22 @@ function formatAge(startedAt) {
   return `${seconds}s`;
 }
 
-function formatLogLine(line) {
+async function agentState(manifest) {
+  const status = await tryStatus(manifest, 200);
+  return status ? status.state : stateFromLog(manifest.name);
+}
+
+function renderEvent(line) {
+  let parsed;
   try {
-    const { ts = '-', event = '-', ...payload } = JSON.parse(line);
-    const suffix = Object.keys(payload).length === 0 ? '' : ` ${JSON.stringify(payload)}`;
-    return `${ts} ${event}${suffix}`;
+    parsed = JSON.parse(line);
   } catch {
     return line;
   }
+
+  const { ts, event, text, ...fields } = parsed;
+  const header = [ts, event, ...Object.entries(fields).map(([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`)].join(' ').replace(/\n/g, '\n  ');
+  return text === undefined ? header : `${header}\n${text.replace(/^/gm, '  ')}`;
 }
 
 async function spawnCommand(argv) {
@@ -452,51 +461,50 @@ async function modelsCommand(argv) {
 async function lsCommand(argv) {
   parseCommand(argv, {}, 0);
   const manifests = await listManifests();
-  console.log('name\tstate\tmodel\tage\tsession');
+  console.log('name\tstate\tmodel\tage');
 
   for (const manifest of manifests) {
-    const status = await tryStatus(manifest, 200);
-    const state = status ? status.state : stateFromLog(manifest.name);
-    const session = manifest.sessionFile ?? '-';
-    console.log(`${manifest.name}\t${state}\t${manifest.model}\t${formatAge(manifest.startedAt)}\t${session}`);
+    console.log(`${manifest.name}\t${await agentState(manifest)}\t${manifest.model}\t${formatAge(manifest.startedAt)}`);
   }
 }
 
-function printLog(name) {
-  const file = logPath(name);
-  if (!existsSync(file)) {
-    fail(`no log for agent: ${name}`);
+async function showCommand(argv) {
+  const { positionals: [name] } = parseCommand(argv, {}, 1);
+  if (name === undefined) {
+    failUsage();
   }
 
-  const body = readFileSync(file, 'utf8');
-  for (const line of body.split('\n')) {
-    if (line.length > 0) {
-      console.log(formatLogLine(line));
-    }
-  }
+  validateAgentName(name);
+  const manifest = await requireManifest(name);
+  console.log([
+    `name ${manifest.name}`,
+    `state ${await agentState(manifest)}`,
+    `model ${manifest.model}`,
+    `thinking ${manifest.thinking ?? '-'}`,
+    `flags ${JSON.stringify(manifest.flags)}`,
+    `cwd ${manifest.cwd}`,
+    `session ${manifest.sessionFile}`,
+    `created ${manifest.startedAt}`,
+  ].join('\n'));
 }
 
-function printFollowLog(name, offset) {
+function readCompleteLines(name, offset) {
   const body = readFileSync(logPath(name));
-  const lastNewline = body.lastIndexOf(0x0A);
-  if (lastNewline < offset) {
-    return offset;
-  }
-
-  const complete = body.subarray(offset, lastNewline + 1).toString('utf8');
-  for (const line of complete.split('\n')) {
-    if (line.length > 0) {
-      console.log(formatLogLine(line));
-    }
-  }
-
-  return lastNewline + 1;
+  const end = Math.max(offset, body.lastIndexOf(0x0A) + 1);
+  return { lines: body.subarray(offset, end).toString('utf8').split('\n').slice(0, -1), end };
 }
 
 async function logsCommand(argv) {
-  const { values, positionals: [name] } = parseCommand(argv, { follow: { type: 'boolean', short: 'f' } }, 1);
+  const { values, positionals: [name] } = parseCommand(argv, {
+    tail: { type: 'string' },
+    raw: { type: 'boolean' },
+    follow: { type: 'boolean', short: 'f' },
+  }, 1);
   if (name === undefined) {
     failUsage();
+  }
+  if (values.tail !== undefined && !/^[1-9]\d*$/.test(values.tail)) {
+    failUsage(`Option '--tail' must be a positive integer, got '${values.tail}'`);
   }
 
   validateAgentName(name);
@@ -505,17 +513,17 @@ async function logsCommand(argv) {
     fail(`no log for agent: ${name}`);
   }
 
-  if (!values.follow) {
-    printLog(name);
-    return;
-  }
-
-  let offset = printFollowLog(name, 0);
+  const print = (lines) => {
+    for (const line of lines) {
+      console.log(values.raw ? line : renderEvent(line));
+    }
+  };
+  let { lines, end } = readCompleteLines(name, 0);
+  print(values.tail === undefined ? lines : lines.slice(-Number(values.tail)));
   while (values.follow) {
     await sleep(500);
-    if (existsSync(logPath(name))) {
-      offset = printFollowLog(name, offset);
-    }
+    ({ lines, end } = readCompleteLines(name, end));
+    print(lines);
   }
 }
 
@@ -626,9 +634,9 @@ const HELP = `pi-dock — resident AI agents with durable Pi sessions
 Usage:
 ${Object.values(USAGE).map((line) => `  ${line}`).join('\n')}
 
-Agents are resident. spawn creates an idle identity in the current cwd and never takes work; spawn and start print <name> <state> <provider/id>. models lists the provider/id refs usable with --model (models with configured credentials; filter is a case-insensitive substring of provider/id, or provider-part/id-part when it contains a slash); --thinking is off|minimal|low|medium|high|xhigh|max. send never creates an agent: it only delivers text and acknowledges; replies are {event:"text"} records in logs <name>. logs --follow runs until interrupted.
+Agents are resident. spawn creates an idle identity in the current cwd and never takes work; spawn and start print <name> <state> <provider/id>. models lists the provider/id refs usable with --model (models with configured credentials; filter is a case-insensitive substring of provider/id, or provider-part/id-part when it contains a slash); --thinking is off|minimal|low|medium|high|xhigh|max. send never creates an agent: it only delivers text and acknowledges; replies are {event:"text"} records in logs <name>. logs prints each event as a <ts> <event> [key=value]... line; a text event's text follows verbatim on its own lines, each indented two spaces. logs --raw prints the stored NDJSON lines instead, --tail <n> only the last n events, and --follow keeps printing new events until interrupted. show prints name, state, model, thinking (- when unset), flags (JSON array), cwd, session, and created, one key value per line, without waking the agent.
 
-stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log; its columns are name, state, model, age (time since creation in its largest whole unit: s, m, h, or d), and session. Unknown options and extra arguments are rejected with the command's usage; send and compact take all remaining arguments as text. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
+stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log; its columns are name, state, model, and age (time since creation in its largest whole unit: s, m, h, or d). Unknown options and extra arguments are rejected with the command's usage; send and compact take all remaining arguments as text. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
 
 compact is idle-only and waits without a timeout until the runner replies (Ctrl-C only stops waiting); the agent stays on, and a failed compaction is logged as {event:"compact_failed",reason}. set requires a stopped/failed agent; it changes model, thinking, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
 
@@ -643,6 +651,8 @@ try {
     await startCommand(args);
   } else if (command === 'ls') {
     await lsCommand(args);
+  } else if (command === 'show') {
+    await showCommand(args);
   } else if (command === 'logs') {
     await logsCommand(args);
   } else if (command === 'set') {
