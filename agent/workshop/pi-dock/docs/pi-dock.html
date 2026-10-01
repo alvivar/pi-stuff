@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="A visual guide to pi-dock: resident Pi agents, persistent sessions and one process per agent. Based on its actual implementation.">
+  <title>pi-dock — The terminal closes. The agent stays.</title>
+  <style>
+    :root { --paper:#f5f4ee; --ink:#24352d; --muted:#606b63; --line:#d7dcd2; --green:#c5e99b; --deep:#223d31; --orange:#b24d28; --white:#fffef9; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-padding-top:100px; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:Inter,"Segoe UI",Arial,sans-serif; -webkit-font-smoothing:antialiased; }
+    ::selection { background:var(--green); color:var(--ink); }
+    a { color:inherit; text-underline-offset:4px; }
+    button { font:inherit; }
+    button,a { -webkit-tap-highlight-color:transparent; }
+    :focus-visible { outline:3px solid var(--orange); outline-offset:5px; }
+    .skip { position:fixed; top:-80px; left:16px; padding:12px; z-index:20; background:var(--white); }
+    .skip:focus { top:10px; }
+    .wrap { width:min(1160px,calc(100% - 96px)); margin-inline:auto; }
+    .topbar { position:sticky; top:0; z-index:10; background:rgba(245,244,238,.96); border-bottom:1px solid var(--line); }
+    .topbar-inner { height:76px; display:flex; align-items:center; justify-content:space-between; gap:28px; }
+    .brand { text-decoration:none; font:700 23px var(--mono); display:flex; align-items:center; gap:10px; white-space:nowrap; }
+    .brand-mark { width:23px; height:23px; border:2px solid var(--ink); border-top:0; position:relative; }
+    .brand-mark::before { content:""; width:7px; height:12px; background:var(--ink); position:absolute; left:6px; top:-3px; }
+    nav { display:flex; align-items:center; gap:26px; }
+    nav a { text-decoration:none; color:var(--muted); font-size:12px; padding:10px 0; border-bottom:2px solid transparent; }
+    nav a[aria-current="location"] { color:var(--ink); border-color:var(--ink); }
+    .edition { font:10px var(--mono); color:var(--muted); letter-spacing:.06em; }
+    .progress { height:2px; background:var(--deep); width:0; position:absolute; bottom:-1px; left:0; }
+    .eyebrow { font:11px var(--mono); letter-spacing:.14em; text-transform:uppercase; display:flex; gap:12px; align-items:center; }
+    .dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--orange); flex:none; }
+    .hero { padding:76px 0 48px; }
+    .hero-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:44px; align-items:center; margin-top:40px; }
+    h1 { font-size:clamp(48px,5.7vw,76px); font-weight:450; line-height:1.04; letter-spacing:-.065em; margin:0; }
+    h1 em { font-family:Georgia,serif; font-weight:400; color:#527049; }
+    .hero-copy { font-size:17px; line-height:1.7; color:var(--muted); max-width:420px; margin:26px 0; }
+    .hero-link { display:inline-flex; align-items:center; gap:26px; font-size:13px; text-decoration:none; border-bottom:1px solid var(--ink); padding-bottom:10px; }
+    .hero-art { width:100%; height:auto; }
+    .hero-meta { display:flex; justify-content:space-between; gap:20px; border-top:1px solid var(--line); margin-top:62px; padding-top:20px; font:10px var(--mono); color:var(--muted); letter-spacing:.05em; }
+    section.chapter { padding:88px 0; border-top:1px solid var(--line); }
+    .chapter-head { display:grid; grid-template-columns:180px 1fr; gap:20px; margin-bottom:38px; }
+    .chapter-label { font:11px var(--mono); color:var(--muted); padding-top:10px; }
+    .chapter-label span { color:var(--orange); margin-right:12px; }
+    h2 { font-size:clamp(32px,3.5vw,46px); font-weight:450; line-height:1.13; letter-spacing:-.045em; margin:0; max-width:720px; }
+    .intro { max-width:640px; font-size:16px; line-height:1.75; color:var(--muted); margin:18px 0 0; }
+    .source { font:11px/1.8 var(--mono); color:var(--muted); margin-top:20px; overflow-wrap:anywhere; }
+    .source a { text-decoration-color:#a5afa1; }
+    .principles { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border:1px solid var(--line); }
+    .principle { background:var(--paper); padding:30px; }
+    .principle .num { font:12px var(--mono); color:var(--orange); }
+    h3 { font-size:19px; font-weight:550; letter-spacing:-.025em; margin:24px 0 12px; }
+    p { line-height:1.7; }
+    .principle p { font-size:14px; color:var(--muted); margin-bottom:0; }
+    code { font-family:var(--mono); font-size:.88em; }
+    .architecture { background:var(--deep); padding:38px; color:#f4f6ed; border-radius:4px; }
+    .diagram-top { display:flex; justify-content:space-between; gap:20px; font:10px var(--mono); text-transform:uppercase; letter-spacing:.09em; color:#c0ccbd; margin-bottom:30px; }
+    .architecture-flow { display:grid; grid-template-columns:1fr 78px 1.3fr 78px 1fr; align-items:center; }
+    .node { border:1px solid #728878; padding:24px 20px; min-width:0; }
+    .node-title { font:18px var(--mono); margin:0 0 12px; }
+    .node small { display:block; color:#c0ccbd; line-height:1.7; font-size:12px; }
+    .runner-node { border-color:var(--green); background:#2c4939; }
+    .runner-node .node-title { color:var(--green); }
+    .inner-session { border:1px dashed #6e886d; padding:15px; margin-top:20px; font:12px var(--mono); text-align:center; }
+    .connector { text-align:center; font:10px/2 var(--mono); color:#c0ccbd; }
+    .connector .arrow { display:block; font:26px/1.5 var(--mono); color:var(--green); }
+    .architecture-bottom { border-top:1px solid #4c6453; margin-top:28px; padding-top:20px; display:flex; justify-content:space-between; gap:20px; font-size:12px; color:#c0ccbd; line-height:1.6; }
+    .architecture-bottom code { color:var(--green); }
+    .split { display:grid; grid-template-columns:1fr 1fr; gap:54px; align-items:start; }
+    .lifecycle { display:grid; grid-template-columns:1fr 42px 1fr; align-items:center; gap:12px 0; margin-top:8px; }
+    .state { border:1px solid var(--line); padding:24px 12px; text-align:center; background:var(--white); border-radius:3px; }
+    .state strong { font:18px var(--mono); display:block; }
+    .state small { font-size:11px; color:var(--muted); display:block; margin-top:8px; }
+    .state.active { background:var(--green); border-color:#aac884; }
+    .state.off { background:transparent; border-style:dashed; }
+    .state-arrow { text-align:center; font-size:21px; color:var(--muted); }
+    .state-caption { grid-column:1/-1; font:11px/1.8 var(--mono); color:var(--muted); text-align:center; padding:5px 0 15px; }
+    .simulator { border:1px solid var(--line); border-radius:4px; padding:26px; background:var(--white); }
+    .sim-top { display:flex; justify-content:space-between; gap:12px; align-items:center; font:10px var(--mono); color:var(--muted); }
+    .badge { padding:5px 8px; background:var(--green); color:var(--ink); border-radius:2px; }
+    .sim-terminal { font:12px/1.8 var(--mono); min-height:126px; margin:25px 0 18px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .sim-terminal .prompt { color:var(--orange); }
+    .sim-controls { display:flex; flex-wrap:wrap; gap:7px; }
+    .sim-controls button { cursor:pointer; padding:9px 12px; border:1px solid var(--line); background:var(--paper); font:11px var(--mono); border-radius:2px; color:var(--ink); }
+    .sim-controls button:hover:not(:disabled) { background:var(--green); border-color:#aac884; }
+    .sim-controls button:disabled { opacity:.4; cursor:not-allowed; }
+    .sim-note { font-size:11px; color:var(--muted); margin:16px 0 0; }
+    .callout { border-left:2px solid var(--orange); padding:0 0 0 20px; font-size:14px; color:var(--muted); margin:28px 0 0; }
+    .callout strong { color:var(--ink); font-weight:550; }
+    .timeline { display:grid; grid-template-columns:repeat(4,1fr); margin:42px 0 30px; }
+    .step { border-top:1px solid #acb7a5; position:relative; padding:25px 24px 0 0; }
+    .step::before { content:""; position:absolute; top:-4px; left:0; width:7px; height:7px; background:var(--deep); border-radius:50%; }
+    .step-index { font:10px var(--mono); color:var(--orange); }
+    .step h3 { margin:14px 0 10px; font-size:17px; }
+    .step p { font-size:13px; color:var(--muted); margin:0; }
+    .code-panel { background:#eaece3; border:1px solid var(--line); padding:25px 28px; border-radius:3px; }
+    .code-heading { font:10px var(--mono); letter-spacing:.09em; color:var(--muted); margin-bottom:18px; text-transform:uppercase; }
+    pre { font:12px/1.9 var(--mono); margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+    pre .dim { color:var(--muted); }
+    .log-text { color:#356030; }
+    .storage { display:grid; grid-template-columns:1fr 1fr 1.15fr; gap:18px; }
+    .file-card { border:1px solid var(--line); padding:26px; background:var(--white); }
+    .file-card:last-child { background:#e9eedf; }
+    .file-icon { width:27px; height:33px; border:1px solid #83917c; display:flex; align-items:center; justify-content:center; font:10px var(--mono); margin-bottom:24px; }
+    .file-card h3 { font:17px var(--mono); margin:0 0 10px; }
+    .file-path { font:10px/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+    .file-card p { color:var(--muted); font-size:13px; }
+    .file-card ul { margin:20px 0 0; padding:18px 0 0; border-top:1px solid var(--line); list-style:none; font:11px/2 var(--mono); color:var(--muted); }
+    .budget { display:grid; grid-template-columns:1fr 1fr; gap:60px; padding:38px; border:1px solid var(--line); }
+    .budget-number { font-size:72px; line-height:1; font-weight:400; letter-spacing:-.07em; }
+    .budget-number span { font:12px var(--mono); color:var(--muted); letter-spacing:0; margin-left:12px; }
+    .budget-pair { display:flex; gap:35px; flex-wrap:wrap; margin:26px 0; }
+    .budget h3 { margin:0; font-size:18px; }
+    .budget p { margin:12px 0 0; font-size:13px; color:var(--muted); }
+    .budget-track { display:flex; height:30px; align-items:center; gap:4px; margin-top:23px; }
+    .budget-track i { flex:1; background:var(--green); height:15px; }
+    .budget-track i:nth-child(4) { background:var(--orange); }
+    .budget-track span { font:10px var(--mono); color:var(--muted); padding:0 8px; }
+    .commands { border-top:1px solid var(--line); }
+    .command-row { display:grid; grid-template-columns:1fr 1.2fr; gap:30px; padding:20px 0; border-bottom:1px solid var(--line); align-items:baseline; }
+    .command-row code { font-size:13px; overflow-wrap:anywhere; }
+    .command-row p { font-size:13px; color:var(--muted); margin:0; }
+    .command-row code b { color:#467037; font-weight:500; }
+    .limits { display:grid; grid-template-columns:1fr 1fr; gap:54px; margin-top:40px; }
+    .limits h3 { margin:0 0 14px; }
+    .limits p { font-size:13px; color:var(--muted); }
+    details { margin-top:30px; border:1px solid var(--line); padding:20px 24px; }
+    summary { cursor:pointer; font-size:13px; font-weight:550; }
+    .source-list { display:grid; grid-template-columns:1fr 1fr; gap:18px 34px; margin-top:24px; }
+    .source-list p { font-size:12px; color:var(--muted); margin:5px 0; }
+    .source-list a { font:12px var(--mono); }
+    .closing { padding:64px 0 34px; background:var(--deep); color:var(--paper); }
+    .closing h2 { max-width:850px; font-size:clamp(30px,4vw,49px); }
+    .closing h2 em { color:var(--green); font-family:Georgia,serif; font-weight:400; }
+    .footer-line { border-top:1px solid #4c6453; padding-top:24px; margin-top:55px; display:flex; justify-content:space-between; gap:20px; font:10px/1.7 var(--mono); color:#bdcabb; }
+    @media (min-width:1450px) { .hero { padding-top:100px; } }
+    @media (max-width:1000px) { .wrap { width:calc(100% - 56px); } .edition { display:none; } nav { gap:18px; } .hero-grid { gap:20px; } .chapter-head { grid-template-columns:130px 1fr; } .architecture { padding:28px; } .architecture-flow { grid-template-columns:1fr 46px 1.2fr 46px 1fr; } .node { padding:20px 14px; } .node-title { font-size:15px; } .split { gap:30px; } .budget { gap:30px; } }
+    @media (max-width:700px) { html { scroll-padding-top:108px; } .wrap { width:calc(100% - 40px); } .topbar-inner { height:auto; min-height:88px; flex-wrap:wrap; gap:8px; padding-block:14px 8px; } .brand { font-size:20px; } nav { width:100%; gap:0; justify-content:space-between; } nav a { font-size:10px; padding:8px 0; } .hero { padding-top:42px; } .hero-grid { grid-template-columns:1fr; margin-top:30px; gap:28px; } h1 { font-size:57px; } .hero-copy { font-size:15px; } .hero-art { max-width:420px; margin:auto; } .hero-meta { margin-top:30px; font-size:9px; line-height:1.7; } .hero-meta span:last-child { text-align:right; } section.chapter { padding:54px 0; } .chapter-head { grid-template-columns:1fr; gap:18px; margin-bottom:28px; } .intro { font-size:14px; } .principles,.storage { grid-template-columns:1fr; } .principle { padding:25px; } .principle h3 { margin-top:16px; } .architecture { padding:24px; } .diagram-top { font-size:9px; } .architecture-flow { grid-template-columns:1fr; } .node { padding:22px; } .connector { display:flex; gap:12px; align-items:center; justify-content:center; padding:10px; } .connector .arrow { transform:rotate(90deg); } .architecture-bottom { flex-direction:column; gap:10px; } .split,.budget,.limits { grid-template-columns:1fr; gap:30px; } .timeline { grid-template-columns:1fr 1fr; gap:30px 14px; } .step { padding-right:12px; } .code-panel { padding:22px 18px; } pre { font-size:11px; } .storage { gap:12px; } .file-card { padding:24px; } .file-icon { float:right; } .budget { padding:26px; } .budget-number { font-size:62px; } .command-row { grid-template-columns:1fr; gap:8px; } .source-list { grid-template-columns:1fr; } .footer-line { flex-direction:column; } }
+    @media (max-width:370px) { h1 { font-size:49px; } .budget-pair { gap:20px; } .budget-number { font-size:52px; } }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print { .topbar,.sim-controls,.hero-link,.skip { display:none; } body { background:white; } .wrap { width:100%; } section.chapter { padding:32px 0; } .hero { padding:20px 0; } .architecture,.closing { background:#eee; color:#222; } .architecture *,.closing * { color:#222!important; } .chapter-head { grid-template-columns:100px 1fr; } .node,.file-card,.code-panel { break-inside:avoid; } details { display:block; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#contenido">Skip to content</a>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="#inicio" aria-label="pi-dock, home"><span class="brand-mark" aria-hidden="true"></span>pi-dock</a>
+      <nav aria-label="Chapters">
+        <a href="#idea">The idea</a><a href="#arquitectura">Architecture</a><a href="#ciclo">Lifecycle</a><a href="#memoria">Memory</a><a href="#referencia">Reference</a>
+      </nav>
+      <span class="edition">FIELD GUIDE / 0.1.0-dev</span>
+    </div>
+    <div class="progress" aria-hidden="true"></div>
+  </header>
+  <main id="contenido">
+    <div class="hero wrap" id="inicio">
+      <div class="eyebrow"><span class="dot"></span> Resident agents · Durable sessions</div>
+      <div class="hero-grid">
+        <div>
+          <h1>The terminal<br>closes.<br><em>The agent stays.</em></h1>
+          <p class="hero-copy">Create a named Pi agent. Give it work. Come back later. Its process runs independently of your terminal; its memory survives even when the agent is powered off.</p>
+          <a class="hero-link" href="#idea">Understand pi-dock <span aria-hidden="true">↓</span></a>
+        </div>
+        <svg class="hero-art" viewBox="0 0 480 440" role="img" aria-labelledby="hero-title hero-desc">
+          <title id="hero-title">The terminal disconnects; the agent and its session remain</title>
+          <desc id="hero-desc">A closed terminal is connected by a dashed line to the active runner. Below it, a persistent session keeps the memory.</desc>
+          <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#c8cec1"/></pattern></defs>
+          <rect x="1" y="1" width="478" height="438" fill="url(#grid)"/>
+          <rect x="24" y="32" width="215" height="100" rx="4" fill="#f5f4ee" stroke="#aab4a4"/>
+          <path d="M24 58H239" stroke="#aab4a4"/><circle cx="38" cy="45" r="3" fill="#aab4a4"/><circle cx="49" cy="45" r="3" fill="#aab4a4"/>
+          <text x="42" y="88" font-family="Consolas,monospace" font-size="12" fill="#606b63">$ pi-dock spawn …</text>
+          <text x="42" y="110" font-family="Consolas,monospace" font-size="10" fill="#606b63">terminal closed</text>
+          <path d="M133 132V182H252" stroke="#95a48d" stroke-width="1.5" stroke-dasharray="4 6" fill="none"/>
+          <text x="38" y="171" font-family="Consolas,monospace" font-size="9" fill="#606b63">DETACHED</text>
+          <rect x="177" y="164" width="268" height="155" rx="5" fill="#223d31"/>
+          <circle cx="203" cy="190" r="4" fill="#c5e99b"/><text x="217" y="194" font-family="Consolas,monospace" font-size="10" fill="#c5e99b">ACTIVE RUNNER</text>
+          <text x="201" y="242" font-family="Segoe UI,Arial,sans-serif" font-size="30" fill="#f5f4ee">agent / atlas</text>
+          <rect x="201" y="265" width="220" height="31" rx="2" fill="#304e3b"/>
+          <text x="216" y="285" font-family="Consolas,monospace" font-size="11" fill="#d3dfcc">AgentSession · Pi SDK</text>
+          <path d="M310 319V356" stroke="#527049" stroke-width="1.5"/><path d="m306 351 4 5 4-5" fill="none" stroke="#527049"/>
+          <rect x="205" y="357" width="212" height="51" rx="3" fill="#e7eddd" stroke="#aab4a4"/>
+          <text x="225" y="379" font-family="Consolas,monospace" font-size="11" fill="#24352d">session.jsonl</text>
+          <text x="225" y="395" font-family="Consolas,monospace" font-size="9" fill="#606b63">memory that remains</text>
+          <text x="24" y="417" font-family="Consolas,monospace" font-size="9" fill="#606b63">01 / SHELL INDEPENDENCE</text>
+        </svg>
+      </div>
+      <div class="hero-meta"><span>ONE NAME. ONE RUNNER. ONE SESSION.</span><span>No central daemon · No build · Pi SDK</span></div>
+    </div>
+
+    <section class="chapter" id="idea">
+      <div class="wrap">
+        <div class="chapter-head"><div class="chapter-label"><span>01</span> THE IDEA</div><div><h2>Not a disposable task.<br>An agent to come back to.</h2><p class="intro">Finishing a prompt does not end the process. The agent returns to <code>idle</code> and waits. Turning it off does not erase its history either: when it wakes, it opens the same session.</p></div></div>
+        <div class="principles">
+          <article class="principle"><span class="num">A / IDENTITY</span><h3>Create ≠ send work</h3><p><code>spawn</code> creates an idle identity. <code>send</code> only works with existing names. A typo never silently creates another agent.</p></article>
+          <article class="principle"><span class="num">B / RESIDENCE</span><h3>Lives outside your shell</h3><p>The process is launched with <code>detached: true</code>, ignored stdio and <code>unref()</code>. It is still there when the CLI exits.</p></article>
+          <article class="principle"><span class="num">C / CONTINUITY</span><h3>Power off, not memory loss</h3><p><code>stop</code> aborts and powers off the runner. Manifest, log and session remain. There is no destructive <code>rm</code> command.</p></article>
+        </div>
+        <p class="source">In code → <a href="../bin/pi-dock.mjs">bin/pi-dock.mjs</a> · spawnCommand, launchRunner, sendCommand</p>
+      </div>
+    </section>
+
+    <section class="chapter" id="arquitectura">
+      <div class="wrap">
+        <div class="chapter-head"><div class="chapter-label"><span>02</span> THE PIECES</div><div><h2>No control center.<br>One process per agent.</h2><p class="intro">The CLI reads files and talks directly to the runner. The runner hosts an <code>AgentSession</code> in-process through the SDK; it does not wrap an interactive terminal.</p></div></div>
+        <div class="architecture" role="group" aria-label="Architecture: CLI, pipe, runner with AgentSession, and storage">
+          <div class="diagram-top"><span>System blueprint</span><span>× 1 per identity</span></div>
+          <div class="architecture-flow">
+            <div class="node"><div class="node-title">pi-dock &lt;cmd&gt;</div><small>Daemon-free CLI<br>Query · send · exit</small></div>
+            <div class="connector"><span>NDJSON</span><span class="arrow" aria-hidden="true">↔</span></div>
+            <div class="node runner-node"><div class="node-title">runner.mjs</div><small>Prompt queue · budget<br>Lifecycle control</small><div class="inner-session">AgentSession / Pi SDK</div></div>
+            <div class="connector"><span>disk</span><span class="arrow" aria-hidden="true">→</span></div>
+            <div class="node"><div class="node-title">Persistence</div><small>Identity → manifest<br>Events → log<br>Memory → JSONL session</small></div>
+          </div>
+          <div class="architecture-bottom"><span>Windows: named pipe<br>Unix: local socket</span><span>Runner protocol<br><code>status · prompt · compact · stop</code></span><span>No dependency on pi-link.<br>Optional extensions via <code>--x</code>.</span></div>
+        </div>
+        <p class="source">In code → <a href="../src/runner.mjs">src/runner.mjs</a> · createAgentSessionFromServices, serve<br><a href="../src/pipe.mjs">src/pipe.mjs</a> · request, serve &nbsp; / &nbsp; <a href="../src/paths.mjs">src/paths.mjs</a> · pipePath</p>
+      </div>
+    </section>
+
+    <section class="chapter" id="ciclo">
+      <div class="wrap">
+        <div class="chapter-head"><div class="chapter-label"><span>03</span> THE CYCLE</div><div><h2>The work ends.<br>The identity continues.</h2><p class="intro">Four states describe what we observe. There is no stored status field to become stale after a crash.</p></div></div>
+        <div class="split">
+          <div>
+            <div class="lifecycle" role="group" aria-label="Sending work moves the agent from idle to running; completion returns it to idle. Stop powers it off. A crash or budget breach leads to failed. Start or send wakes the agent.">
+              <div class="state active"><strong>idle</strong><small>on · waiting</small></div><div class="state-arrow" aria-hidden="true">⇄</div><div class="state active"><strong>running</strong><small>on · working</small></div>
+              <div class="state-caption">send → work &nbsp; / &nbsp; work done → idle</div>
+              <div class="state off"><strong>stopped</strong><small>explicitly powered off</small></div><div class="state-arrow" aria-hidden="true">/</div><div class="state off"><strong>failed</strong><small>crash · error · budget</small></div>
+              <div class="state-caption">↑ start or send wake the same identity</div>
+            </div>
+            <p class="callout"><strong>Derived state.</strong> If the pipe responds, the runner is queried. If not, <code>ls</code> uses the last complete event: <code>stopped</code> or <code>failed</code>; any other final event means <code>failed</code>.</p>
+          </div>
+          <div class="simulator" id="simulator">
+            <div class="sim-top"><span>LIFECYCLE LAB</span><span class="badge" id="sim-state">not created</span></div>
+            <div class="sim-terminal" id="sim-output" role="status" aria-live="polite" aria-atomic="true">Try the sequence:
+spawn → send → finish → stop → start
+
+Memory survives power-off.</div>
+            <div class="sim-controls" aria-label="Local simulation">
+              <button type="button" data-action="spawn" disabled>spawn</button><button type="button" data-action="send" disabled>send</button><button type="button" data-action="finish" disabled>finish</button><button type="button" data-action="stop" disabled>stop</button><button type="button" data-action="start" disabled>start</button><button type="button" data-action="reset" disabled aria-label="Reset simulation">↺</button>
+            </div>
+            <p class="sim-note">Simulation on this page. It runs no commands and calls no models. “Finish” represents the end of the work, not a real command.</p>
+            <noscript><p class="sim-note">Enable JavaScript to try the simulation; the rest of the guide does not need it.</p></noscript>
+          </div>
+        </div>
+        <p class="source">In code → <a href="../src/runner.mjs">src/runner.mjs</a> · runOnePrompt, shutdown, status handler<br><a href="../bin/pi-dock.mjs">bin/pi-dock.mjs</a> · stateFromLog, lastCompleteLogEvent, wake</p>
+      </div>
+    </section>
+
+    <section class="chapter" id="trabajo">
+      <div class="wrap">
+        <div class="chapter-head"><div class="chapter-label"><span>04</span> ONE PROMPT</div><div><h2>“Received” does not mean<br>“done”.</h2><p class="intro"><code>send</code> confirms delivery and exits. The work continues separately from the CLI. Replies are read from the log, not from that command's stdout.</p></div></div>
+        <div class="timeline">
+          <article class="step"><span class="step-index">01 / DELIVER</span><h3>Find the identity</h3><p>Reads the manifest. If the runner is off, wakes it and opens the saved session.</p></article>
+          <article class="step"><span class="step-index">02 / CONFIRM</span><h3>Queue and reply</h3><p>The pipe receives <code>prompt</code>. The runner accepts it into its queue and returns <code>{"ok":true}</code>.</p></article>
+          <article class="step"><span class="step-index">03 / EXECUTE</span><h3>One run at a time</h3><p>A promise chain serializes the work. When a run starts, it resets the budget's turns and clock.</p></article>
+          <article class="step"><span class="step-index">04 / OBSERVE</span><h3>Text, then idle</h3><p>Text is logged at the end of each turn. When the prompt resolves, <code>idle</code> is written; the runner stays alive.</p></article>
+        </div>
+        <div class="code-panel"><div class="code-heading">Illustrative example · two commands, two responsibilities</div><pre><span class="dim">$</span> pi-dock send atlas "Remember the token ALPHA-31"
+{"ok":true}                       <span class="dim">← ACK, not the model's reply</span>
+
+<span class="dim">$</span> pi-dock logs atlas --follow
+<span class="dim">… turn</span> {"n":1}
+<span class="log-text">… text {"text":"I will remember ALPHA-31."}</span>
+<span class="dim">… idle                           ← still on</span></pre></div>
+        <p class="callout"><strong>Current limit:</strong> there is no <code>promptId</code> and no <code>send --await</code>. One prompt can produce several <code>text</code> events. Taking “the next text” as the final reply is not reliable correlation across concurrent requests.</p>
+        <p class="source">In code → <a href="../src/runner.mjs">src/runner.mjs</a> · runPrompt, runOnePrompt, subscribeToSession<br>Documented friction → <a href="../BACKLOG.md">BACKLOG.md, RV lab, F1 and F2</a></p>
+      </div>
+    </section>
+
+    <section class="chapter" id="memoria">
+      <div class="wrap">
+        <div class="chapter-head"><div class="chapter-label"><span>05</span> WHAT LASTS</div><div><h2>Three conceptual files.<br>Three responsibilities.</h2><p class="intro">The name points to a configuration and to a standard Pi session. The log makes the agent easy to observe, but it does not replace its full conversation.</p></div></div>
+        <div class="storage">
+          <article class="file-card"><div class="file-icon" aria-hidden="true">{ }</div><h3>atlas.json</h3><div class="file-path">~/.pi/dock/atlas.json</div><p>The durable identity. Says which session to open and which configuration to start with.</p><ul><li>name · cwd · sessionFile</li><li>model · thinking · budget</li><li>flags · pipe · startedAt</li></ul></article>
+          <article class="file-card"><div class="file-icon" aria-hidden="true">≡</div><h3>atlas.log</h3><div class="file-path">~/.pi/dock/atlas.log</div><p>NDJSON events appended in order. Each start records its PID; turns contribute text.</p><ul><li>spawned · turn · text · idle</li><li>compacted · dropped</li><li>stopped · failed</li></ul></article>
+          <article class="file-card"><div class="file-icon" aria-hidden="true">↳</div><h3>Pi session .jsonl</h3><div class="file-path">Path given by sessionFile</div><p>The persistent conversation managed by the SDK. It uses Pi’s standard session format and does not necessarily live in the dock directory.</p><ul><li>Create → SessionManager.create(cwd)</li><li>Wake → SessionManager.open(…)</li><li>Power off → keep the session</li></ul></article>
+        </div>
+        <p class="callout"><strong>Identity is not overwritten under contention.</strong> Creation publishes the manifest with an exclusive hard link. The CLI verifies that the PID of the responding runner is its own child's. <code>set</code> replaces the manifest atomically, only after confirming the pipe is absent.</p>
+        <p class="source">In code → <a href="../src/manifest.mjs">src/manifest.mjs</a> · writeManifest, rewriteManifest<br><a href="../bin/pi-dock.mjs">bin/pi-dock.mjs</a> · spawnCommand, confirmPipeAbsent &nbsp; / &nbsp; <a href="../src/runner.mjs">src/runner.mjs</a> · SessionManager</p>
+      </div>
+    </section>
+
+    <section class="chapter" id="limites">
+      <div class="wrap">
+        <div class="chapter-head"><div class="chapter-label"><span>06</span> THE LIMITS</div><div><h2>Bound the work.<br>Not the agent's life.</h2><p class="intro">The budget applies to each pipe-delivered run. Sitting idle for hours does not consume it. The limit is turns and time, not a monetary cap.</p></div></div>
+        <div class="budget">
+          <div><h3>The default is bounded.</h3><div class="budget-pair"><div class="budget-number">20<span>turns</span></div><div class="budget-number">30<span>minutes</span></div></div><p><code>--budget 12,5</code> → 12 turns, 5 minutes.<br><code>--budget off</code> → neither limit, explicitly.<br>Numeric maximum: 35,791 minutes.</p></div>
+          <div><h3>Every run starts from zero.</h3><div class="budget-track" aria-hidden="true"><i></i><i></i><span>idle ↺</span><i></i><i></i></div><p>On exceeding the turns or running out the clock: abort, log <code>failed</code> with reason <code>budget</code>, and power off the runner.</p><p>Prompts that were accepted but are still queued are not durable: on power-off, <code>dropped</code> is logged with their count.</p><p><strong>Exceptions:</strong> <code>compact</code> has no run budget. Neither does work started by extensions while idle; if it joins an active pipe run, it shares that run's budget.</p></div>
+        </div>
+        <div class="limits"><div><h3>Headless does not mean isolated.</h3><p>The runner loads project resources and extensions without Pi's interactive trust dialog. Use it only in trusted directories. It is not a security sandbox.</p></div><div><h3>pi-link is an option, not a required layer.</h3><p><code>--x link --x link-name=atlas</code> passes flags to installed extensions. pi-dock does not know what they mean. The dock log does not audit every external input either: that is what the JSONL session is for.</p></div></div>
+        <p class="source">In code → <a href="../src/budget.mjs">src/budget.mjs</a> · parseBudget<br><a href="../src/runner.mjs">src/runner.mjs</a> · startBudgetTimer, subscribeToSession, shutdown, parseExtensionFlags</p>
+      </div>
+    </section>
+
+    <section class="chapter" id="referencia">
+      <div class="wrap">
+        <div class="chapter-head"><div class="chapter-label"><span>07</span> QUICK REFERENCE</div><div><h2>Eight commands.<br>One mental model.</h2><p class="intro">Create, work, observe, power off. Adjust or compact when needed. These are usage examples, not controls over your agents.</p></div></div>
+        <div class="commands">
+          <div class="command-row"><code>pi-dock <b>spawn</b> --name atlas</code><p>Creates it idle in the current directory. Options: <code>--model provider/id</code>, <code>--thinking</code>, <code>--budget</code>, repeatable <code>--x</code>.</p></div>
+          <div class="command-row"><code>pi-dock <b>send</b> atlas "Review this project"</code><p>Delivers text; wakes it if needed. Does not create identities. Returns an ACK.</p></div>
+          <div class="command-row"><code>pi-dock <b>start</b> atlas</code><p>Powers on without sending work. If it already responds, reports its state.</p></div>
+          <div class="command-row"><code>pi-dock <b>stop</b> atlas</code><p>Requests abort and power-off. Keeps configuration, log and memory.</p></div>
+          <div class="command-row"><code>pi-dock <b>ls</b></code><p>Lists name, derived state, turns, time since creation and session path.</p></div>
+          <div class="command-row"><code>pi-dock <b>logs</b> atlas --follow</code><p>Shows events and replies. <code>--follow</code> continues until interrupted; it does not stop on reaching idle.</p></div>
+          <div class="command-row"><code>pi-dock <b>set</b> atlas --budget 40,30</code><p>Powered off only. Changes model, thinking, budget or flags. <code>--x</code> replaces the whole list; applied on wake.</p></div>
+          <div class="command-row"><code>pi-dock <b>compact</b> atlas "Keep decisions"</code><p>Idle only, with no pending work. If it was off, wakes it. Summarizes context with the model and leaves it on.</p></div>
+        </div>
+        <div class="limits"><div><h3>Portable names, explicit models.</h3><p>Lowercase names, up to 64 characters; alphanumeric segments separated by <code>.</code>, <code>_</code> or <code>-</code>. Windows reserved names are rejected. A model is resolved at creation; the stored <code>provider/id</code> is the authority on every wake. Preflight suggests available models when an unknown name has matches.</p></div><div><h3>A timeout is not the same as being off.</h3><p><code>set</code> fails without mutating if the pipe does not respond. For a stuck runner, look up the PID of the last <code>spawned</code>, verify it still belongs to that agent before terminating it externally, then use <code>start</code>. Do not repeat commands blindly.</p></div></div>
+        <details>
+          <summary>Read the sources and the tests</summary>
+          <div class="source-list">
+            <div><a href="../bin/pi-dock.mjs">bin/pi-dock.mjs</a><p>Public contract, help, preflight, wake, logs and mutation.</p></div>
+            <div><a href="../src/runner.mjs">src/runner.mjs</a><p>SDK session, queue, events, compaction and power-off.</p></div>
+            <div><a href="../test/regression.mjs">test/regression.mjs</a><p>Prompt-free cases: creation races, names, UTF-8, budgets, and set against live or stuck pipes.</p></div>
+            <div><a href="../test/smoke.mjs">test/smoke.mjs</a><p>Integration flow on Windows. Includes two real prompts: it is not a free or purely local test.</p></div>
+            <div><a href="../DESIGN.md">DESIGN.md</a><p>Current contracts, architecture and behavior of the resident model.</p></div>
+            <div><a href="../BACKLOG.md">BACKLOG.md</a><p>Release preparation and real-usage proposals. Reply correlation and waiting for replies are still pending.</p></div>
+          </div>
+        </details>
+        <p class="source">Scope: workshop implementation, version 0.1.0-dev. The project records document validation on Windows; the Unix branch was inspected, not validated at runtime. This guide does not rerun those tests.</p>
+      </div>
+    </section>
+  </main>
+  <footer class="closing">
+    <div class="wrap"><div class="eyebrow">The summary</div><h2 style="margin-top:24px">The process can power off.<br><em>The identity and the memory stay.</em></h2><div class="footer-line"><span>pi-dock / A code-based guide<br>Self-contained HTML · No external resources</span><a href="#inicio">Back to top ↑</a></div></div>
+  </footer>
+  <script>
+    (() => {
+      const progress = document.querySelector('.progress');
+      const links = [...document.querySelectorAll('nav a')];
+      const sections = links.map(link => document.querySelector(link.getAttribute('href')));
+      let scheduled = false;
+      function updateScroll() {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        progress.style.width = `${max > 0 ? Math.min(100, Math.max(0, scrollY / max * 100)) : 0}%`;
+        let current = -1;
+        sections.forEach((section, index) => { if (section.getBoundingClientRect().top <= 150) current = index; });
+        links.forEach((link, index) => {
+          if (index === current) link.setAttribute('aria-current', 'location');
+          else link.removeAttribute('aria-current');
+        });
+        scheduled = false;
+      }
+      function scheduleScroll() { if (!scheduled) { scheduled = true; requestAnimationFrame(updateScroll); } }
+      addEventListener('scroll', scheduleScroll, { passive:true });
+      addEventListener('resize', scheduleScroll);
+      document.querySelector('details').addEventListener('toggle', scheduleScroll);
+      updateScroll();
+
+      const output = document.querySelector('#sim-output');
+      const badge = document.querySelector('#sim-state');
+      const buttons = [...document.querySelectorAll('[data-action]')];
+      let state = 'new';
+      let remembered = false;
+      const allowed = { new:['spawn'], idle:['send','stop','reset'], running:['finish','stop','reset'], stopped:['start','send','reset'] };
+      function renderControls() {
+        badge.textContent = state === 'new' ? 'not created' : state;
+        badge.style.background = state === 'stopped' || state === 'new' ? '#eaece3' : '#c5e99b';
+        buttons.forEach(button => { button.disabled = !allowed[state].includes(button.dataset.action); });
+      }
+      buttons.forEach(button => button.addEventListener('click', () => {
+        const action = button.dataset.action;
+        if (!allowed[state].includes(action)) return;
+        if (action === 'spawn') {
+          state = 'idle';
+          output.textContent = '$ pi-dock spawn --name atlas\natlas idle\n\nIdentity created. Runner on.\nNo work has been sent yet.';
+        } else if (action === 'send') {
+          const wake = state === 'stopped';
+          state = 'running';
+          output.textContent = '$ pi-dock send atlas "Remember ALPHA-31"\n{"ok":true}\n\n' + (wake ? 'The same session opens and the prompt is queued.' : 'Prompt queued. The run starts.') + '\nThe ACK does not contain the reply.';
+        } else if (action === 'finish') {
+          state = 'idle'; remembered = true;
+          output.textContent = 'In logs atlas:\n… text {"text":"I will remember ALPHA-31."}\n… idle\n\nThe run finished. The runner stays alive.';
+        } else if (action === 'stop') {
+          state = 'stopped';
+          output.textContent = '$ pi-dock stop atlas\nstopped\n\nRunner off. Files kept.\n' + (remembered ? 'ALPHA-31 remains in the session.' : 'The session remains; no completed reply is simulated.');
+        } else if (action === 'start') {
+          state = 'idle';
+          output.textContent = '$ pi-dock start atlas\natlas idle\n\nNew process, same session.\n' + (remembered ? 'The conversation still contains ALPHA-31.' : 'Ready to receive work.');
+        } else {
+          state = 'new'; remembered = false;
+          output.textContent = 'Simulation reset.\n\nspawn → send → finish → stop → start\nNo real agent was created or deleted.';
+        }
+        renderControls();
+      }));
+      renderControls();
+    })();
+  </script>
+</body>
+</html>
