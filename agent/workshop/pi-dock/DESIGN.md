@@ -14,8 +14,8 @@ completely — no shims, no parallel implementations, no speculative compatibili
 
 ## Commands
 
-11 commands: `spawn`, `start`, `stop`, `ls`, `show`, `logs`, `send`, `wait`, `set`,
-`compact`, `models`, plus `--help`/`-h`. Usage lines live in one `USAGE` map that also
+12 commands: `spawn`, `start`, `stop`, `ls`, `show`, `logs`, `send`, `wait`, `set`,
+`compact`, `models`, `skill`, plus `--help`/`-h`. Usage lines live in one `USAGE` map that also
 generates the help's usage section.
 
 ## Contracts (do not relitigate without new evidence)
@@ -94,7 +94,8 @@ generates the help's usage section.
     identity (`name`, `sessionFile`, `cwd`, `pipe`, `startedAt`) is untouchable. Next wake
     applies it.
 13. **`--thinking <level>`** is `off|minimal|low|medium|high|xhigh|max`, persisted and
-    applied every boot; absent → model default; levels a model does not support are stored
+    applied every boot; absent → Pi restores the session's saved level or uses its
+    configured default (per-model, then global); levels a model does not support are stored
     as requested and clamped by the SDK.
 14. **`compact [instructions]`** is idle-only (`agent <name> is busy` otherwise, including
     queued prompts), wakes an off agent and leaves it on, and waits without a timeout for
@@ -110,10 +111,15 @@ generates the help's usage section.
     extra positionals fail with Node's first error sentence (or
     `Unexpected argument '<x>'`) plus `usage: <line>`, exit 1. `compact` alone joins its
     raw remaining arguments as instructions.
-18. **Agent-oriented help.** Bare `pi-dock`, `--help`, `-h` print the same self-contained
-    sectioned text to stdout, exit 0; extra arguments are a usage error. Unknown command
-    exits 1 pointing to `--help`. Wedged runner remedy: latest `{event:"spawned",pid}` in
-    logs → kill that PID externally → `start`.
+18. **Help for humans, skill for AIs.** Bare `pi-dock`, `--help`, `-h` print the same short
+    help to stdout (usage, example, essentials, the trust and no-limits warnings in one line
+    each), exit 0; extra arguments are a usage error. It ends telling AI agents to read
+    `pi-dock skill` first. `skill` prints `skills/pi-dock/SKILL.md` byte for byte, read from
+    the package path (single source). The skill is the AI operating contract: when to use
+    pi-dock, workflow, prompt ids and wait outcomes, states and waking, set/compact, log
+    events, recovery (wedged runner: latest `{event:"spawned",pid}` in logs → kill that PID
+    externally → `start`), data paths, warnings. Unknown command exits 1 pointing to
+    `--help`.
 19. **Observation.** `logs` renders each event as `<ts> <event> key=value…` (strings
     verbatim, other values as JSON) with `text` indented two spaces below; unparsable lines
     print raw. `--raw` prints stored NDJSON, `--tail <n>` the last n events, `--follow`
@@ -122,11 +128,17 @@ generates the help's usage section.
     whole unit). `models [filter]` lists credentialed models (`model context max-out
     thinking images`); filter = case-insensitive substring of `provider/id`, or
     provider-part/id-part with a slash; no match → exit 1.
+20. **Pi package.** `package.json` has the `pi-package` keyword and an explicit manifest
+    `pi: {skills: ["./skills"]}`, so Pi loads only the skill and never treats `bin/` or
+    `src/` as extensions. The SDK stays in `dependencies`: the runner is a separate Node
+    process that imports it, and Pi's peer-dependency rule (and its warning) applies only to
+    extension code loaded into Pi itself. No `files` field: the whole package ships.
 
 ## Architecture
 
 ```
-bin/pi-dock.mjs    CLI: strict parseArgs + dispatch to the 11 commands. Stateless.
+bin/pi-dock.mjs    CLI: strict parseArgs + dispatch to the 12 commands. Stateless.
+skills/pi-dock/    SKILL.md — AI operating guide; printed by `skill`, loaded by Pi.
 src/runner.mjs     Detached entry: hosts one AgentSession, serves the pipe, queues and
                    correlates prompts, appends the log, publishes the manifest on create.
 src/pipe.mjs       NDJSON over node:net — serve(path, handler) + request(path, msg, timeout).
@@ -172,7 +184,7 @@ through the last complete newline (deliberately simple; not an append-only reade
   HTTP 500s, held replies), with sandbox retry settings and a sandbox extension that starts
   idle work. Covers names, manifests, spawn races, state derivation, strict args, logs,
   models, wake/deliver classification, correlation, wait, send `--wait`/`--file`/`--`,
-  stop confirmation, compaction. Run after every change.
+  stop confirmation, compaction, help and `skill`. Run after every change.
 - `node test/smoke.mjs` — full lifecycle against the real default model, **2 real
   prompts** via `send --wait`. Paid: run only on explicit owner authorization, no automatic
   retry.

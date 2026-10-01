@@ -25,6 +25,7 @@ const USAGE = {
   set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
   compact: 'pi-dock compact <name> [instructions]',
   models: 'pi-dock models [filter]',
+  skill: 'pi-dock skill',
   '--help': 'pi-dock [--help | -h]',
 };
 // Shutdown aborts the current run (in-flight request, running tools) before exiting; that normally takes well under a second.
@@ -738,6 +739,11 @@ async function stopCommand(argv) {
   console.log('stopped');
 }
 
+function skillCommand(argv) {
+  parseCommand(argv, {}, 0);
+  process.stdout.write(readFileSync(path.join(root, 'skills', 'pi-dock', 'SKILL.md')));
+}
+
 const HELP = `pi-dock — resident AI agents with durable Pi sessions
 
 Usage:
@@ -751,83 +757,19 @@ Example:
   pi-dock show w1
   pi-dock stop w1
 
-Models:
-  models lists the provider/id refs usable with --model: only models with configured credentials,
-  with context, max-out, thinking and images columns. filter is a case-insensitive substring of
-  provider/id, or provider-part/id-part when it contains a slash. spawn without --model uses Pi's
-  default model. An unknown model (with suggestions) or one without credentials fails preflight,
-  and nothing is created or changed. --thinking is off|minimal|low|medium|high|xhigh|max; unset
-  means the model default, and levels a model does not support are clamped by Pi.
-
-Prompts and results:
-  send never creates an agent: it queues the prompt and prints its id (p + 12 hex). The prompt is
-  the remaining arguments joined by spaces or, with --file, the UTF-8 contents of path (exactly one
-  of the two, not empty); -- ends options, so text may start with -. A prompt runs after any work
-  that extensions started while idle has settled.
-  wait <name> <id> prints the final text of that prompt's run (nothing when the last turn had none)
-  and exits 0 once it is done; it exits 1 with the reason when the run failed, the prompt was
-  dropped or interrupted, the agent stopped or crashed, or the id is unknown. It has no timeout,
-  never wakes the agent, and Ctrl-C only stops waiting; a run that already ended is reported at
-  once.
-  send --wait queues and then waits: the id goes to stderr so wait <name> <id> can re-attach, the
-  final text to stdout, and the exit code is wait's.
-  Every command exits 0 on success and 1 on error. Unknown options and extra arguments are rejected
-  with the command's usage; compact takes all remaining arguments as instructions.
-
-Log events (one NDJSON object per line in the log, each with ts):
-  {event:"spawned", pid}             the runner booted
-  {event:"queued", id}               a prompt was accepted
-  {event:"run", id}                  its run started
-  {event:"turn", id?}                a model turn started
-  {event:"text", id?, text}          assistant text of a finished turn
-  {event:"done", id}                 the run finished (not terminal; status tells if idle)
-  {event:"run_failed", id, reason}   the last turn ended in an unrecovered provider error or abort;
-                                     the agent stays on
-  {event:"compacted"}  {event:"compact_failed", reason}
-  {event:"dropped", ids}             queued prompts that never ran, just before stopped/failed
-  {event:"stopped", id?}  {event:"failed", id?, reason}
-                                     terminal; id is the run they interrupted
-  Ids follow the run: work that extensions steer into an active run (e.g. a pi-link message) carries
-  its id, and only work that extensions start while idle logs turn and text without id. logs prints
-  each event as a <ts> <event> [key=value]... line, with text verbatim below it indented two
-  spaces; --raw prints the stored NDJSON lines, --tail <n> only the last n events, and --follow
-  keeps printing new events until interrupted.
-
-Lifecycle and states:
-  Agents are resident. spawn creates an idle identity in the current cwd and never takes work;
-  spawn and start print <name> <state> <provider/id>. A runner never exits because work finished,
-  only on stop or a crash. stop is a zero-process power-off: identity, log and session memory
-  remain; there is no destructive command. stop prints stopped only once the runner process has
-  exited; if it is still alive after 5s, stop fails naming its PID to terminate externally; an
-  agent that is already off prints already stopped|failed. start, send and compact wake a
-  stopped/failed agent with its memory; if the agent stops or crashes mid-request, send and compact
-  report it instead of waking or retrying.
-  States: idle, running or compacting while the pipe responds; otherwise stopped after a stop log,
-  or failed after a crash or any other final log. ls columns are name, state, model and age (time
-  since creation in its largest whole unit: s, m, h or d). show prints name, state, model, thinking
-  (- when unset), flags (JSON array), cwd, session and created, one key value per line. Neither
-  wakes the agent.
-  set requires a stopped/failed agent; it changes model, thinking and/or replaces the entire
-  repeatable --x flag list, and the next wake applies it. --x flags are opaque and inert without
-  their extension.
-  compact is idle-only (agent <name> is busy otherwise) and waits without a timeout until the runner
-  replies (Ctrl-C only stops waiting); the agent stays on, and a failed compaction is printed and
-  logged as {event:"compact_failed",reason}.
-  If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate
-  that PID externally, then run pi-dock start <name>; do not retry-loop.
-
-Data:
-  ~/.pi/dock/<name>.json is the manifest (identity and config) and ~/.pi/dock/<name>.log the event
-  log; the pipe is \\\\.\\pipe\\pi-dock-<name> on Windows, ~/.pi/dock/<name>.sock elsewhere. Sessions
-  live in Pi's session dir (<agent dir>/sessions/--<cwd>--/, agent dir ~/.pi/agent or
-  PI_CODING_AGENT_DIR); show prints the exact file. Names are lowercase a-z 0-9 segments joined by
-  single . _ or -, at most 64 characters, and not a Windows device name (con, nul, com1...).
+Essentials:
+  Agents are resident. spawn creates an idle agent in the current directory; send queues a prompt
+  and prints its id; wait <name> <id>, or send --wait, prints the run's final text. stop powers the
+  agent off and keeps its memory; start, send and compact wake it again. ls and show report the
+  state (idle, running, compacting, stopped or failed), logs the event log. Every command exits 0
+  on success and 1 on error.
 
 Warnings:
-  Headless runners load <cwd>/.pi config and extensions WITHOUT asking for project trust; spawn
-  only in directories you trust.
-  There are NO limits: an agent runs until stop or a crash, and work that extensions deliver while
-  it is idle (e.g. pi-link messages) is unbounded too.`;
+  Agents load <cwd>/.pi config and extensions WITHOUT asking for project trust.
+  There are NO limits: an agent runs until stop or a crash, including idle work from extensions.
+
+AI agents: read the output of pi-dock skill before using pi-dock. It is the full operating guide,
+also shipped as the pi-dock Pi skill.`;
 
 try {
   if (command === undefined || command === '--help') {
@@ -855,6 +797,8 @@ try {
     await compactCommand(args);
   } else if (command === 'stop') {
     await stopCommand(args);
+  } else if (command === 'skill') {
+    skillCommand(args);
   } else {
     fail(`unknown command: ${command}; run pi-dock --help`);
   }

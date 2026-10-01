@@ -591,6 +591,7 @@ async function main() {
       models: 'pi-dock models [filter]',
       send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
       wait: 'pi-dock wait <name> <id>',
+      skill: 'pi-dock skill',
       '--help': 'pi-dock [--help | -h]',
       '-h': 'pi-dock [--help | -h]',
       spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
@@ -617,6 +618,8 @@ async function main() {
       [['wait', 'v1', 'p1', 'p2'], "Unexpected argument 'p2'"],
       [['wait', 'v1', 'p1', '--json'], "Unknown option '--json'"],
       [['--help', 'extra'], "Unexpected argument 'extra'"],
+      [['skill', 'extra'], "Unexpected argument 'extra'"],
+      [['skill', '--json'], "Unknown option '--json'"],
       [['-h', '--json'], "Unknown option '--json'"],
     ];
     for (const [commandArgs, reason] of rejected) {
@@ -624,6 +627,19 @@ async function main() {
       assert.equal(result.code, 1, commandArgs.join(' '));
       assert.equal(result.stdout, '');
       assert.equal(result.stderr, `${reason ? `${reason}\n` : ''}usage: ${usage[commandArgs[0]]}\n`, commandArgs.join(' '));
+    }
+
+    const skill = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['skill']);
+    assert.equal(skill.code, 0, skill.stderr);
+    assert.equal(skill.stdout, await fs.readFile(path.join(root, 'skills', 'pi-dock', 'SKILL.md'), 'utf8'), 'skill prints SKILL.md verbatim');
+
+    const help = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), []);
+    assert.equal(help.code, 0, help.stderr);
+    assert.match(help.stdout, /AI agents: read the output of pi-dock skill before using pi-dock\. It is the full operating guide,\nalso shipped as the pi-dock Pi skill\.\n$/);
+    for (const flag of ['--help', '-h']) {
+      const alias = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), [flag]);
+      assert.equal(alias.code, 0, alias.stderr);
+      assert.equal(alias.stdout, help.stdout, `${flag} matches bare help`);
     }
 
     const ageCases = [['s', 0, /^\ds$/], ['m', 12.5 * 60, /^12m$/], ['h', 5.5 * 3600, /^5h$/], ['d', 43.5 * 86400, /^43d$/]];
@@ -1058,7 +1074,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 40 cases passed');
+    console.log('regression: 42 cases passed');
   } catch (error) {
     primaryError = error;
   }
