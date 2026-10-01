@@ -149,37 +149,34 @@ function reportHandshakeFailure(name) {
   }
 }
 
-async function verifyModelAuth(modelRegistry, model) {
-  const available = await modelRegistry.getAvailable();
+async function verifyModelAuth(modelRuntime, model) {
+  const available = await modelRuntime.getAvailable();
   const configured = available.some((candidate) => candidate.provider === model.provider && candidate.id === model.id);
   if (!configured) {
     throw new Error(`no usable credentials for ${model.provider}/${model.id}`);
   }
 
-  const auth = await modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok) {
-    throw new Error(auth.error);
+  if (!(await modelRuntime.getAuth(model))) {
+    throw new Error(`no usable credentials for ${model.provider}/${model.id}`);
   }
 }
 
 async function preflightSpawn(cwd, modelSpec) {
   const {
-    AuthStorage,
     createAgentSession,
-    ModelRegistry,
+    ModelRuntime,
     SessionManager,
   } = await import('@earendil-works/pi-coding-agent');
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
+  const modelRuntime = await ModelRuntime.create();
 
   if (modelSpec) {
     const slash = modelSpec.indexOf('/');
-    const model = slash === -1 ? null : modelRegistry.find(modelSpec.slice(0, slash), modelSpec.slice(slash + 1));
+    const model = slash === -1 ? null : modelRuntime.getModel(modelSpec.slice(0, slash), modelSpec.slice(slash + 1));
     if (!model) {
       throw new Error(`model ${modelSpec} not found`);
     }
 
-    await verifyModelAuth(modelRegistry, model);
+    await verifyModelAuth(modelRuntime, model);
     return;
   }
 
@@ -188,15 +185,14 @@ async function preflightSpawn(cwd, modelSpec) {
     ({ session } = await createAgentSession({
       cwd,
       sessionManager: SessionManager.inMemory(cwd),
-      authStorage,
-      modelRegistry,
+      modelRuntime,
     }));
 
     if (!session.model) {
       throw new Error('no model with usable credentials available');
     }
 
-    await verifyModelAuth(modelRegistry, session.model);
+    await verifyModelAuth(modelRuntime, session.model);
   } finally {
     session?.dispose();
   }

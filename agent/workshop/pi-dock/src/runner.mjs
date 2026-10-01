@@ -2,10 +2,8 @@ import { appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  AuthStorage,
   createAgentSessionFromServices,
   createAgentSessionServices,
-  ModelRegistry,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { parseBudget } from './budget.mjs';
@@ -53,6 +51,7 @@ const theme = {
   underline: (text) => text,
   inverse: (text) => text,
   strikethrough: (text) => text,
+  style: (text) => text,
   getFgAnsi: () => '',
   getBgAnsi: () => '',
   getColorMode: () => '256color',
@@ -261,7 +260,7 @@ function runCompact(instructions) {
   return task;
 }
 
-function findModel(modelRegistry, spec) {
+function findModel(modelRuntime, spec) {
   const slash = spec.indexOf('/');
   if (slash === -1) {
     throw new Error(`model not found: ${spec}`);
@@ -269,7 +268,7 @@ function findModel(modelRegistry, spec) {
 
   const provider = spec.slice(0, slash);
   const id = spec.slice(slash + 1);
-  const model = modelRegistry.find(provider, id);
+  const model = modelRuntime.getModel(provider, id);
   if (!model) {
     throw new Error(`model not found: ${spec}`);
   }
@@ -297,16 +296,12 @@ try {
   const thinking = createMode ? values.thinking : existing.thinking;
   budgetConfig = budget;
 
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
   const services = await createAgentSessionServices({
     cwd,
-    authStorage,
-    modelRegistry,
     extensionFlagValues: parseExtensionFlags(flags),
   });
   const modelSpec = createMode ? values.model : existing.model;
-  const model = modelSpec ? findModel(services.modelRegistry, modelSpec) : undefined;
+  const model = modelSpec ? findModel(services.modelRuntime, modelSpec) : undefined;
   const sessionManager = createMode ? SessionManager.create(cwd) : SessionManager.open(existing.sessionFile);
   ({ session } = await createAgentSessionFromServices({
     services,
