@@ -173,7 +173,16 @@ async function preflightSpawn(cwd, modelSpec) {
     const slash = modelSpec.indexOf('/');
     const model = slash === -1 ? null : modelRuntime.getModel(modelSpec.slice(0, slash), modelSpec.slice(slash + 1));
     if (!model) {
-      throw new Error(`model ${modelSpec} not found`);
+      const query = modelSpec.toLowerCase();
+      const split = query.indexOf('/');
+      const matches = (await modelRuntime.getAvailable())
+        .filter(({ provider, id }) => (split === -1
+          ? `${provider}/${id}`.toLowerCase().includes(query)
+          : provider.toLowerCase().includes(query.slice(0, split)) && id.toLowerCase().includes(query.slice(split + 1))))
+        .map(({ provider, id }) => `${provider}/${id}`)
+        .sort();
+      const hint = matches.length === 0 ? '' : ` (did you mean: ${matches.slice(0, 5).join(', ')}${matches.length > 5 ? ', …' : ''})`;
+      throw new Error(`model ${modelSpec} not found${hint}`);
     }
 
     await verifyModelAuth(modelRuntime, model);
