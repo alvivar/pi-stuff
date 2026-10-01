@@ -5,7 +5,6 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { parseBudget, formatBudget } from '../src/budget.mjs';
 import { listManifests, readManifest, rewriteManifest } from '../src/manifest.mjs';
 import { logPath, manifestPath, validateAgentName } from '../src/paths.mjs';
 import { PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
@@ -63,14 +62,6 @@ function validateThinking(level) {
   }
 }
 
-function validateBudget(value) {
-  try {
-    return parseBudget(value);
-  } catch (error) {
-    fail(error.message);
-  }
-}
-
 async function tryStatus(manifest, timeoutMs = 200) {
   try {
     const reply = await request(manifest.pipe, { cmd: 'status' }, timeoutMs);
@@ -90,9 +81,6 @@ function launchRunner(name, options = {}) {
   }
   if (options.model) {
     argv.push('--model', options.model);
-  }
-  if (options.budget) {
-    argv.push('--budget', options.budget);
   }
   if (options.thinking) {
     argv.push('--thinking', options.thinking);
@@ -268,7 +256,6 @@ async function spawnCommand(argv) {
     options: {
       name: { type: 'string' },
       model: { type: 'string' },
-      budget: { type: 'string' },
       thinking: { type: 'string' },
       x: { type: 'string', multiple: true },
     },
@@ -276,12 +263,11 @@ async function spawnCommand(argv) {
 
   let name = values.name;
   if (name === undefined || positionals.length > 0) {
-    fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--budget <turns>[,<minutes>]|off] [--x key[=value]]...');
+    fail('usage: pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...');
   }
   name = validateAgentName(name);
 
   validateThinking(values.thinking);
-  const budget = validateBudget(values.budget);
 
   if (await manifestExists(name)) {
     fail(`agent already exists: ${name}`);
@@ -297,7 +283,6 @@ async function spawnCommand(argv) {
   const child = launchRunner(name, {
     cwd,
     model: values.model,
-    budget: formatBudget(budget),
     thinking: values.thinking,
     flags: values.x,
     create: true,
@@ -391,14 +376,13 @@ async function startCommand(argv) {
 
 async function lsCommand() {
   const manifests = await listManifests();
-  console.log('name\tstate\tturns\telapsed\tsession');
+  console.log('name\tstate\telapsed\tsession');
 
   for (const manifest of manifests) {
     const status = await tryStatus(manifest, 200);
     const state = status ? status.state : stateFromLog(manifest.name);
-    const turns = status?.turns ?? '-';
     const session = manifest.sessionFile ?? '-';
-    console.log(`${manifest.name}\t${state}\t${turns}\t${formatElapsed(manifest.startedAt)}\t${session}`);
+    console.log(`${manifest.name}\t${state}\t${formatElapsed(manifest.startedAt)}\t${session}`);
   }
 }
 
@@ -493,20 +477,17 @@ async function setCommand(argv) {
     options: {
       model: { type: 'string' },
       thinking: { type: 'string' },
-      budget: { type: 'string' },
       x: { type: 'string', multiple: true },
     },
   });
 
   let name = positionals[0];
-  const replacesFlags = values.x !== undefined;
-  if (name === undefined || positionals.length > 1 || (!values.model && !values.thinking && values.budget === undefined && !replacesFlags)) {
-    fail('usage: pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--budget <turns>[,<minutes>]|off] [--x key[=value]]...');
+  if (name === undefined || positionals.length > 1 || (!values.model && !values.thinking && values.x === undefined)) {
+    fail('usage: pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...');
   }
 
   name = validateAgentName(name);
   validateThinking(values.thinking);
-  const budget = values.budget === undefined ? undefined : validateBudget(values.budget);
   const manifest = await requireManifest(name);
   await confirmPipeAbsent(manifest, name);
 
@@ -518,17 +499,19 @@ async function setCommand(argv) {
     }
   }
 
-  const { modelId: _legacyModelId, ...durableManifest } = manifest;
   const updated = {
-    ...durableManifest,
-    ...(values.model ? { model: values.model } : {}),
-    ...(values.thinking ? { thinking: values.thinking } : {}),
-    ...(budget !== undefined ? { budget } : {}),
-    ...(replacesFlags ? { flags: values.x } : {}),
+    name: manifest.name,
+    sessionFile: manifest.sessionFile,
+    cwd: manifest.cwd,
+    model: values.model || manifest.model,
+    thinking: values.thinking || manifest.thinking,
+    flags: values.x ?? manifest.flags,
+    pipe: manifest.pipe,
+    startedAt: manifest.startedAt,
   };
 
   await rewriteManifest(name, updated);
-  console.log(`${name} model=${updated.model ?? '-'} thinking=${updated.thinking ?? '-'} budget=${formatBudget(updated.budget)} flags=${JSON.stringify(updated.flags ?? [])}`);
+  console.log(`${name} model=${updated.model ?? '-'} thinking=${updated.thinking ?? '-'} flags=${JSON.stringify(updated.flags ?? [])}`);
 }
 
 async function sendCompact(manifest, instructions) {
@@ -601,20 +584,20 @@ async function stopCommand(argv) {
 const HELP = `pi-dock — resident AI agents with durable Pi sessions
 
 Usage:
-  pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--budget <turns>[,<minutes>]|off] [--x key[=value]]...
+  pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...
   pi-dock send <name> <text>
   pi-dock start <name>
   pi-dock stop <name>
   pi-dock ls
   pi-dock logs <name> [--follow]
-  pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--budget <turns>[,<minutes>]|off] [--x key[=value]]...
+  pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...
   pi-dock compact <name> [instructions]
 
 Agents are resident. spawn creates an idle identity in the current cwd and never takes work. send never creates an agent: it only delivers text and acknowledges; replies are {event:"text"} records in logs <name>. logs --follow runs until interrupted.
 
 stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start or send wakes a stopped/failed agent. ls derives idle/running while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
 
-Budget defaults to 20,30. Each numeric budget limits one pipe-delivered run and resets at idle: turns is a positive integer; minutes is a positive number up to 35791 (one number means 30 minutes). off explicitly disables both limits and is unlimited. compact is idle-only, wakes an off agent, stays on, and is unbudgeted. set requires a stopped/failed agent; it changes model, thinking, budget, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
+compact is idle-only, wakes an off agent, and stays on. set requires a stopped/failed agent; it changes model, thinking, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
 
 try {
   if (command === undefined || command === '--help' || command === '-h') {

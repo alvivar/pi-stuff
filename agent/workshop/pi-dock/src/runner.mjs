@@ -6,7 +6,6 @@ import {
   createAgentSessionServices,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
-import { parseBudget } from './budget.mjs';
 import { ManifestExistsError, readManifest, writeManifest } from './manifest.mjs';
 import { ensureDockDir, logPath, pipePath } from './paths.mjs';
 import { serve } from './pipe.mjs';
@@ -16,7 +15,6 @@ const { values } = parseArgs({
     name: { type: 'string' },
     cwd: { type: 'string' },
     model: { type: 'string' },
-    budget: { type: 'string' },
     thinking: { type: 'string' },
     x: { type: 'string', multiple: true },
     create: { type: 'boolean' },
@@ -34,13 +32,10 @@ const pipe = pipePath(name);
 let session;
 let server;
 let unsubscribe = () => {};
-let turns = 0;
 let running = false;
 let compacting = false;
 let pending = 0;
 let terminal = false;
-let budgetTimer;
-let budgetConfig;
 let queue = Promise.resolve();
 
 const theme = {
@@ -131,7 +126,6 @@ async function shutdown(event, code) {
 
   terminal = true;
   const dropped = pending;
-  clearBudgetTimer();
   unsubscribe();
   await session?.abort().catch(() => {});
   session?.dispose();
@@ -150,36 +144,14 @@ function stopSoon() {
   return shutdown({ event: 'stopped' }, 0);
 }
 
-function clearBudgetTimer() {
-  clearTimeout(budgetTimer);
-  budgetTimer = undefined;
-}
-
-function startBudgetTimer(budget) {
-  clearBudgetTimer();
-  if (budget === 'off') {
-    return;
-  }
-  budgetTimer = setTimeout(() => {
-    void fail(new Error('budget'));
-  }, budget.minutes * 60 * 1000);
-  budgetTimer.unref();
-}
-
-function subscribeToSession(budget) {
+function subscribeToSession() {
   unsubscribe = session.subscribe((event) => {
     if (terminal) {
       return;
     }
 
     if (event.type === 'turn_start') {
-      if (running) {
-        turns += 1;
-      }
-      appendLog({ event: 'turn', n: turns });
-      if (running && budget !== 'off' && turns > budget.turns) {
-        void fail(new Error('budget'));
-      }
+      appendLog({ event: 'turn' });
       return;
     }
 
@@ -199,8 +171,6 @@ async function runOnePrompt(text) {
   }
 
   running = true;
-  turns = 0;
-  startBudgetTimer(budgetConfig);
 
   try {
     await session.prompt(text, { streamingBehavior: 'followUp' });
@@ -210,8 +180,6 @@ async function runOnePrompt(text) {
   } catch (error) {
     await fail(error);
   } finally {
-    clearBudgetTimer();
-    turns = 0;
     running = false;
   }
 }
@@ -291,10 +259,8 @@ try {
     throw new Error(`manifest model missing: ${name} — set --model <provider/id> to repair`);
   }
   const cwd = createMode ? path.resolve(values.cwd ?? process.cwd()) : existing.cwd;
-  const budget = parseBudget(createMode ? values.budget : existing.budget, { manifest: !createMode });
   const flags = createMode ? values.x ?? [] : existing.flags ?? [];
   const thinking = createMode ? values.thinking : existing.thinking;
-  budgetConfig = budget;
 
   const services = await createAgentSessionServices({
     cwd,
@@ -322,7 +288,6 @@ try {
       sessionFile: session.sessionFile,
       cwd,
       model: `${resolvedModel.provider}/${resolvedModel.id}`,
-      budget,
       flags,
       pipe,
       startedAt: new Date().toISOString(),
@@ -341,7 +306,7 @@ try {
     }
   }
 
-  subscribeToSession(budget);
+  subscribeToSession();
   await session.bindExtensions({
     uiContext: headlessUIContext,
     mode: 'print',
@@ -357,7 +322,7 @@ try {
       }
 
       const state = running || session.isStreaming ? 'running' : 'idle';
-      return { ok: true, state, turns, pid: process.pid };
+      return { ok: true, state, pid: process.pid };
     }
 
     if (msg.cmd === 'prompt') {

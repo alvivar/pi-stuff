@@ -6,7 +6,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
-import { parseBudget, MAX_BUDGET_MINUTES } from '../src/budget.mjs';
 import { request, serve } from '../src/pipe.mjs';
 import { logPath, manifestPath, pipePath, validateAgentName } from '../src/paths.mjs';
 
@@ -20,7 +19,6 @@ function manifest(id, revision = 0) {
     sessionFile: `session-${id}`,
     cwd: `cwd-${id}`,
     model: 'test/model',
-    budget: 'off',
     flags: [],
     pipe: `pipe-${id}`,
     startedAt: `2026-01-01T00:00:${String(revision).padStart(2, '0')}Z`,
@@ -122,7 +120,7 @@ async function worker(action, name, id) {
 }
 
 function launchRunner(sandbox, cwd, name, fixture) {
-  return spawn(process.execPath, [runner, '--name', name, '--cwd', cwd, '--model', 'anthropic/claude-haiku-4-5', '--budget', 'off', '--x', fixture, '--create'], {
+  return spawn(process.execPath, [runner, '--name', name, '--cwd', cwd, '--model', 'anthropic/claude-haiku-4-5', '--x', fixture, '--create'], {
     env: sandboxEnv(sandbox),
     stdio: 'ignore',
     windowsHide: true,
@@ -265,7 +263,6 @@ async function writeSetFixture(dock, name) {
     name,
     sessionFile: `session-${name}.jsonl`,
     model: 'anthropic/claude-haiku-4-5',
-    budget: { turns: 3, minutes: 4 },
     pipe: pipePath(name),
   };
   const target = path.join(dock, `${name}.json`);
@@ -362,12 +359,12 @@ async function main() {
     await fs.writeFile(sentinelLog, 'log sentinel');
     const beforeInvalidCliTree = await treeEntries(sandbox);
     const namedCommands = [
-      ['spawn', '--name', traversalName, '--budget', 'off'],
+      ['spawn', '--name', traversalName],
       ['send', traversalName, 'text'],
       ['start', traversalName],
       ['stop', traversalName],
       ['logs', traversalName],
-      ['set', traversalName, '--budget', 'off'],
+      ['set', traversalName, '--thinking', 'low'],
       ['compact', traversalName, 'instructions'],
     ];
     for (const commandArgs of namedCommands) {
@@ -418,24 +415,23 @@ async function main() {
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dock, `${rewriteName}.json`), 'utf8')), manifest('after', 20));
     assert.deepEqual(await tempFiles(dock), [], 'rewrite leaves no temp files');
 
-    assert.deepEqual(parseBudget(`7,${MAX_BUDGET_MINUTES}`), { turns: 7, minutes: MAX_BUDGET_MINUTES });
-    assert.equal(parseBudget('off'), 'off');
-    for (const invalid of ['0', '-1', '1.5', '1,', ',1', '1,2,3', '1,no', '5.', 'Infinity', 'offx', `7,${MAX_BUDGET_MINUTES}.1`, `7,${MAX_BUDGET_MINUTES + 1}`]) {
-      assert.throws(() => parseBudget(invalid), new Error(`invalid budget: ${invalid}`));
-    }
-    assert.throws(() => parseBudget({ turns: 7, minutes: MAX_BUDGET_MINUTES + 1 }, { manifest: true }), new Error(`invalid budget: {"turns":7,"minutes":35792}`));
-
-    const legacyName = `legacy-${randomUUID()}`;
-    const legacySession = path.join(sandbox, 'legacy-session.jsonl');
-    const legacyManifest = { ...manifest('legacy'), name: legacyName, sessionFile: legacySession, model: 'anthropic/claude-haiku-4-5', modelId: 'claude-haiku-4-5', pipe: pipePath(legacyName) };
-    await fs.writeFile(path.join(dock, `${legacyName}.json`), `${JSON.stringify(legacyManifest)}\n`);
-    const setResult = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', legacyName, '--budget', 'off']);
+    const staleName = `stale-${randomUUID()}`;
+    const staleSession = path.join(sandbox, 'stale-session.jsonl');
+    const staleManifest = { ...manifest('stale'), name: staleName, sessionFile: staleSession, model: 'anthropic/claude-haiku-4-5', modelId: 'claude-haiku-4-5', pipe: pipePath(staleName) };
+    await fs.writeFile(path.join(dock, `${staleName}.json`), `${JSON.stringify(staleManifest)}\n`);
+    const setResult = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', staleName, '--thinking', 'low']);
     assert.equal(setResult.code, 0, setResult.stderr);
-    const repairedManifest = JSON.parse(await fs.readFile(path.join(dock, `${legacyName}.json`), 'utf8'));
-    assert.equal(repairedManifest.sessionFile, legacySession, 'set preserves legacy session identity');
-    assert.equal(repairedManifest.model, 'anthropic/claude-haiku-4-5');
-    assert.equal(Object.hasOwn(repairedManifest, 'modelId'), false, 'set rewrite removes durable legacy modelId');
-    assert.match(setResult.stdout, new RegExp(`^${legacyName} model=anthropic/claude-haiku-4-5 `));
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(dock, `${staleName}.json`), 'utf8')), {
+      name: staleName,
+      sessionFile: staleSession,
+      cwd: staleManifest.cwd,
+      model: 'anthropic/claude-haiku-4-5',
+      thinking: 'low',
+      flags: [],
+      pipe: staleManifest.pipe,
+      startedAt: staleManifest.startedAt,
+    }, 'set rewrites only known manifest fields');
+    assert.equal(setResult.stdout.trim(), `${staleName} model=anthropic/claude-haiku-4-5 thinking=low flags=[]`);
 
     const missingName = `missing-model-${randomUUID()}`;
     const missingSession = path.join(sandbox, 'must-not-open.jsonl');
@@ -525,16 +521,16 @@ async function main() {
 
     const absentSetName = `set-absent-${randomUUID()}`;
     const absentSetFile = await writeSetFixture(dock, absentSetName);
-    const absentSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', absentSetName, '--budget', 'off']);
+    const absentSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', absentSetName, '--thinking', 'low']);
     assert.equal(absentSet.code, 0, absentSet.stderr);
-    assert.equal(JSON.parse(await fs.readFile(absentSetFile, 'utf8')).budget, 'off', 'affirmative absent pipe permits powered-off set');
+    assert.equal(JSON.parse(await fs.readFile(absentSetFile, 'utf8')).thinking, 'low', 'affirmative absent pipe permits powered-off set');
 
     const liveSetName = `set-live-${randomUUID()}`;
     const liveSetFile = await writeSetFixture(dock, liveSetName);
     const liveServer = serve(pipePath(liveSetName), () => ({ ok: true, state: 'idle' }));
     await withOwnedServer(liveServer, new Set(), async () => {
       const beforeLiveSet = await fs.readFile(liveSetFile);
-      const liveSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', liveSetName, '--budget', 'off']);
+      const liveSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', liveSetName, '--thinking', 'low']);
       assert.equal(liveSet.code, 1);
       assert.equal(liveSet.stderr.trim(), `agent ${liveSetName} is running — stop it first`);
       assert.deepEqual(await fs.readFile(liveSetFile), beforeLiveSet, 'live pipe refusal preserves manifest bytes');
@@ -552,7 +548,7 @@ async function main() {
     timeoutServer.listen(pipePath(timeoutSetName));
     await withOwnedServer(timeoutServer, timeoutSockets, async () => {
       const beforeTimeoutSet = await fs.readFile(timeoutSetFile);
-      const timeoutSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', timeoutSetName, '--budget', 'off']);
+      const timeoutSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', timeoutSetName, '--thinking', 'low']);
       assert.equal(timeoutSet.code, 1);
       assert.equal(timeoutSet.stderr.trim(), `agent ${timeoutSetName} is not responding`);
       assert(timeoutAccepted >= 1, 'timeout fixture accepted the production request');
@@ -564,7 +560,7 @@ async function main() {
     const unknownServer = serve(pipePath(unknownSetName), () => ({ unexpected: true }));
     await withOwnedServer(unknownServer, new Set(), async () => {
       const beforeUnknownSet = await fs.readFile(unknownSetFile);
-      const unknownSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', unknownSetName, '--budget', 'off']);
+      const unknownSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', unknownSetName, '--thinking', 'low']);
       assert.equal(unknownSet.code, 1);
       assert.equal(unknownSet.stderr.trim(), `agent ${unknownSetName} liveness check failed: invalid status reply`);
       assert.deepEqual(await fs.readFile(unknownSetFile), beforeUnknownSet, 'unknown status refusal preserves manifest bytes');
@@ -582,7 +578,7 @@ async function main() {
     malformedServer.listen(pipePath(malformedSetName));
     await withOwnedServer(malformedServer, malformedSockets, async () => {
       const beforeMalformedSet = await fs.readFile(malformedSetFile);
-      const malformedSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', malformedSetName, '--budget', 'off']);
+      const malformedSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', malformedSetName, '--thinking', 'low']);
       assert.equal(malformedSet.code, 1);
       assert.equal(malformedSet.stderr.trim(), `agent ${malformedSetName} liveness check failed: invalid status reply`);
       assert.equal(malformedSet.stderr.includes(malformedSentinel), false, 'malformed payload does not leak into diagnostic');

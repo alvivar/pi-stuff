@@ -1,8 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { parseBudget } from '../src/budget.mjs';
-import { dockDir, pipePath } from '../src/paths.mjs';
+import { dockDir } from '../src/paths.mjs';
 
 const cli = path.join(process.cwd(), 'bin', 'pi-dock.mjs');
 const a = `smoke-${process.pid}-a`;
@@ -10,10 +9,7 @@ const b = `smoke-${process.pid}-b`;
 const c = `smoke-${process.pid}-c`;
 const d = `smoke-${process.pid}-d`;
 const e = `smoke-${process.pid}-e`;
-const f = `smoke-${process.pid}-f`;
-const g = `smoke-${process.pid}-g`;
-const h = `smoke-${process.pid}-h`;
-const names = [a, b, c, d, e, f, g, h];
+const names = [a, b, c, d, e];
 const results = [];
 
 function run(args) {
@@ -104,15 +100,6 @@ function latestSpawned(name) {
     .at(-1);
 }
 
-function budgetError(value, options) {
-  try {
-    parseBudget(value, options);
-  } catch (error) {
-    return error.message;
-  }
-  return null;
-}
-
 function findRunnerPid(name) {
   const escaped = name.replaceAll("'", "''");
   const script = `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*src\\runner.mjs*--name*${escaped}*' -or $_.CommandLine -like '*src/runner.mjs*--name*${escaped}*' } | Select-Object -First 1 -ExpandProperty ProcessId`;
@@ -145,21 +132,9 @@ for (const name of names) {
 }
 
 try {
-  expect('budget parser normalizes legacy numeric object', JSON.stringify(parseBudget({ turns: 20, minutes: 30 }, { manifest: true })) === JSON.stringify({ turns: 20, minutes: 30 }), 'legacy object was rejected');
-  for (const badBudget of [{}, { turns: 20, minutes: 'x' }, 20, [], '20,30']) {
-    expect(`manifest budget rejects ${JSON.stringify(badBudget)}`, budgetError(badBudget, { manifest: true })?.startsWith('invalid budget: ') === true, budgetError(badBudget, { manifest: true }));
-  }
-
-  writeFileSync(dockFile(h, '.json'), `${JSON.stringify({ name: h, sessionFile: 'invalid-session', cwd: process.cwd(), model: 'anthropic/claude-haiku-4-5', budget: { turns: 20, minutes: 'x' }, flags: [], pipe: pipePath(h), startedAt: new Date().toISOString() })}\n`);
-  let result = spawnSync(process.execPath, [path.join(process.cwd(), 'src', 'runner.mjs'), '--name', h], { cwd: process.cwd(), encoding: 'utf8' });
-  const corruptLog = existsSync(dockFile(h, '.log')) ? readFileSync(dockFile(h, '.log'), 'utf8') : '';
-  const corruptEvents = corruptLog.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  expect('corrupt resumed budget fails before spawned append', result.status !== 0 && corruptEvents.some((event) => event.event === 'failed' && event.reason === 'invalid budget: {"turns":20,"minutes":"x"}') && !corruptEvents.some((event) => event.event === 'spawned'), result.stderr || corruptLog);
-  clean(h);
-
-  result = run([]);
+  let result = run([]);
   const help = result.stdout;
-  expect('bare help is static and complete', result.status === 0 && help.includes('pi-dock spawn') && help.includes('pi-dock compact') && help.includes('not responding') && help.includes('event:"text"') && help.includes('--budget') && help.includes('35791') && help.includes('unlimited') && help.includes('--follow'), result.stderr || help);
+  expect('bare help is static and complete', result.status === 0 && help.includes('pi-dock spawn') && help.includes('pi-dock compact') && help.includes('not responding') && help.includes('event:"text"') && help.includes('--follow'), result.stderr || help);
 
   result = run(['--help']);
   expect('long help matches bare help', result.status === 0 && result.stdout === help, result.stderr || result.stdout);
@@ -170,29 +145,16 @@ try {
   result = run(['wat']);
   expect('unknown command is short and points to help', result.status === 1 && result.stderr.trim() === 'unknown command: wat; run pi-dock --help', result.stderr || result.stdout);
 
-  for (const badBudget of ['0', '-1', '1.5', '1,0', '1,', ',1', '1,2,3', '1,no', '5.', 'Infinity', 'offx']) {
-    result = run(['spawn', '--name', c, ...(badBudget.startsWith('-') ? [`--budget=${badBudget}`] : ['--budget', badBudget])]);
-    expect(`invalid budget ${badBudget} leaves no manifest`, result.status === 1 && result.stderr.trim() === `invalid budget: ${badBudget}` && !existsSync(dockFile(c, '.json')) && !existsSync(dockFile(c, '.log')), result.stderr || result.stdout);
-  }
-
   result = run(['spawn', '--name', e]);
-  expect('omitted budget persists default', result.status === 0 && JSON.stringify(manifest(e).budget) === JSON.stringify({ turns: 20, minutes: 30 }), result.stderr || result.stdout);
+  expect('spawn manifest holds only known fields', result.status === 0 && JSON.stringify(Object.keys(manifest(e)).sort()) === JSON.stringify(['cwd', 'flags', 'model', 'name', 'pipe', 'sessionFile', 'startedAt']), result.stderr || result.stdout || JSON.stringify(manifest(e)));
+  result = run(['stop', e]);
+  await waitLsState(e, 'stopped');
+  result = run(['start', e]);
+  const spawnedE = latestSpawned(e);
+  expect('wake logs a live spawned pid', result.status === 0 && Number.isInteger(spawnedE?.pid) && spawnedE.pid > 0 && pidAlive(spawnedE.pid), result.stderr || result.stdout || JSON.stringify(spawnedE));
   run(['stop', e]);
 
-  result = run(['spawn', '--name', f, '--budget', '7']);
-  expect('single budget defaults minutes to 30', result.status === 0 && JSON.stringify(manifest(f).budget) === JSON.stringify({ turns: 7, minutes: 30 }), result.stderr || result.stdout);
-  run(['stop', f]);
-
-  result = run(['spawn', '--name', g, '--budget', 'off']);
-  expect('off budget persists verbatim', result.status === 0 && manifest(g).budget === 'off', result.stderr || result.stdout);
-  result = run(['stop', g]);
-  await waitLsState(g, 'stopped');
-  result = run(['start', g]);
-  const spawnedG = latestSpawned(g);
-  expect('off survives wake with a live spawned pid', result.status === 0 && manifest(g).budget === 'off' && Number.isInteger(spawnedG?.pid) && spawnedG.pid > 0 && pidAlive(spawnedG.pid), result.stderr || result.stdout || JSON.stringify(spawnedG));
-  run(['stop', g]);
-
-  result = run(['spawn', '--name', a, '--budget', '5,5']);
+  result = run(['spawn', '--name', a]);
   expect('spawn A idle without prompt', result.status === 0 && result.stdout.trim() === `${a} idle`, result.stderr || result.stdout);
 
   result = await waitLsState(a, 'idle');
@@ -213,7 +175,7 @@ try {
   result = run(['ls']);
   let logs = logText(a);
   expect('A returns to idle after first prompt', result.status === 0 && lsState(result.stdout, a) === 'idle', result.stdout || result.stderr);
-  expect('A log has spawned turn text idle', logs.includes(' spawned') && logs.includes(' turn ') && logs.includes('alpha saved') && logs.includes(' idle'), logs);
+  expect('A log has spawned turn text idle', logs.includes(' spawned') && logs.includes(' turn\n') && logs.includes('alpha saved') && logs.includes(' idle'), logs);
   expect('A log has no done event', !logs.includes(' done'), logs);
   expect('A runner stays alive after first prompt', findRunnerPid(a) === pidA && pidAlive(pidA), String(findRunnerPid(a)));
 
@@ -253,7 +215,7 @@ try {
   result = run(['stop', a]);
   expect('stop A after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
-  result = run(['spawn', '--name', b, '--budget', '5,5']);
+  result = run(['spawn', '--name', b]);
   expect('spawn B idle without prompt', result.status === 0 && result.stdout.trim() === `${b} idle`, result.stderr || result.stdout);
 
   result = await waitLsState(b, 'idle');
@@ -277,7 +239,7 @@ try {
   result = run(['stop', b]);
   expect('stop B after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
-  result = run(['spawn', '--name', d, '--budget', '5,5', '--thinking', 'minimal', '--x', 'bogus-flag=1']);
+  result = run(['spawn', '--name', d, '--thinking', 'minimal', '--x', 'bogus-flag=1']);
   expect('spawn D with unknown extension flag and thinking idles', result.status === 0 && result.stdout.trim() === `${d} idle`, result.stderr || result.stdout);
   expect('D manifest records raw flags and thinking', JSON.stringify(manifest(d).flags) === JSON.stringify(['bogus-flag=1']) && manifest(d).thinking === 'minimal', JSON.stringify(manifest(d)));
 
@@ -301,16 +263,6 @@ try {
   const dAfterSet = manifest(d);
   expect('set stopped D rewrites mutable identity', result.status === 0 && dAfterSet.model === 'anthropic/claude-haiku-4-5' && dAfterSet.thinking === 'low' && JSON.stringify(dAfterSet.flags) === JSON.stringify(['link', `link-name=${d}`]) && result.stdout.includes('model=anthropic/claude-haiku-4-5'), result.stderr || result.stdout || JSON.stringify(dAfterSet));
   expect('set stopped D preserves hard identity', dAfterSet.name === dBeforeSet.name && dAfterSet.sessionFile === dBeforeSet.sessionFile && dAfterSet.cwd === dBeforeSet.cwd && dAfterSet.pipe === dBeforeSet.pipe && dAfterSet.startedAt === dBeforeSet.startedAt, JSON.stringify({ before: dBeforeSet, after: dAfterSet }));
-
-  const dBeforeInvalidBudget = readFileSync(dockFile(d, '.json'));
-  result = run(['set', d, '--budget', '1,']);
-  expect('invalid set budget leaves manifest unchanged', result.status === 1 && result.stderr.trim() === 'invalid budget: 1,' && Buffer.compare(dBeforeInvalidBudget, readFileSync(dockFile(d, '.json'))) === 0, result.stderr || result.stdout);
-
-  result = run(['set', d, '--budget', '9,1.5']);
-  expect('set numeric budget rewrites canonically', result.status === 0 && JSON.stringify(manifest(d).budget) === JSON.stringify({ turns: 9, minutes: 1.5 }) && result.stdout.includes('budget=9,1.5'), result.stderr || result.stdout);
-
-  result = run(['set', d, '--budget', 'off']);
-  expect('set off budget rewrites canonically', result.status === 0 && manifest(d).budget === 'off' && result.stdout.includes('budget=off'), result.stderr || result.stdout);
 
   result = run(['compact', 'missing-smoke-agent']);
   expect('compact missing agent errors', result.status !== 0 && result.stderr.includes('no such agent: missing-smoke-agent'), result.stderr || result.stdout);
