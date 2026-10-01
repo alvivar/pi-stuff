@@ -521,9 +521,9 @@ async function main() {
 
     const absentSetName = `set-absent-${randomUUID()}`;
     const absentSetFile = await writeSetFixture(dock, absentSetName);
-    const absentSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', absentSetName, '--thinking', 'low']);
+    const absentSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', absentSetName, '--thinking', 'max']);
     assert.equal(absentSet.code, 0, absentSet.stderr);
-    assert.equal(JSON.parse(await fs.readFile(absentSetFile, 'utf8')).thinking, 'low', 'affirmative absent pipe permits powered-off set');
+    assert.equal(JSON.parse(await fs.readFile(absentSetFile, 'utf8')).thinking, 'max', 'affirmative absent pipe permits powered-off set');
 
     const liveSetName = `set-live-${randomUUID()}`;
     const liveSetFile = await writeSetFixture(dock, liveSetName);
@@ -585,6 +585,42 @@ async function main() {
       assert.deepEqual(await fs.readFile(malformedSetFile), beforeMalformedSet, 'malformed status refusal preserves manifest bytes');
     });
 
+    const regressModel = { reasoning: false, input: ['text'] };
+    await fs.mkdir(path.join(sandbox, 'agent'), { recursive: true });
+    await fs.writeFile(path.join(sandbox, 'agent', 'models.json'), JSON.stringify({
+      providers: {
+        regress: {
+          baseUrl: 'http://127.0.0.1:9/v1',
+          api: 'openai-completions',
+          apiKey: 'regress',
+          models: [
+            { ...regressModel, id: 'alpha-2', contextWindow: 1000000, maxTokens: 500 },
+            { ...regressModel, id: 'alpha-10', contextWindow: 200000, maxTokens: 8192, reasoning: true, input: ['text', 'image'] },
+          ],
+        },
+      },
+    }));
+    const cli = path.join(root, 'bin', 'pi-dock.mjs');
+    const allRegress = await runOwnedNode(sandbox, cli, ['models', 'regress/']);
+    assert.equal(allRegress.code, 0, allRegress.stderr);
+    assert.equal(allRegress.stdout, [
+      'model             context  max-out  thinking  images',
+      'regress/alpha-10  200K     8.2K     yes       yes',
+      'regress/alpha-2   1M       500      no        no',
+      '',
+    ].join('\n'));
+    const oneRegress = await runOwnedNode(sandbox, cli, ['models', 'REGRESS/ALPHA-1']);
+    assert.deepEqual(oneRegress.stdout.split('\n').slice(1, -1), ['regress/alpha-10  200K     8.2K     yes       yes']);
+    const noRegress = await runOwnedNode(sandbox, cli, ['models', 'regress/zzz']);
+    assert.equal(noRegress.code, 1);
+    assert.equal(noRegress.stderr.trim(), 'no available models match regress/zzz');
+    const badThinking = await runOwnedNode(sandbox, cli, ['spawn', '--name', 'thinking-max', '--thinking', 'maximum']);
+    assert.equal(badThinking.stderr.trim(), 'invalid thinking level: maximum');
+    const hinted = await runOwnedNode(sandbox, cli, ['spawn', '--name', 'thinking-max', '--thinking', 'max', '--model', 'regress/alpha']);
+    assert.equal(hinted.code, 1);
+    assert.equal(hinted.stderr.trim(), 'preflight failed: model regress/alpha not found (did you mean: regress/alpha-10, regress/alpha-2; see: pi-dock models regress/alpha); no agent was created');
+    await assert.rejects(fs.access(path.join(dock, 'thinking-max.json')), { code: 'ENOENT' });
+
     const closedName = `closed-${randomUUID()}`;
     await writeSetFixture(dock, closedName);
     const closedSockets = new Set();
@@ -619,6 +655,7 @@ async function main() {
     }
     const status = await waitForStatus(pipe);
     assert(status, 'one real create runner reaches its owned pipe');
+    assert.equal(status.model, 'anthropic/claude-haiku-4-5', 'status reports the resolved model');
     const winnerIndex = runners.findIndex((child) => child.pid === status.pid);
     assert.notEqual(winnerIndex, -1, 'status PID belongs to exactly one launched child');
     const loserExits = await Promise.all(runners.filter((child) => child !== runners[winnerIndex]).map((child) => waitForExit(child)));
@@ -642,7 +679,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 19 cases passed');
+    console.log('regression: 20 cases passed');
   } catch (error) {
     primaryError = error;
   }

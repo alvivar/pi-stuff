@@ -13,7 +13,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runner = path.join(root, 'src', 'runner.mjs');
 const command = process.argv[2];
 const args = process.argv.slice(3);
-const VALID_THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const VALID_THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 function fail(message) {
   console.error(message);
@@ -152,6 +152,20 @@ async function verifyModelAuth(modelRuntime, model) {
   }
 }
 
+function modelRef({ provider, id }) {
+  return `${provider}/${id}`;
+}
+
+async function matchingModels(modelRuntime, filter) {
+  const query = filter.toLowerCase();
+  const slash = query.indexOf('/');
+  return (await modelRuntime.getAvailable())
+    .filter((model) => (slash === -1
+      ? modelRef(model).toLowerCase().includes(query)
+      : model.provider.toLowerCase().includes(query.slice(0, slash)) && model.id.toLowerCase().includes(query.slice(slash + 1))))
+    .sort((a, b) => (modelRef(a) < modelRef(b) ? -1 : 1));
+}
+
 async function preflightSpawn(cwd, modelSpec) {
   const {
     createAgentSession,
@@ -164,16 +178,11 @@ async function preflightSpawn(cwd, modelSpec) {
     const slash = modelSpec.indexOf('/');
     const model = slash === -1 ? null : modelRuntime.getModel(modelSpec.slice(0, slash), modelSpec.slice(slash + 1));
     if (!model) {
-      const query = modelSpec.toLowerCase();
-      const split = query.indexOf('/');
-      const matches = (await modelRuntime.getAvailable())
-        .filter(({ provider, id }) => (split === -1
-          ? `${provider}/${id}`.toLowerCase().includes(query)
-          : provider.toLowerCase().includes(query.slice(0, split)) && id.toLowerCase().includes(query.slice(split + 1))))
-        .map(({ provider, id }) => `${provider}/${id}`)
-        .sort();
-      const hint = matches.length === 0 ? '' : ` (did you mean: ${matches.slice(0, 5).join(', ')}${matches.length > 5 ? ', …' : ''})`;
-      throw new Error(`model ${modelSpec} not found${hint}`);
+      const matches = (await matchingModels(modelRuntime, modelSpec)).map(modelRef);
+      const hint = matches.length === 0
+        ? 'see: pi-dock models'
+        : `did you mean: ${matches.slice(0, 5).join(', ')}${matches.length > 5 ? ', …' : ''}; see: pi-dock models ${modelSpec}`;
+      throw new Error(`model ${modelSpec} not found (${hint})`);
     }
 
     await verifyModelAuth(modelRuntime, model);
@@ -299,7 +308,7 @@ async function spawnCommand(argv) {
     fail(`agent already exists: ${name}`);
   }
 
-  console.log(`${name} ${result.status.state}`);
+  console.log(`${name} ${result.status.state} ${result.status.model}`);
 }
 
 async function wake(manifest) {
@@ -365,7 +374,7 @@ async function startCommand(argv) {
   try {
     const status = await request(manifest.pipe, { cmd: 'status' }, PIPE_REQUEST_TIMEOUT_MS);
     if (status.ok) {
-      console.log(`${name} ${status.state}`);
+      console.log(`${name} ${status.state} ${status.model}`);
       return;
     }
   } catch (error) {
@@ -375,7 +384,48 @@ async function startCommand(argv) {
   }
 
   const result = await wake(manifest);
-  console.log(`${name} ${result.status.state}`);
+  console.log(`${name} ${result.status.state} ${result.status.model}`);
+}
+
+// Same token formatting as `pi --list-models`.
+function formatTokenCount(count) {
+  if (count >= 1_000_000) {
+    const millions = count / 1_000_000;
+    return millions % 1 === 0 ? `${millions}M` : `${millions.toFixed(1)}M`;
+  }
+  if (count >= 1_000) {
+    const thousands = count / 1_000;
+    return thousands % 1 === 0 ? `${thousands}K` : `${thousands.toFixed(1)}K`;
+  }
+  return count.toString();
+}
+
+async function modelsCommand(argv) {
+  if (argv.length > 1) {
+    fail('usage: pi-dock models [filter]');
+  }
+
+  const [filter = ''] = argv;
+  const { ModelRuntime } = await import('@earendil-works/pi-coding-agent');
+  const models = await matchingModels(await ModelRuntime.create(), filter);
+  if (models.length === 0) {
+    fail(filter ? `no available models match ${filter}` : 'no available models');
+  }
+
+  const rows = [
+    ['model', 'context', 'max-out', 'thinking', 'images'],
+    ...models.map((model) => [
+      modelRef(model),
+      formatTokenCount(model.contextWindow),
+      formatTokenCount(model.maxTokens),
+      model.reasoning ? 'yes' : 'no',
+      model.input.includes('image') ? 'yes' : 'no',
+    ]),
+  ];
+  const widths = rows[0].map((_, column) => Math.max(...rows.map((row) => row[column].length)));
+  for (const row of rows) {
+    console.log(row.map((cell, column) => cell.padEnd(widths[column])).join('  ').trimEnd());
+  }
 }
 
 async function lsCommand() {
@@ -572,8 +622,9 @@ Usage:
   pi-dock logs <name> [--follow]
   pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...
   pi-dock compact <name> [instructions]
+  pi-dock models [filter]
 
-Agents are resident. spawn creates an idle identity in the current cwd and never takes work. send never creates an agent: it only delivers text and acknowledges; replies are {event:"text"} records in logs <name>. logs --follow runs until interrupted.
+Agents are resident. spawn creates an idle identity in the current cwd and never takes work; spawn and start print <name> <state> <provider/id>. models lists the provider/id refs usable with --model (models with configured credentials; filter is a case-insensitive substring of provider/id, or provider-part/id-part when it contains a slash); --thinking is off|minimal|low|medium|high|xhigh|max. send never creates an agent: it only delivers text and acknowledges; replies are {event:"text"} records in logs <name>. logs --follow runs until interrupted.
 
 stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
 
@@ -594,6 +645,8 @@ try {
     await logsCommand(args);
   } else if (command === 'set') {
     await setCommand(args);
+  } else if (command === 'models') {
+    await modelsCommand(args);
   } else if (command === 'compact') {
     await compactCommand(args);
   } else if (command === 'stop') {

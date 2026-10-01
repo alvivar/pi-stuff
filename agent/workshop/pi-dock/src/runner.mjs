@@ -325,7 +325,7 @@ try {
       }
 
       const state = compacting ? 'compacting' : running || session.isStreaming ? 'running' : 'idle';
-      return { ok: true, state, pid: process.pid };
+      return { ok: true, state, model: `${session.model.provider}/${session.model.id}`, pid: process.pid };
     }
 
     if (msg.cmd === 'prompt') {

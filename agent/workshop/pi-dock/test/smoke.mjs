@@ -134,7 +134,7 @@ for (const name of names) {
 try {
   let result = run([]);
   const help = result.stdout;
-  expect('bare help is static and complete', result.status === 0 && help.includes('pi-dock spawn') && help.includes('pi-dock compact') && help.includes('not responding') && help.includes('event:"text"') && help.includes('--follow'), result.stderr || help);
+  expect('bare help is static and complete', result.status === 0 && help.includes('pi-dock spawn') && help.includes('pi-dock compact') && help.includes('pi-dock models') && help.includes('not responding') && help.includes('event:"text"') && help.includes('--follow'), result.stderr || help);
 
   result = run(['--help']);
   expect('long help matches bare help', result.status === 0 && result.stdout === help, result.stderr || result.stdout);
@@ -155,7 +155,7 @@ try {
   run(['stop', e]);
 
   result = run(['spawn', '--name', a]);
-  expect('spawn A idle without prompt', result.status === 0 && result.stdout.trim() === `${a} idle`, result.stderr || result.stdout);
+  expect('spawn A idle without prompt', result.status === 0 && result.stdout.trim() === `${a} idle ${manifest(a).model}`, result.stderr || result.stdout);
 
   result = await waitLsState(a, 'idle');
   expect('ls shows A idle after spawn', result?.status === 0 && lsState(result.stdout, a) === 'idle', result?.stdout || result?.stderr);
@@ -205,7 +205,7 @@ try {
   expect('A manifest unchanged after stop', Buffer.compare(manifestBytes, readFileSync(dockFile(a, '.json'))) === 0, 'manifest bytes changed');
 
   result = run(['start', a]);
-  expect('start A wakes idle without prompt', result.status === 0 && result.stdout.trim() === `${a} idle`, result.stderr || result.stdout);
+  expect('start A wakes idle without prompt', result.status === 0 && result.stdout.trim() === `${a} idle ${manifest(a).model}`, result.stderr || result.stdout);
 
   result = await waitLsState(a, 'idle');
   expect('ls shows A idle after start', result?.status === 0 && lsState(result.stdout, a) === 'idle', result?.stdout || result?.stderr);
@@ -216,7 +216,7 @@ try {
   expect('stop A after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
   result = run(['spawn', '--name', b]);
-  expect('spawn B idle without prompt', result.status === 0 && result.stdout.trim() === `${b} idle`, result.stderr || result.stdout);
+  expect('spawn B idle without prompt', result.status === 0 && result.stdout.trim() === `${b} idle ${manifest(b).model}`, result.stderr || result.stdout);
 
   result = await waitLsState(b, 'idle');
   expect('ls shows B idle', result?.status === 0 && lsState(result.stdout, b) === 'idle', result?.stdout || result?.stderr);
@@ -231,7 +231,7 @@ try {
   expect('ls shows killed idle B failed', result?.status === 0 && lsState(result.stdout, b) === 'failed', result?.stdout || result?.stderr);
 
   result = run(['start', b]);
-  expect('start B revives idle', result.status === 0 && result.stdout.trim() === `${b} idle`, result.stderr || result.stdout);
+  expect('start B revives idle', result.status === 0 && result.stdout.trim() === `${b} idle ${manifest(b).model}`, result.stderr || result.stdout);
 
   result = await waitLsState(b, 'idle');
   expect('ls shows B idle after start', result?.status === 0 && lsState(result.stdout, b) === 'idle', result?.stdout || result?.stderr);
@@ -240,7 +240,7 @@ try {
   expect('stop B after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
   result = run(['spawn', '--name', d, '--thinking', 'minimal', '--x', 'bogus-flag=1']);
-  expect('spawn D with unknown extension flag and thinking idles', result.status === 0 && result.stdout.trim() === `${d} idle`, result.stderr || result.stdout);
+  expect('spawn D with unknown extension flag and thinking idles', result.status === 0 && result.stdout.trim() === `${d} idle ${manifest(d).model}`, result.stderr || result.stdout);
   expect('D manifest records raw flags and thinking', JSON.stringify(manifest(d).flags) === JSON.stringify(['bogus-flag=1']) && manifest(d).thinking === 'minimal', JSON.stringify(manifest(d)));
 
   result = run(['set', 'missing-smoke-agent', '--thinking', 'low']);
@@ -268,7 +268,7 @@ try {
   expect('compact missing agent errors', result.status !== 0 && result.stderr.includes('no such agent: missing-smoke-agent'), result.stderr || result.stdout);
 
   result = run(['spawn', '--name', c, '--model', 'bogus/bogus']);
-  expect('bad model preflight exits nonzero', result.status !== 0 && result.stderr.includes('preflight failed: model bogus/bogus not found; no agent was created'), result.stderr || result.stdout);
+  expect('bad model preflight exits nonzero', result.status !== 0 && result.stderr.includes('preflight failed: model bogus/bogus not found (see: pi-dock models); no agent was created'), result.stderr || result.stdout);
   expect('bad model leaves no manifest or log', !existsSync(dockFile(c, '.json')) && !existsSync(dockFile(c, '.log')), `${dockFile(c, '.json')} / ${dockFile(c, '.log')}`);
 } finally {
   for (const name of names) {
