@@ -207,6 +207,9 @@ async function runOneCompact(instructions) {
     }
     return { ok: true };
   } catch (error) {
+    if (!terminal) {
+      appendLog({ event: 'compact_failed', reason: error.message });
+    }
     return { ok: false, error: error.message };
   } finally {
     compacting = false;
@@ -321,7 +324,7 @@ try {
         return { ok: false, error: 'terminal' };
       }
 
-      const state = running || session.isStreaming ? 'running' : 'idle';
+      const state = compacting ? 'compacting' : running || session.isStreaming ? 'running' : 'idle';
       return { ok: true, state, pid: process.pid };
     }
 

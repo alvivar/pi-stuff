@@ -13,7 +13,6 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runner = path.join(root, 'src', 'runner.mjs');
 const command = process.argv[2];
 const args = process.argv.slice(3);
-const COMPACT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const VALID_THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 function fail(message) {
@@ -54,6 +53,10 @@ function isTimeout(error) {
 
 function failNotResponding(name) {
   fail(`agent ${name} is not responding`);
+}
+
+function pipeAbsent(error) {
+  return error.code === 'ENOENT' || error.code === 'ECONNREFUSED';
 }
 
 function validateThinking(level) {
@@ -299,10 +302,6 @@ async function spawnCommand(argv) {
   console.log(`${name} ${result.status.state}`);
 }
 
-async function sendPrompt(manifest, text) {
-  return request(manifest.pipe, { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
-}
-
 async function wake(manifest) {
   launchRunner(manifest.name, { thinking: manifest.thinking, flags: manifest.flags });
   const result = await handshake(manifest.name);
@@ -314,6 +313,31 @@ async function wake(manifest) {
   return result;
 }
 
+function failRequest(name, cmd, error) {
+  if (isTimeout(error)) {
+    failNotResponding(name);
+  }
+  fail(`agent ${name} stopped or crashed during ${cmd}`);
+}
+
+async function deliver(manifest, msg, timeoutMs) {
+  let reply;
+  try {
+    reply = await request(manifest.pipe, msg, timeoutMs);
+  } catch (error) {
+    if (!pipeAbsent(error)) {
+      failRequest(manifest.name, msg.cmd, error);
+    }
+  }
+
+  if (reply === undefined || reply.error === 'terminal') {
+    const { manifest: woken } = await wake(manifest);
+    reply = await request(woken.pipe, msg, timeoutMs).catch((error) => failRequest(manifest.name, msg.cmd, error));
+  }
+
+  return reply;
+}
+
 async function sendCommand(argv) {
   const [name, ...textParts] = argv;
   const text = textParts.join(' ');
@@ -322,27 +346,7 @@ async function sendCommand(argv) {
   }
 
   validateAgentName(name);
-  const manifest = await requireManifest(name);
-  let reply;
-  let needsWake = false;
-
-  try {
-    reply = await sendPrompt(manifest, text);
-  } catch (error) {
-    if (isTimeout(error)) {
-      failNotResponding(name);
-    }
-    needsWake = true;
-  }
-
-  if (reply && !reply.ok && reply.error === 'terminal') {
-    needsWake = true;
-  }
-
-  if (needsWake) {
-    reply = await sendPrompt((await wake(manifest)).manifest, text);
-  }
-
+  const reply = await deliver(await requireManifest(name), { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
   if (!reply.ok) {
     fail(JSON.stringify(reply));
   }
@@ -463,7 +467,7 @@ async function confirmPipeAbsent(manifest, name) {
     if (error.code === 'ETIMEDOUT') {
       failNotResponding(name);
     }
-    if (error.code === 'ENOENT' || error.code === 'ECONNREFUSED') {
+    if (pipeAbsent(error)) {
       return;
     }
     fail(`agent ${name} liveness check failed: ${error.message}`);
@@ -514,11 +518,6 @@ async function setCommand(argv) {
   console.log(`${name} model=${updated.model ?? '-'} thinking=${updated.thinking ?? '-'} flags=${JSON.stringify(updated.flags ?? [])}`);
 }
 
-async function sendCompact(manifest, instructions) {
-  const msg = instructions.length > 0 ? { cmd: 'compact', instructions } : { cmd: 'compact' };
-  return request(manifest.pipe, msg, COMPACT_REQUEST_TIMEOUT_MS);
-}
-
 async function compactCommand(argv) {
   const [name, ...instructionParts] = argv;
   if (name === undefined) {
@@ -527,27 +526,8 @@ async function compactCommand(argv) {
 
   const instructions = instructionParts.join(' ');
   validateAgentName(name);
-  const manifest = await requireManifest(name);
-  let reply;
-  let needsWake = false;
-
-  try {
-    reply = await sendCompact(manifest, instructions);
-  } catch (error) {
-    if (isTimeout(error)) {
-      failNotResponding(name);
-    }
-    needsWake = true;
-  }
-
-  if (reply && !reply.ok && reply.error === 'terminal') {
-    needsWake = true;
-  }
-
-  if (needsWake) {
-    reply = await sendCompact((await wake(manifest)).manifest, instructions);
-  }
-
+  const msg = instructions.length > 0 ? { cmd: 'compact', instructions } : { cmd: 'compact' };
+  const reply = await deliver(await requireManifest(name), msg, null);
   if (!reply.ok) {
     if (reply.error === 'busy') {
       fail(`agent ${name} is busy`);
@@ -595,9 +575,9 @@ Usage:
 
 Agents are resident. spawn creates an idle identity in the current cwd and never takes work. send never creates an agent: it only delivers text and acknowledges; replies are {event:"text"} records in logs <name>. logs --follow runs until interrupted.
 
-stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start or send wakes a stopped/failed agent. ls derives idle/running while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
+stop is a zero-process power-off: identity, log, and session memory remain; there is no destructive command. start, send, or compact wakes a stopped/failed agent; if the agent stops or crashes mid-request, send and compact report it instead of waking or retrying. ls derives idle/running/compacting while its pipe responds, otherwise stopped after a stop log or failed after a crash/other final log. If an agent is not responding, find the latest {event:"spawned",pid} in logs <name>, terminate that PID externally, then run pi-dock start <name>; do not retry-loop.
 
-compact is idle-only, wakes an off agent, and stays on. set requires a stopped/failed agent; it changes model, thinking, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
+compact is idle-only and waits without a timeout until the runner replies (Ctrl-C only stops waiting); the agent stays on, and a failed compaction is logged as {event:"compact_failed",reason}. set requires a stopped/failed agent; it changes model, thinking, and/or replaces the entire repeatable --x flag list, then next wake applies it. --x flags are opaque and inert without their extension.`;
 
 try {
   if (command === undefined || command === '--help' || command === '-h') {

@@ -585,6 +585,28 @@ async function main() {
       assert.deepEqual(await fs.readFile(malformedSetFile), beforeMalformedSet, 'malformed status refusal preserves manifest bytes');
     });
 
+    const closedName = `closed-${randomUUID()}`;
+    await writeSetFixture(dock, closedName);
+    const closedSockets = new Set();
+    let closedAccepted = 0;
+    const closedServer = net.createServer((socket) => {
+      closedAccepted += 1;
+      closedSockets.add(socket);
+      socket.once('data', () => socket.destroy());
+      socket.on('close', () => closedSockets.delete(socket));
+    });
+    closedServer.listen(pipePath(closedName));
+    await withOwnedServer(closedServer, closedSockets, async () => {
+      for (const [commandArgs, cmd] of [[['compact', closedName], 'compact'], [['send', closedName, 'text'], 'prompt']]) {
+        closedAccepted = 0;
+        const closed = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
+        assert.equal(closed.code, 1);
+        assert.equal(closed.stderr.trim(), `agent ${closedName} stopped or crashed during ${cmd}`);
+        assert.equal(closedAccepted, 1, `${cmd} mid-request close is not retried`);
+      }
+      await assert.rejects(fs.access(path.join(dock, `${closedName}.log`)), { code: 'ENOENT' }, 'mid-request close does not wake a runner');
+    });
+
     const runnerName = `t1-${randomUUID()}`;
     const runnerCwd = path.join(sandbox, 'trusted-empty-cwd');
     await fs.mkdir(runnerCwd);
@@ -612,9 +634,15 @@ async function main() {
     assert.deepEqual(events.filter((event) => event.event === 'spawned').map((event) => event.pid), [status.pid]);
     assert.equal(events.some((event) => event.event === 'failed'), false, 'expected publication losers are silent');
     assert.deepEqual(await tempFiles(dock), [], 'real runner race leaves no manifest temp files');
+    const compactResult = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['compact', runnerName]);
+    assert.equal(compactResult.code, 1);
+    assert.equal(compactResult.stderr.trim(), 'Nothing to compact (session too small)');
+    const compactEvents = (await fs.readFile(path.join(dock, `${runnerName}.log`), 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.deepEqual(compactEvents.at(-1), { ts: compactEvents.at(-1).ts, event: 'compact_failed', reason: 'Nothing to compact (session too small)' });
+    assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 17 cases passed');
+    console.log('regression: 19 cases passed');
   } catch (error) {
     primaryError = error;
   }

@@ -151,7 +151,7 @@ export function request(pipePath, msg, timeoutMs = PIPE_REQUEST_TIMEOUT_MS) {
       }
     }
 
-    const timer = setTimeout(() => {
+    const timer = timeoutMs === null ? undefined : setTimeout(() => {
       const error = new Error(`pipe request timed out after ${timeoutMs}ms`);
       error.code = 'ETIMEDOUT';
       finish(error);
