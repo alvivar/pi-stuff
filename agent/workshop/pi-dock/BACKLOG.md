@@ -28,9 +28,8 @@ Ordered by how much each item improves pi-dock (polaris review of 0.2.0, 2026-10
 
 ## Release — only if pi-dock is going to be used by others
 
-6. [ ] **CHANGELOG** for `0.2.0`.
-7. [ ] **Publish** — `package.json` has `"private": true` (npm refuses to publish); not pushed.
-8. [ ] **`docs/pi-dock.html`** — outdated (still describes the budget, among others); owner
+6. [ ] **Publish** — `package.json` has `"private": true` (npm refuses to publish); not pushed.
+7. [ ] **`docs/pi-dock.html`** — outdated (still describes the budget, among others); owner
        updates it.
 
 ## Ideas — need design before building

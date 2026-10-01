@@ -1,0 +1,173 @@
+# Changelog
+
+All notable changes to pi-dock are documented here.
+
+This changelog is reconstructed from the git history from `2026-07-03` (first pi-dock commit)
+through the present. pi-dock has never been published to npm: a version here names a state of
+this checkout, dated by the day it was completed.
+
+---
+
+## 0.2.0 — 2026-10-01
+
+A usability release: prompts get ids and results you can wait for, argument validation is
+stricter, and the operating instructions for AI agents ship as a Pi skill. Agents
+created by 0.1.0 are not migrated: their manifest's `budget` field is ignored, and the next
+`set` drops it.
+
+### Breaking changes
+
+- **The turn/time budget is gone; agents have no limits.** `--budget` on `spawn` and `set` is now
+  an unknown option, a run is never stopped for running long, and `failed` with reason `budget`
+  no longer happens. An agent runs until `stop` or a crash. (`6a85715`)
+
+- **Arguments are strict.** Every command except `compact` rejects unknown options and extra
+  arguments with its usage line instead of ignoring them; `--help`/`-h` reject extra arguments
+  too. `send` now parses options, so prompt text that starts with `-` goes after `--`.
+  `compact` still takes all remaining arguments as instructions. (`7d0df98`, `4b51331`,
+  `2e6644f`)
+
+- **`ls` prints `name state model age`.** The `turns`, `elapsed` and `session` columns are
+  gone; age is the time since creation in its largest whole unit (`45s`, `12m`, `5h`, `43d`).
+  The session file moved to `show`. (`7d0df98`, `d28c4cb`)
+
+- **`logs` is readable by default.** Each event prints as `<ts> <event> key=value…`, with
+  assistant text verbatim below it, instead of a JSON payload. `--raw` prints the stored NDJSON
+  lines. (`d28c4cb`)
+
+- **Log events changed.** A prompt now logs `queued {id}`, `run {id}`, `turn`/`text` with the
+  id, and ends with `done {id}` (replacing `idle`) or `run_failed {id, reason}`. `turn` lost its
+  `n` counter, `dropped` lists the lost prompt ids (`ids`) instead of a count, and
+  `stopped`/`failed` carry the id of the run they interrupted. Work that extensions start while
+  the agent is idle logs `turn`/`text` without an id. (`dc522b1`, `6a85715`)
+
+- **Command output changed.** `send` prints the prompt id instead of `{"ok":true}`; `spawn` and
+  `start` print `<name> <state> <provider/id>`; `set` no longer prints `budget=`. (`dc522b1`,
+  `1b4a0b2`, `6a85715`)
+
+- **Pipe replies changed.** `status` returns `{ok, state, model, pid}` (no `turns`), `prompt`
+  returns `{ok, id}`, and `stop` returns `{ok, pid}`. This matters only to tools that talk to the
+  pipe directly. (`1b4a0b2`, `dc522b1`, `fa99f13`)
+
+### Added
+
+- **`pi-dock models [filter]` lists the models you can use.** Only models with configured
+  credentials appear, as `provider/id` with context, max-out, thinking and images columns. The
+  `model … not found` error now points to it. (`1b4a0b2`)
+
+- **`pi-dock show <name>` prints one agent's details.** Name, state, model, thinking, flags,
+  cwd, session file and creation time, one key and value per line, without waking the agent.
+  (`d28c4cb`)
+
+- **Prompts have ids, and `pi-dock wait <name> <id>` waits for one.** `wait` prints the run's
+  final text and exits 0 when it is done, or exits 1 with the reason when the run failed, the
+  prompt was dropped, the agent stopped or crashed, or the id is unknown. It has no timeout and
+  never wakes the agent; a run that already ended is reported at once. (`dc522b1`, `4b51331`)
+
+- **`send --wait` and `send --file <path>`.** `--wait` sends and then waits: the id goes to
+  stderr, so you can re-attach with `wait`, and only the final text goes to stdout. `--file`
+  reads the prompt from a UTF-8 file. (`4b51331`)
+
+- **A failed run no longer looks like success.** When a run's last turn ends in an unrecovered
+  provider error or abort, the log says `run_failed` with the reason and `wait` exits 1. The
+  agent stays on. (`dc522b1`)
+
+- **The `compacting` state.** `ls`, `show` and `start` report `compacting` while a compaction
+  runs. (`6ce3e23`)
+
+- **`--thinking max`.** The thinking levels are now `off|minimal|low|medium|high|xhigh|max`.
+  (`1b4a0b2`)
+
+- **`logs --tail <n>`** prints only the last n events. (`d28c4cb`)
+
+- **`pi-dock skill` and the pi-dock Pi skill.** The operating guide for AI agents (workflow,
+  outcomes, recovery, warnings) moved out of `--help` into `skills/pi-dock/SKILL.md`, which
+  `pi-dock skill` prints verbatim. pi-dock is now a Pi package exposing only that skill, so
+  `pi install path/to/pi-dock` makes Pi agents load it when a task involves pi-dock. `--help`
+  is a short human guide that points AI agents to it. (`e60bcf6`, `3c0b8f9`)
+
+- **README.** Install steps, quick start, the commands, how resident agents work, recovery,
+  data locations, and the trust and no-limits warnings. (`3c0b8f9`)
+
+### Fixed
+
+- **`stop` confirms the agent actually exited.** It prints `stopped` only once the runner process
+  is gone; if it is still alive after 5 s, `stop` fails with
+  `agent <name> did not exit within 5s; terminate PID <pid> externally`. Before, it reported
+  `stopped` as soon as the runner acknowledged, so a `set` right after could find it still
+  running. (`fa99f13`)
+
+- **A stop or crash during `send` or `compact` is reported, not retried.** Before, a runner
+  that closed mid-request was woken and sent the same request again. Now they wake the agent
+  only when nothing is listening or the runner is shutting down, never on a mid-request close,
+  which fails with `agent <name> stopped or crashed during <cmd>`. (`6ce3e23`)
+
+- **`compact` waits for the real result.** It used to give up after 10 minutes and report the
+  agent as not responding while the compaction went on. It now waits without a timeout (Ctrl-C
+  only stops waiting), and a failed compaction is logged as `compact_failed` with its reason.
+  (`6ce3e23`)
+
+---
+
+## 0.1.0 — 2026-10-01
+
+The first complete pi-dock, developed from 2026-07-03. `package.json` called it `0.1.0-dev`.
+This entry describes the code at `968f4f4`, the last code change before the 0.2.0 work. It
+includes the move to Pi SDK 0.99.2 and the model suggestions from the same day: they predate
+the 0.2.0 changes, and the paid end-to-end smoke test passed (69/69) on exactly this state.
+
+### Commands
+
+- **`spawn --name <name>`** creates an idle agent in the current directory and prints
+  `<name> <state>`; it takes no prompt. Options: `--model <provider/id>`,
+  `--thinking off|minimal|low|medium|high|xhigh`, `--budget <turns>[,<minutes>]|off` and
+  repeatable `--x key[=value]`. (`094ce53`, `4db9c97`, `26bcfc9`)
+- **`send <name> <text>`** delivers a prompt (the remaining arguments joined by spaces), wakes
+  a stopped or failed agent first, and prints the pipe's reply, `{"ok":true}`. It never creates
+  an agent. Replies appear as `text` events in the log. (`094ce53`)
+- **`start <name>`** wakes an agent without a prompt; **`stop <name>`** powers it off and
+  prints `stopped`, or `already stopped|failed`. (`094ce53`)
+- **`ls`** prints `name state turns elapsed session`. States are `idle` and `running` while the
+  runner answers, otherwise `stopped` or `failed` from the last complete log line. (`094ce53`)
+- **`logs <name> [--follow]`** prints each event as `<ts> <event> {json}`. (`2b93a39`,
+  `ab6668a`)
+- **`set <name> [--model] [--thinking] [--budget] [--x ...]`** changes a powered-off agent's
+  configuration for its next wake. (`4db9c97`, `26bcfc9`, `e34e8e4`)
+- **`compact <name> [instructions]`** compacts an idle agent's session, waking it if needed,
+  waits up to 10 minutes and prints `compacted`. (`4db9c97`)
+- **`--help`/`-h`** (and bare `pi-dock`) prints usage and the resident workflow. (`26bcfc9`)
+
+### Behavior
+
+- **Resident agents.** Each agent is one detached runner process hosting one Pi session. It
+  never exits because work finished, only on `stop`, a budget breach or a fatal error, and the
+  next wake reopens the same session with its memory. There is no delete command. (`094ce53`)
+- **Per-run budget, on by default.** Each prompt's run was limited to 20 turns and 30 minutes
+  (`--budget <turns>[,<minutes>]`, or `off`). Exceeding it stopped the agent as
+  `failed` with reason `budget`; the next `send` or `start` woke it. Work that extensions
+  started while idle was not budgeted. (`094ce53`, `bf02f8e`, `26bcfc9`)
+- **Preflight.** `spawn` and `set --model` check that the model exists and has credentials
+  before creating or changing anything; an unknown model suggests up to five matching ones.
+  (`fd437a0`, `968f4f4`)
+- **Extension flags.** `--x key[=value]` passes opaque flags to the agent's extensions on every
+  wake, so a docked agent can join pi-link with `--x link`. (`bf02f8e`)
+- **Pi SDK 0.99.2.** pi-dock runs agents with its own `@earendil-works/pi-coding-agent`
+  `^0.99.2` (previously `^0.80.3`). (`d865687`)
+- **Data.** `~/.pi/dock/<name>.json` (manifest), `<name>.log` (NDJSON events: `spawned`,
+  `turn {n}`, `text`, `idle`, `compacted`, `dropped {n}`, `stopped`, `failed {reason}`) and a
+  named pipe (`\\.\pipe\pi-dock-<name>`, or a Unix socket in `~/.pi/dock`). (`3296490`,
+  `094ce53`, `d2b4d76`)
+
+### Hardening before 0.1.0
+
+- **Race-safe creation.** Concurrent `spawn`s of one name produce exactly one agent; the others
+  report `agent already exists`. (`1e4e2b4`)
+- **Complete UTF-8 log records.** `logs --follow` and state derivation read only complete lines,
+  so a half-written multibyte event is never printed or misread. (`ab6668a`)
+- **`set` only on a confirmed powered-off agent.** A live, unresponsive or uncertain agent is
+  refused. (`e34e8e4`)
+- **Portable names.** Names are lowercase `a-z0-9` segments joined by `.`, `_` or `-`, at most
+  64 characters, never a Windows device name, and are validated before any file or pipe access.
+  (`507f157`)
+- **The manifest's `provider/id` model is the only wake authority.** (`e0a1654`)
+- **Unix stale sockets** left by a crashed runner are detected and replaced. (`d2b4d76`)
