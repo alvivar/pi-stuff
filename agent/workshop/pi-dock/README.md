@@ -86,8 +86,8 @@ pi-dock stop w1
   final text on stdout once it is done.
 - `logs` shows what happened; `show` prints the agent's name, state, model, thinking, flags, cwd,
   session file and creation time.
-- `stop` powers the agent off. `pi-dock send w1 "…"` or `pi-dock start w1` wakes it again, with
-  the conversation intact.
+- `stop` powers the agent off and prints `w1 stopped`. `pi-dock send w1 "…"` or
+  `pi-dock start w1` wakes it again, with the conversation intact.
 
 Every command exits 0 on success and 1 on error, with the reason on stderr. Options and
 arguments are strict: anything unknown fails with the command's usage line. The exception is
@@ -102,7 +102,7 @@ compacts `w1` with the instructions `--help`. For usage, run the top-level `pi-d
 | `send <name> [--wait] [--file <path>] [--] [text...]` | Queue a prompt and print its id; `--wait` also waits for the result |
 | `wait <name> <id>` | Wait for a prompt's run and print its final text |
 | `start <name>` | Wake a stopped or failed agent |
-| `stop <name>` | Power the agent off and confirm its process exited |
+| `stop <name>...` | Power agents off and confirm their processes exited |
 | `ls` | List agents: `name state model age` |
 | `show <name>` | Print one agent's details, one key and value per line |
 | `logs <name> [--tail <n>] [--raw] [--follow]` | Print the agent's event log |
@@ -127,6 +127,11 @@ after a stop; `failed` after a crash. Neither wakes it.
 `stop` is a power-off, not a delete. The name, configuration, log and session survive, and
 `start`, `send` and `compact` wake the agent with its memory. pi-dock has no command that
 deletes an agent.
+
+`pi-dock stop w1 w2 w3` stops a team. It checks the whole list first, so an invalid, unknown or
+repeated name stops nothing. Then it stops the agents one after another and prints one line per
+name (`w1 stopped`, `w2 already stopped`); a failure on one goes to stderr, the others are still
+stopped, and the exit code is 1. There is no `--all` and no pattern.
 
 `send` never creates an agent, so a typo in the name fails instead of starting a new one.
 

@@ -585,7 +585,7 @@ async function main() {
 
     const usage = {
       ls: 'pi-dock ls',
-      stop: 'pi-dock stop <name>',
+      stop: 'pi-dock stop <name>...',
       start: 'pi-dock start <name>',
       logs: 'pi-dock logs <name> [--tail <n>] [--raw] [--follow]',
       models: 'pi-dock models [filter]',
@@ -600,7 +600,8 @@ async function main() {
     await fs.writeFile(emptyPrompt, '');
     const rejected = [
       [['ls', '--json'], "Unknown option '--json'"],
-      [['stop', 'v1', 'extra', 'junk'], "Unexpected argument 'extra'"],
+      [['stop', 'v1', '--force'], "Unknown option '--force'"],
+      [['stop'], undefined],
       [['start', 'v1', '--force'], "Unknown option '--force'"],
       [['logs', 'v1', 'other'], "Unexpected argument 'other'"],
       [['logs', 'v1', '--follow=yes'], "Option '-f, --follow' does not take an argument"],
@@ -745,16 +746,6 @@ async function main() {
       assert.deepEqual(await fs.readFile(liveSetFile), beforeLiveSet, 'live pipe refusal preserves manifest bytes');
     });
 
-    const lingeringName = `stop-lingering-${randomUUID()}`;
-    await writeSetFixture(dock, lingeringName);
-    const lingeringServer = serve(pipePath(lingeringName), () => ({ ok: true, pid: process.pid }));
-    await withOwnedServer(lingeringServer, new Set(), async () => {
-      const lingering = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', lingeringName]);
-      assert.equal(lingering.code, 1);
-      assert.equal(lingering.stdout, '');
-      assert.equal(lingering.stderr, `agent ${lingeringName} did not exit within 5s; terminate PID ${process.pid} externally\n`);
-    });
-
     const timeoutSetName = `set-timeout-${randomUUID()}`;
     const timeoutSetFile = await writeSetFixture(dock, timeoutSetName);
     const timeoutSockets = new Set();
@@ -890,7 +881,7 @@ async function main() {
     const exited = (code, stdout, stderr) => ({ code, signal: null, stdout, stderr });
     const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const stop = async (name, child) => {
-      assert.equal((await runOwnedNode(sandbox, cli, ['stop', name])).stdout, 'stopped\n');
+      assert.equal((await runOwnedNode(sandbox, cli, ['stop', name])).stdout, `${name} stopped\n`);
       assert.throws(() => process.kill(child.pid, 0), { code: 'ESRCH' }, 'stop returns only after the runner exited');
       await waitForExit(child);
     };
@@ -1036,6 +1027,41 @@ async function main() {
       { event: 'dropped', ids: [waitingId] },
       { event: 'stopped' },
     ], 'a stop while waiting for idle drops the pipe prompt instead of interrupting it');
+
+    const multiName = `multi-${randomUUID()}`;
+    const multi = own(launchRunner(sandbox, ['--name', multiName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--create']), multiName);
+    const corrWoken = own(launchRunner(sandbox, ['--name', corrName]), corrName);
+    assert(await waitForStatus(pipePath(multiName)), 'multi-stop runner starts');
+    assert(await waitForStatus(pipePath(corrName)), 'correlation runner wakes for a multi-name stop');
+    const absentStopName = `stop-absent-${randomUUID()}`;
+    for (const [names, stderr] of [
+      [[corrName, '../bad', multiName], 'invalid agent name: ../bad\n'],
+      [[corrName, multiName, corrName], `duplicate agent name: ${corrName}\n`],
+      [[corrName, absentStopName, multiName], `no such agent: ${absentStopName}\n`],
+    ]) {
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['stop', ...names]), exited(1, '', stderr), `stop ${names.join(' ')} rejects the whole list`);
+    }
+    for (const name of [corrName, multiName]) {
+      assert.equal((await request(pipePath(name), { cmd: 'status' })).ok, true, 'a rejected stop list stops nothing');
+    }
+    const lingeringName = `stop-lingering-${randomUUID()}`;
+    await writeSetFixture(dock, lingeringName);
+    const lingeringServer = serve(pipePath(lingeringName), () => ({ ok: true, pid: process.pid }));
+    const badPidName = `stop-bad-pid-${randomUUID()}`;
+    await writeSetFixture(dock, badPidName);
+    const badPidServer = serve(pipePath(badPidName), () => ({ ok: true, pid: 'nope' }));
+    await withOwnedServer(lingeringServer, new Set(), () => withOwnedServer(badPidServer, new Set(), async () => {
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['stop', badPidName, lingeringName, corrName, multiName, idleName]), exited(
+        1,
+        `${corrName} stopped\n${multiName} stopped\n${idleName} already stopped\n`,
+        `agent ${badPidName} The "pid" argument must be of type number. Received type string ('nope')\n`
+          + `agent ${lingeringName} did not exit within 5s; terminate PID ${process.pid} externally\n`,
+      ), 'stop names every failed agent, continues past failures and exits 1');
+    }));
+    for (const child of [corrWoken, multi]) {
+      assert.throws(() => process.kill(child.pid, 0), { code: 'ESRCH' }, 'a multi-name stop returns only after its runners exited');
+      await waitForExit(child);
+    }
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
 
     const runnerName = `t1-${randomUUID()}`;
@@ -1074,7 +1100,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 42 cases passed');
+    console.log('regression: 45 cases passed');
   } catch (error) {
     primaryError = error;
   }

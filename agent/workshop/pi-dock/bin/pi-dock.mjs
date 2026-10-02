@@ -18,7 +18,7 @@ const USAGE = {
   send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
   wait: 'pi-dock wait <name> <id>',
   start: 'pi-dock start <name>',
-  stop: 'pi-dock stop <name>',
+  stop: 'pi-dock stop <name>...',
   ls: 'pi-dock ls',
   logs: 'pi-dock logs <name> [--tail <n>] [--raw] [--follow]',
   show: 'pi-dock show <name>',
@@ -707,36 +707,60 @@ async function compactCommand(argv) {
   console.log('compacted');
 }
 
-async function stopCommand(argv) {
-  const { positionals: [name] } = parseCommand(argv, {}, 1);
-  if (name === undefined) {
-    failUsage();
-  }
-
-  validateAgentName(name);
-  const manifest = await requireManifest(name);
+// Returns the outcome to print after the name; throws on an operational failure, whose message
+// stopCommand prefixes with `agent <name>`.
+async function stopAgent({ name, pipe }) {
   let reply;
   try {
-    reply = await request(manifest.pipe, { cmd: 'stop' }, PIPE_REQUEST_TIMEOUT_MS);
+    reply = await request(pipe, { cmd: 'stop' }, PIPE_REQUEST_TIMEOUT_MS);
   } catch (error) {
     if (isTimeout(error)) {
-      failNotResponding(name);
+      throw new Error('is not responding');
     }
-    console.log(`already ${stateFromLog(name)}`);
-    return;
+    return `already ${stateFromLog(name)}`;
   }
   if (!reply.ok) {
-    fail(JSON.stringify(reply));
+    throw new Error(`refused stop: ${JSON.stringify(reply)}`);
   }
 
   const deadline = Date.now() + STOP_EXIT_TIMEOUT_MS;
   while (processAlive(reply.pid)) {
     if (Date.now() > deadline) {
-      fail(`agent ${name} did not exit within ${STOP_EXIT_TIMEOUT_MS / 1000}s; terminate PID ${reply.pid} externally`);
+      throw new Error(`did not exit within ${STOP_EXIT_TIMEOUT_MS / 1000}s; terminate PID ${reply.pid} externally`);
     }
     await sleep(50);
   }
-  console.log('stopped');
+  return 'stopped';
+}
+
+async function stopCommand(argv) {
+  const { positionals: names } = parseCommand(argv, {}, Infinity);
+  if (names.length === 0) {
+    failUsage();
+  }
+
+  // The whole list is checked before anything is stopped, so a typo cannot cause a partial power-off.
+  const manifests = [];
+  for (const [index, name] of names.entries()) {
+    validateAgentName(name);
+    if (names.indexOf(name) !== index) {
+      fail(`duplicate agent name: ${name}`);
+    }
+    manifests.push(await requireManifest(name));
+  }
+
+  let failed = false;
+  for (const manifest of manifests) {
+    try {
+      console.log(`${manifest.name} ${await stopAgent(manifest)}`);
+    } catch (error) {
+      console.error(`agent ${manifest.name} ${error.message}`);
+      failed = true;
+    }
+  }
+  if (failed) {
+    process.exit(1);
+  }
 }
 
 function skillCommand(argv) {

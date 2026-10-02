@@ -82,11 +82,17 @@ generates the help's usage section.
     `send --wait` = send + wait, with the id on stderr (to re-attach) and only the final text
     on stdout. `send --file <path>` reads a UTF-8 prompt; `--` ends options; exactly one of
     text or `--file`, never empty.
-11. **`stop` confirms exit.** The stop reply carries the runner PID; `stop` prints `stopped`
-    only once that process no longer exists (pid liveness, not pipe absence: the pipe closes
-    before exit). Still alive after 5 s → `agent <name> did not exit within 5s; terminate
-    PID <pid> externally`, exit 1, no kill. An agent already off prints
-    `already stopped|failed`.
+11. **`stop` confirms exit.** The stop reply carries the runner PID; `stop` prints
+    `<name> stopped` only once that process no longer exists (pid liveness, not pipe absence:
+    the pipe closes before exit). Still alive after 5 s → `agent <name> did not exit within 5s;
+    terminate PID <pid> externally`, no kill. An agent already off prints
+    `<name> already stopped|failed`. `stop <name>...` takes explicit names only (no `--all`, no
+    patterns: a wrong pattern on stop is expensive). The whole list is validated before acting
+    (syntax, no repeats, every manifest exists), so a typo stops nothing. Then each agent is
+    stopped in order, sequentially (a normal stop takes well under a second; only a misbehaving
+    agent costs up to ~8 s, and output stays in argument order). An operational failure
+    (not responding, did not exit, unexpected reply) goes to stderr and the rest still stop;
+    exit 1 if any failed. No transaction, no rollback.
 12. **`set`** edits model / thinking / flags only when the agent is confirmed powered off.
     Alive → `agent <name> is running — stop it first`; unresponsive →
     `agent <name> is not responding`; missing → `no such agent: <name>`. `--model` is

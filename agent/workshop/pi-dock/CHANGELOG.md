@@ -10,6 +10,19 @@ this checkout, dated by the day it was completed.
 
 ## Unreleased
 
+### Breaking changes
+
+- **`stop` prefixes its output with the agent name.** It prints `<name> stopped`,
+  `<name> already stopped` or `<name> already failed`, one line per agent, so scripts can tell
+  the results of a multi-name stop apart.
+
+### Added
+
+- **`pi-dock stop <name>...` stops several agents.** The whole list is checked first: an
+  invalid, unknown or repeated name stops nothing. Then each agent is stopped in turn; a failure
+  on one (not responding, did not exit within 5 s) is reported on stderr, the others are still
+  stopped, and the exit code is 1. There is no `--all` and no pattern.
+
 ### Changed
 
 - **The skill states two facts from real use.** A `done` (or an idle agent) does not mean a

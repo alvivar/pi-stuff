@@ -37,7 +37,7 @@ of every command.
 3. `pi-dock send <name> --wait "<prompt>"` — give it work and block until the run ends. stdout
    carries only the final text; the prompt id goes to stderr.
 4. `pi-dock logs <name>` and `pi-dock show <name>` — inspect what happened.
-5. `pi-dock stop <name>` — power it off when you no longer need it.
+5. `pi-dock stop <name>...` — power agents off when you no longer need them.
 
 ## Prompts and results
 
@@ -80,9 +80,14 @@ of every command.
   prints `<name> <state> <provider/id>`; on an agent that is already on it just prints that.
 - If the agent stops or crashes mid-request, `send` and `compact` report
   `agent <name> stopped or crashed during <cmd>` instead of waking or retrying.
-- `stop` prints `stopped` only once the runner process has exited. An agent that is already off
-  prints `already stopped` or `already failed`. There is no destructive command: names, logs
-  and sessions are never deleted by pi-dock.
+- `pi-dock stop <name>...` takes one or more names and prints one line per name:
+  `<name> stopped` only once its runner process has exited, or `<name> already stopped` /
+  `<name> already failed` for an agent that is already off. The whole list is checked first: an
+  invalid, unknown or repeated name fails and stops nothing. Then the agents are stopped one
+  after another; a failure on one (e.g. not responding) is printed on stderr and the others are
+  still stopped. The exit code is 1 if any failed. There is no `--all` and no pattern: list the
+  names you mean.
+- There is no destructive command: names, logs and sessions are never deleted by pi-dock.
 
 ## Changing an agent
 
