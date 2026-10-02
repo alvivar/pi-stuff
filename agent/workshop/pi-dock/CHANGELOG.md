@@ -23,6 +23,12 @@ this checkout, dated by the day it was completed.
   on one (not responding, did not exit within 5 s) is reported on stderr, the others are still
   stopped, and the exit code is 1. There is no `--all` and no pattern.
 
+- **The log shows when extension messages enter an agent's context.** A new
+  `external {id?, type}` event is logged whenever a custom extension message (for pi-link,
+  type `link`) enters the session, with the run's id inside a pipe run. Only the type is
+  logged; the content stays in the session file. It marks entry, not cause, and its absence
+  proves nothing: extension prompts sent as user messages are not seen.
+
 ### Changed
 
 - **The skill states two facts from real use.** A `done` (or an idle agent) does not mean a

@@ -7,41 +7,30 @@ CLI, coordinating over pi-link).
 
 ## Backlog, in priority order
 
-1. [ ] **F5 external input, generic** — extension-injected work shows today as `turn`/`text`
-       without id (or under the active run's id), so the dock log tells *that* an agent
-       worked, not *what started it*. Log `{event:"external", type}` with the extension's
-       message type, no body and no sender: "from" would need pi-link's schema in pi-dock.
-       It is a hint ("an extension started this"), not a receipt — vega's S3 case still
-       needed the session to see which message arrived and why the agent acted as it did.
-       Needs design first: find the SDK hook that sees extension-injected messages
-       generically; decide whether it records the injection request or the message actually
-       entering the session; it may land during an active run, not only before an id-less
-       `turn`. If it needs pi-link knowledge or broker emulation, drop it and document a
-       diagnostic recipe pointing to `show` → session file instead.
-2. [ ] **README: watchdog recipe for truly unattended runs** — there are no limits by design;
+1. [ ] **README: watchdog recipe for truly unattended runs** — there are no limits by design;
        unattended safety is external, not a budget in pi-dock. Recipe: an explicit roster
        saved before launching, an absolute deadline, a watchdog independent of the
        orchestrator calling `pi-dock stop`, failures of stop logged, no automatic escalation
        to killing a possibly reused PID. Honest: stop can be slow or fail, and a watchdog on
        the same machine cannot guarantee the deadline if the host sleeps or crashes. No new
        primitive needed.
-3. [ ] **Extension-registered providers** in `models` and spawn/set preflight — today both
+2. [ ] **Extension-registered providers** in `models` and spawn/set preflight — today both
        use a bare `ModelRuntime`, so providers registered by extensions are not visible and
        spawn/set can reject a valid model. A correctness gap, but only for setups with
        extension providers.
-4. [ ] **Validate a successful compaction in real use** — the paid smoke and the experiments
+3. [ ] **Validate a successful compaction in real use** — the paid smoke and the experiments
        only saw `compact` refuse (busy, session too small). Never observed in practice: a
        successful compaction, the `compacting` state, and memory surviving it. Needs a
        session large enough; paid, only with authorization.
-5. [ ] **Unix runtime test** — Unix paths (socket, signals, stale-socket probe) are inspected
+4. [ ] **Unix runtime test** — Unix paths (socket, signals, stale-socket probe) are inspected
        only; run regression (and the smoke, with authorization) on Linux/macOS once. Matters
        as soon as pi-dock runs outside Windows.
-6. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
+5. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
        Low: in practice `logs` (`spawned` pid) and `show` were enough to tell restarts apart.
 
 ## Release — only if pi-dock is going to be used by others
 
-7. [ ] **Publish** — `package.json` has `"private": true` (npm refuses to publish), no
+6. [ ] **Publish** — `package.json` has `"private": true` (npm refuses to publish), no
        `description`; not pushed.
 
 ## Ideas — need design before building

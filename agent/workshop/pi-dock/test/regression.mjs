@@ -823,6 +823,43 @@ async function main() {
       '}',
       '',
     ].join('\n'));
+    await fs.writeFile(path.join(sandbox, 'agent', 'extensions', 'custom-messages.js'), [
+      'export default function (pi) {',
+      "  pi.registerFlag('custom-messages', { type: 'boolean' });",
+      "  const message = (customType) => ({ customType, content: `${customType} body`, display: false });",
+      '  let settled = 0;',
+      '  let steer = false;',
+      '  let boundary = false;',
+      "  pi.on('session_start', () => {",
+      "    if (pi.getFlag('custom-messages')) {",
+      "      setTimeout(() => pi.sendMessage(message('ext-idle'), { triggerTurn: true }));",
+      '    }',
+      '  });',
+      "  pi.on('agent_settled', () => {",
+      "    if (pi.getFlag('custom-messages') && ++settled === 1) {",
+      "      pi.sendMessage(message('ext-append'));",
+      '    }',
+      '  });',
+      "  pi.on('message_start', (event) => {",
+      "    const text = event.message.role === 'user' ? JSON.stringify(event.message.content) : '';",
+      "    steer ||= text.includes('steer me');",
+      "    boundary ||= text.includes('boundary me');",
+      '  });',
+      "  pi.on('message_end', (event) => {",
+      "    if (steer && event.message.role === 'assistant') {",
+      '      steer = false;',
+      "      pi.sendMessage(message('ext-steer'), { triggerTurn: true });",
+      '    }',
+      '  });',
+      "  pi.on('agent_before_settle', () => {",
+      '    if (boundary) {',
+      '      boundary = false;',
+      "      return { entries: [{ type: 'custom_message', ...message('ext-boundary') }] };",
+      '    }',
+      '  });',
+      '}',
+      '',
+    ].join('\n'));
     const cli = path.join(root, 'bin', 'pi-dock.mjs');
     const allRegress = await runOwnedNode(sandbox, cli, ['models', 'regress/']);
     assert.equal(allRegress.code, 0, allRegress.stderr);
@@ -1062,6 +1099,44 @@ async function main() {
       assert.throws(() => process.kill(child.pid, 0), { code: 'ESRCH' }, 'a multi-name stop returns only after its runners exited');
       await waitForExit(child);
     }
+    const extName = `ext-${randomUUID()}`;
+    provider.replies.push(textReply('idle custom reply'));
+    const ext = own(launchRunner(sandbox, ['--name', extName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--x', 'custom-messages', '--create']), extName);
+    assert(await waitForStatus(pipePath(extName)), 'custom-message runner starts');
+    logged = await waitForLog(dock, extName, (all) => all.some((event) => event.type === 'ext-append'));
+    assert.deepEqual(withoutTimes(logged), [
+      { event: 'turn' },
+      { event: 'external', type: 'ext-idle' },
+      { event: 'text', text: 'idle custom reply' },
+      { event: 'external', type: 'ext-append' },
+    ], 'idle custom messages log external without an id, with or without a turn');
+    provider.replies.push(textReply('before steer'), textReply('after steer'));
+    const steerId = await send(extName, 'steer me');
+    assert.deepEqual(await wait(extName, steerId), exited(0, 'after steer\n', ''), 'a steered custom message keeps the final text');
+    provider.replies.push(textReply('boundary reply'));
+    const boundaryId = await send(extName, 'boundary me');
+    assert.deepEqual(await wait(extName, boundaryId), exited(0, 'boundary reply\n', ''), 'a boundary entry after the last text keeps the final text');
+    logged = await logEvents(dock, extName);
+    assert.deepEqual(eventsOf(logged, steerId), [
+      { event: 'queued', id: steerId },
+      { event: 'run', id: steerId },
+      { event: 'turn', id: steerId },
+      { event: 'text', id: steerId, text: 'before steer' },
+      { event: 'turn', id: steerId },
+      { event: 'external', id: steerId, type: 'ext-steer' },
+      { event: 'text', id: steerId, text: 'after steer' },
+      { event: 'done', id: steerId },
+    ], 'a custom message steered into a pipe run logs external once, with the run id');
+    assert.deepEqual(eventsOf(logged, boundaryId), [
+      { event: 'queued', id: boundaryId },
+      { event: 'run', id: boundaryId },
+      { event: 'turn', id: boundaryId },
+      { event: 'text', id: boundaryId, text: 'boundary reply' },
+      { event: 'external', id: boundaryId, type: 'ext-boundary' },
+      { event: 'done', id: boundaryId },
+    ], 'a boundary custom_message entry logs external exactly once');
+    await stop(extName, ext);
+
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
 
     const runnerName = `t1-${randomUUID()}`;
@@ -1100,7 +1175,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 45 cases passed');
+    console.log('regression: 49 cases passed');
   } catch (error) {
     primaryError = error;
   }

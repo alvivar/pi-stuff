@@ -139,6 +139,16 @@ generates the help's usage section.
     `src/` as extensions. The SDK stays in `dependencies`: the runner is a separate Node
     process that imports it, and Pi's peer-dependency rule (and its warning) applies only to
     extension code loaded into Pi itself. No `files` field: the whole package ships.
+21. **External messages.** The runner logs `external {id?, type}` whenever a custom message
+    enters the session context, from two public session events: `message_start` with
+    `role:"custom"` (type = `customType`; `sendMessage` while idle or steered, context-only
+    appends, `nextTurn`, `before_agent_start` messages) and `entry_appended` of a
+    `custom_message` entry (boundary drafts from `turn_end`/`agent_before_settle`, which
+    never surface as `message_start`). `id` follows contract 9. Only the type is logged —
+    no content, sender or details, so pi-dock needs no extension's schema. It records
+    entry, not cause: a steered message can join a turn that tool calls already required.
+    Not seen: extension prompts sent as user messages (`sendUserMessage`, indistinguishable
+    from a pipe prompt) and messages queued but lost to stop/abort. `wait` ignores it.
 
 ## Architecture
 
@@ -172,6 +182,7 @@ Log events (append-only NDJSON, one fact per line, each with `ts`):
 {event:"run", id}                   its run starts
 {event:"turn", id?}                 turn start
 {event:"text", id?, text}           assistant text of a finished turn (non-empty)
+{event:"external", id?, type}       a custom message entered the context (non-terminal)
 {event:"done", id}                  run complete (non-terminal)
 {event:"run_failed", id, reason}    run ended in an unrecovered error/abort (non-terminal)
 {event:"compacted"} | {event:"compact_failed", reason}                (non-terminal)

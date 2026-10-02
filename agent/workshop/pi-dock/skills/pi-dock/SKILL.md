@@ -115,6 +115,7 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 {event:"run", id}                  its run started
 {event:"turn", id?}                a model turn started
 {event:"text", id?, text}          assistant text of a finished turn
+{event:"external", id?, type}      a custom extension message of this type entered the context
 {event:"done", id}                 the run finished (not terminal)
 {event:"run_failed", id, reason}   the run ended in an unrecovered error or abort; agent stays on
 {event:"compacted"}  {event:"compact_failed", reason}
@@ -132,6 +133,12 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 - Ids follow the run. Work that extensions steer into an active run (e.g. a pi-link message)
   carries that run's id; only work that extensions start while the agent is idle logs `turn` and
   `text` without an id.
+- `external` follows the same id rule. `type` is the extension's message type (pi-link uses
+  `link`); the content and sender are only in the session file (`show` prints its path). It
+  means only that a custom message of this type entered the agent's context at that point: not
+  what caused a turn, and not that the model acted on it. Absence proves nothing: extension
+  prompts sent as user messages, and messages queued but lost to a stop or abort, log no
+  `external`.
 
 ## Recovery
 

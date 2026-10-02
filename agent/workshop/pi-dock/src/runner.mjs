@@ -158,6 +158,17 @@ function subscribeToSession() {
       return;
     }
 
+    // A custom message entered the context: through the agent loop (message_start), or as an
+    // entry an extension appended at a turn boundary (entry_appended). Type only, never content.
+    if (event.type === 'message_start' && event.message.role === 'custom') {
+      appendLog({ event: 'external', ...(current && { id: current }), type: event.message.customType });
+      return;
+    }
+    if (event.type === 'entry_appended' && event.entry.type === 'custom_message') {
+      appendLog({ event: 'external', ...(current && { id: current }), type: event.entry.customType });
+      return;
+    }
+
     if (event.type === 'turn_end') {
       if (current) {
         const { stopReason, errorMessage } = event.message;
