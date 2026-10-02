@@ -42,6 +42,9 @@ this checkout, dated by the day it was completed.
   work, so a team's conclusion is an agreed signal in its `text`, and the artifact still needs
   checking. And `wait` or `send --wait` printing nothing means the run's last turn wrote no
   text; the earlier text is in `logs`.
+- **`ls` prints aligned columns instead of tab-separated ones**, like `models`: each column
+  is as wide as its longest cell, with two spaces between columns. Scripts that split `ls`
+  output on tabs must split on whitespace; agent names and model refs contain no spaces.
 
 ---
 

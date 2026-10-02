@@ -283,8 +283,8 @@ function countOccurrences(text, needle) {
 }
 
 function stateFromLs(output, name) {
-  const line = output.split('\n').find((candidate) => candidate.startsWith(`${name}\t`));
-  return line?.split('\t')[1] ?? null;
+  const line = output.split('\n').find((candidate) => candidate.split(/ +/)[0] === name);
+  return line?.split(/ +/)[1] ?? null;
 }
 
 async function waitForServer(server) {
@@ -648,12 +648,19 @@ async function main() {
       const ageName = `age-${suffix}-${randomUUID()}`;
       await fs.writeFile(path.join(dock, `${ageName}.json`), `${JSON.stringify({ ...manifest('age'), name: ageName, pipe: pipePath(ageName), startedAt: new Date(Date.now() - seconds * 1000).toISOString() })}\n`);
     }
+    await fs.writeFile(path.join(dock, 'z.json'), `${JSON.stringify({ ...manifest('z'), name: 'z', pipe: pipePath('z'), model: 'test/a-much-longer-model-id' })}\n`);
     const agesLs = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['ls']);
     assert.equal(agesLs.code, 0, agesLs.stderr);
     const lsLines = agesLs.stdout.trimEnd().split('\n');
-    assert.equal(lsLines[0], 'name\tstate\tmodel\tage');
+    assert.match(lsLines[0], /^name {2,}state {2,}model {2,}age$/);
+    const columnStarts = ['state', 'model', 'age'].map((heading) => lsLines[0].indexOf(heading));
+    for (const line of lsLines) {
+      assert.equal(line, line.trimEnd(), 'ls trims trailing spaces');
+      assert.deepEqual(columnStarts.map((start) => line.slice(start - 2, start + 1).match(/^ {2}\S$/) !== null), [true, true, true], `ls columns aligned: ${line}`);
+    }
+    assert.equal(stateFromLs(agesLs.stdout, 'z'), 'failed');
     for (const [suffix, , age] of ageCases) {
-      const [name, state, model, shown, ...extra] = lsLines.find((line) => line.startsWith(`age-${suffix}-`)).split('\t');
+      const [name, state, model, shown, ...extra] = lsLines.find((line) => line.startsWith(`age-${suffix}-`)).split(/ +/);
       assert.equal(state, 'failed', name);
       assert.equal(model, 'test/model');
       assert.match(shown, age);

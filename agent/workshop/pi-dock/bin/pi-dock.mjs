@@ -553,6 +553,10 @@ async function modelsCommand(argv) {
       model.input.includes('image') ? 'yes' : 'no',
     ]),
   ];
+  printTable(rows);
+}
+
+function printTable(rows) {
   const widths = rows[0].map((_, column) => Math.max(...rows.map((row) => row[column].length)));
   for (const row of rows) {
     console.log(row.map((cell, column) => cell.padEnd(widths[column])).join('  ').trimEnd());
@@ -561,12 +565,12 @@ async function modelsCommand(argv) {
 
 async function lsCommand(argv) {
   parseCommand(argv, {}, 0);
-  const manifests = await listManifests();
-  console.log('name\tstate\tmodel\tage');
-
-  for (const manifest of manifests) {
-    console.log(`${manifest.name}\t${await agentState(manifest)}\t${manifest.model}\t${formatAge(manifest.startedAt)}`);
+  const rows = [['name', 'state', 'model', 'age']];
+  for (const manifest of await listManifests()) {
+    // A legacy manifest lacks model until `set --model` repairs it; ls still lists it.
+    rows.push([manifest.name, await agentState(manifest), String(manifest.model), formatAge(manifest.startedAt)]);
   }
+  printTable(rows);
 }
 
 async function showCommand(argv) {
