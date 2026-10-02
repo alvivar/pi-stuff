@@ -14,26 +14,32 @@ this checkout, dated by the day it was completed.
 
 - **`stop` prefixes its output with the agent name.** It prints `<name> stopped`,
   `<name> already stopped` or `<name> already failed`, one line per agent, so scripts can tell
-  the results of a multi-name stop apart.
+  the results of a multi-name stop apart. (`a6c9baf`)
+
+- **`ls` aligns its columns instead of separating them with tabs.** Like `models`, each column
+  is as wide as its longest cell, with two spaces between columns and no trailing spaces.
+  Scripts that split `ls` output on tabs must split on whitespace; agent names and model refs
+  contain no spaces. (`808fbf0`)
 
 ### Added
 
 - **`pi-dock stop <name>...` stops several agents.** The whole list is checked first: an
   invalid, unknown or repeated name stops nothing. Then each agent is stopped in turn; a failure
   on one (not responding, did not exit within 5 s) is reported on stderr, the others are still
-  stopped, and the exit code is 1. There is no `--all` and no pattern.
+  stopped, and the exit code is 1. There is no `--all` and no pattern. (`a6c9baf`)
 
 - **The log shows when extension messages enter an agent's context.** A new
   `external {id?, type}` event is logged whenever a custom extension message (for pi-link,
-  type `link`) enters the session, with the run's id inside a pipe run. Only the type is
-  logged; the content stays in the session file. It marks entry, not cause, and its absence
-  proves nothing: extension prompts sent as user messages are not seen.
+  type `link`) enters the session, with the id of the run it joins, if any; `logs` prints it as
+  `external [id=…] type=link`. Only the type is logged; the content stays in the session file. It
+  marks entry, not cause, and its absence proves nothing: extension prompts sent as user
+  messages are not seen. (`2bf2947`)
 
 - **README recipes for unattended teams.** A watchdog script stops an explicit roster at an
   absolute deadline, one name at a time, records each result and never kills a PID. An
   observer script waits for an agreed final marker, fresh per mission, as the last line of a
   `text` event from the lead, instead of trusting `done` or idle. Both are small Node scripts
-  that run on Windows and Unix.
+  that run on Windows and Unix, and the skill points to them. (`9d934c1`)
 
 ### Changed
 
@@ -41,10 +47,7 @@ this checkout, dated by the day it was completed.
   team of agents has finished: extension callbacks such as pi-link replies can start later
   work, so a team's conclusion is an agreed signal in its `text`, and the artifact still needs
   checking. And `wait` or `send --wait` printing nothing means the run's last turn wrote no
-  text; the earlier text is in `logs`.
-- **`ls` prints aligned columns instead of tab-separated ones**, like `models`: each column
-  is as wide as its longest cell, with two spaces between columns. Scripts that split `ls`
-  output on tabs must split on whitespace; agent names and model refs contain no spaces.
+  text; the earlier text is in `logs`. (`0e09f39`)
 
 ---
 
