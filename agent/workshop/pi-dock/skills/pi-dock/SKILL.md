@@ -130,6 +130,7 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
   replies) can start later work in the same agent. A team's conclusion is an application
   signal, such as an agreed final marker in a `text` event, and the artifact must still be
   verified. Never treat `done` or idle as "the team finished".
+- For unattended teams, the README's Recipes give a deadline watchdog and a marker observer.
 - Ids follow the run. Work that extensions steer into an active run (e.g. a pi-link message)
   carries that run's id; only work that extensions start while the agent is idle logs `turn` and
   `text` without an id.

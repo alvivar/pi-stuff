@@ -29,6 +29,12 @@ this checkout, dated by the day it was completed.
   logged; the content stays in the session file. It marks entry, not cause, and its absence
   proves nothing: extension prompts sent as user messages are not seen.
 
+- **README recipes for unattended teams.** A watchdog script stops an explicit roster at an
+  absolute deadline, one name at a time, records each result and never kills a PID. An
+  observer script waits for an agreed final marker, fresh per mission, as the last line of a
+  `text` event from the lead, instead of trusting `done` or idle. Both are small Node scripts
+  that run on Windows and Unix.
+
 ### Changed
 
 - **The skill states two facts from real use.** A `done` (or an idle agent) does not mean a

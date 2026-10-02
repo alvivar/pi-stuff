@@ -30,6 +30,7 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 - [Quick start](#quick-start)
 - [Commands](#commands)
 - [How it works](#how-it-works)
+- [Recipes](#recipes)
 - [For AI agents](#for-ai-agents)
 - [Data locations](#data-locations)
 - [Status and limitations](#status-and-limitations)
@@ -197,6 +198,135 @@ timeout for the result and exits 1 with the reason when compaction fails (e.g.
 > [!CAUTION]
 > PIDs are reused by the operating system. Before terminating one, make sure it is still that
 > agent's process: its command line contains `runner.mjs --name <name>`.
+
+## Recipes
+
+pi-dock has no limits and no notion of a team being finished; both belong to the application.
+These two small Node scripts cover them. Node is already required by pi-dock and behaves the same
+on Windows and Unix, where a shell script would not. Both call `pi-dock` from your `PATH`.
+
+### Watchdog for unattended runs
+
+Before spawning anything, write the roster: the exact names the run will use. Never stop by
+pattern; a pattern can match agents that are not part of the run.
+
+```bash
+printf '%s\n' lead coder reviewer > roster.txt
+```
+
+In PowerShell: `Set-Content roster.txt lead, coder, reviewer`.
+
+`watchdog.mjs` waits for an absolute deadline, then stops every agent in the roster and records
+each result in `watchdog.log`:
+
+```js
+// node watchdog.mjs <ISO deadline> <roster file>
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, readFileSync } from 'node:fs';
+
+const [deadlineText, rosterFile] = process.argv.slice(2);
+const deadline = Date.parse(deadlineText);
+const roster = readFileSync(rosterFile, 'utf8').split(/\s+/).filter(Boolean);
+const badName = roster.find((name) => !/^[a-z0-9._-]+$/.test(name));
+if (Number.isNaN(deadline) || roster.length === 0 || badName !== undefined) {
+  throw new Error('usage: node watchdog.mjs <ISO deadline> <roster file of agent names>');
+}
+const record = (text) => appendFileSync('watchdog.log', `${new Date().toISOString()} ${text}\n`);
+record(`armed until ${new Date(deadline).toISOString()} for ${roster.join(' ')}`);
+
+// Poll the wall clock: one long timer cannot exceed ~24.8 days and may not count host sleep.
+while (Date.now() < deadline) {
+  await new Promise((resolve) => setTimeout(resolve, Math.min(60_000, deadline - Date.now())));
+}
+// One stop per name, so a name that was never spawned cannot keep the others running.
+let failed = false;
+for (const name of roster) {
+  const stop = spawnSync(`pi-dock stop ${name}`, { shell: true, encoding: 'utf8' });
+  const output = stop.error?.message ?? `${stop.stdout}${stop.stderr}`.trim();
+  record(`${name}: exit ${stop.status}: ${output}`);
+  failed ||= stop.status !== 0;
+}
+process.exitCode = failed ? 1 : 0;
+```
+
+Start it as its own process before launching the team, so it does not depend on the
+orchestrator:
+
+```bash
+nohup node watchdog.mjs 2026-10-02T18:00:00Z roster.txt >/dev/null 2>&1 &
+```
+
+In PowerShell:
+
+```powershell
+Start-Process node -WindowStyle Hidden -ArgumentList watchdog.mjs, 2026-10-02T18:00:00Z, roster.txt
+```
+
+The watchdog never kills a process: PIDs are reused, so a failed stop is for a person to resolve
+with [Recovery](#recovery), using `watchdog.log`. Know its limits:
+
+- A stop can be slow (up to about 8 s for an agent that misbehaves) or fail.
+- On the same machine it cannot keep the deadline if the host sleeps, hibernates or crashes,
+  and it is itself a process that can be killed.
+- A run that finishes early can stop its own agents; at the deadline the watchdog then records
+  `already stopped`.
+
+### Observer for team completion
+
+`done` and `idle` do not mean a team has finished: pi-link messages can start more work at any
+time. Agree on a final marker with the lead instead, fresh for every mission, e.g. "when, and
+only when, the result is complete, end your reply with the line `TEAM-DONE-m42`". `observe.mjs`
+polls the lead's raw log every 15 s until a `text` event ends with that line. A marker only
+mentioned mid-reply does not count. Because the marker is unique to the mission, the observer
+can start, or restart, at any time, even after the lead has finished:
+
+```js
+// node observe.mjs <lead> <marker>
+import { execSync } from 'node:child_process';
+
+const [lead, marker] = process.argv.slice(2);
+if (!/^[a-z0-9._-]+$/.test(lead ?? '') || !marker) {
+  throw new Error('usage: node observe.mjs <lead agent> <marker>');
+}
+// The whole log is read each time, so it is not capped (Node's default is 1 MiB of output).
+const read = () => execSync(`pi-dock logs ${lead} --raw`, { encoding: 'utf8', maxBuffer: Infinity })
+  .split('\n').filter(Boolean).map((line) => JSON.parse(line));
+
+for (;;) {
+  const events = read();
+  const final = events.find((event) => event.event === 'text'
+    && event.text.trimEnd().split(/\r?\n/).at(-1).trim() === marker);
+  if (final) {
+    console.log(final.text);
+    break;
+  }
+  const external = events.filter((event) => event.event === 'external').length;
+  console.error(`${new Date().toISOString()} waiting; ${external} extension messages logged`);
+  await new Promise((resolve) => setTimeout(resolve, 15_000));
+}
+```
+
+The marker is the team's claim, not proof: check the artifact before you trust it (here
+`npm test` stands for your own check), then stop the roster.
+
+```bash
+node observe.mjs lead TEAM-DONE-m42 && npm test && pi-dock stop $(cat roster.txt)
+```
+
+In Windows PowerShell 5.1, which has no `&&`, check `$?` as well as the exit code: a command
+that cannot run at all (e.g. `npm` not found) leaves `$LASTEXITCODE` at the previous `0`.
+
+```powershell
+node observe.mjs lead TEAM-DONE-m42
+if ($? -and $LASTEXITCODE -eq 0) {
+  npm test
+  if ($? -and $LASTEXITCODE -eq 0) { pi-dock stop (Get-Content roster.txt) }
+}
+```
+
+The `external` count is only a sign of activity: it counts extension messages (for pi-link,
+`external type=link`) that entered the lead's context, not messages the lead acted on. The
+whole log is read on every poll, which costs memory for a very long-lived lead.
 
 ## For AI agents
 
