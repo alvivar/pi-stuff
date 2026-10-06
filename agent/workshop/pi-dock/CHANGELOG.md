@@ -99,6 +99,11 @@ this checkout, dated by the day it was completed.
   can, and exits either way. A prompt whose `queued` event cannot be written is refused with
   the error and is not queued; the agent stays usable.
 
+- **A torn last log line no longer breaks `wait`.** If a write was cut short (power loss, full
+  disk), the next wake appended its first event onto the fragment, and `wait` failed on the
+  merged line from then on, even for earlier results. A wake now truncates the log to its
+  last complete line first; the fragment is discarded.
+
 ---
 
 ## 0.2.0 — 2026-10-01

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, truncateSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
@@ -93,6 +93,25 @@ const headlessUIContext = {
 
 function appendLog(event) {
   appendFileSync(log, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`, 'utf8');
+}
+
+// A final line cut short (power loss, full disk) would merge with this boot's first event into a
+// complete but invalid line, so the owner drops it. A missing log stays missing.
+function dropTornTail() {
+  let body;
+  try {
+    body = readFileSync(log);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+
+  const end = body.lastIndexOf('\n') + 1;
+  if (end < body.length) {
+    truncateSync(log, end);
+  }
 }
 
 function parseExtensionFlags(flags) {
@@ -348,6 +367,7 @@ try {
   await new Promise((resolve) => {
     server.once('listening', resolve);
   });
+  dropTornTail();
   // Logged as soon as this runner owns the agent, so its PID is known even if startup hangs.
   appendLog({ event: 'spawned', pid: process.pid });
 

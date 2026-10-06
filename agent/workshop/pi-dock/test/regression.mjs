@@ -1423,6 +1423,34 @@ async function main() {
       await fs.chmod(unloggedLog, 0o644);
     }
 
+    // A wake drops a torn final line (a write cut short) and leaves a clean log untouched.
+    const tornName = `torn-${randomUUID()}`;
+    const tornLog = path.join(dock, `${tornName}.log`);
+    const torn = own(launchRunner(sandbox, ['--name', tornName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--create']), tornName);
+    assert(await waitForStatus(pipePath(tornName)), 'torn runner starts');
+    provider.replies.push(textReply('old result'));
+    const tornId = await send(tornName, 'before the tear');
+    assert.equal((await wait(tornName, tornId)).stdout, 'old result\n');
+    await stop(tornName, torn);
+    const wakeOnto = async (body, message) => {
+      await fs.writeFile(tornLog, body);
+      try {
+        assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', tornName]), exited(0, `${tornName} idle regress/alpha-2\n`, ''));
+        const { pid } = await request(pipePath(tornName), { cmd: 'status' });
+        const woken = await fs.readFile(tornLog, 'utf8');
+        const clean = body.slice(0, body.lastIndexOf('\n') + 1);
+        assert.equal(woken.slice(0, clean.length), clean, message);
+        assert.deepEqual(woken.slice(clean.length).trim().split('\n').map(JSON.parse).map(({ ts: _ts, ...event }) => event), [{ event: 'spawned', pid }], `${message}: spawned follows on its own line`);
+      } finally {
+        assert.equal((await runOwnedNode(sandbox, cli, ['stop', tornName])).stdout, `${tornName} stopped\n`);
+      }
+    };
+    const tornHistory = await fs.readFile(tornLog, 'utf8');
+    await wakeOnto(`${tornHistory}{"ts":"torn`, 'a wake drops the torn final line and keeps every complete line');
+    assert.deepEqual(await wait(tornName, tornId), exited(0, 'old result\n', ''), 'wait still reads an earlier result after a torn line');
+    await wakeOnto(await fs.readFile(tornLog, 'utf8'), 'a wake leaves a clean log byte-identical');
+    await wakeOnto('{"ts":"torn', 'a log that is only a torn line is emptied');
+
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
 
     const runnerName = `t1-${randomUUID()}`;
@@ -1461,7 +1489,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 69 cases passed');
+    console.log('regression: 72 cases passed');
   } catch (error) {
     primaryError = error;
   }

@@ -205,6 +205,9 @@ Log events (append-only NDJSON, one fact per line, each with `ts`):
 
 `logs` and `wait` read the whole file as a Buffer each poll and commit a byte offset only
 through the last complete newline (deliberately simple; not an append-only reader).
+On every boot, the runner that owns the pipe truncates the log to its last newline before
+writing `spawned`, so a torn final line (a write cut short) is discarded instead of merging
+with that event into a complete but invalid line. Readers do not skip corrupt lines.
 
 ## Tests
 
