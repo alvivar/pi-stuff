@@ -37,7 +37,8 @@ generates the help's usage section.
 5. **Manifest** = identity + config: `name`, `sessionFile`, `cwd`, `model` (qualified
    `provider/id`, mandatory, sole wake authority), `thinking?`, `flags`, `pipe`,
    `startedAt`. Creation is exclusive winner-safe publication (temp file + `link`);
-   rewrites are atomic (temp file + `rename`). The runner writes it only on create; the only
+   rewrites are atomic (temp file + `rename`). The runner writes it only on create, which
+   only `--create` (passed by `spawn`) requests; a wake without a manifest fails. The only
    later writer is `set` (powered off), which writes exactly these fields. A manifest
    without `model` refuses to wake:
    `manifest model missing: <name> — set --model <provider/id> to repair`.

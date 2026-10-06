@@ -276,14 +276,9 @@ function findModel(modelRuntime, spec) {
 try {
   await ensureDockDir();
 
-  const createIntent = values.create;
-  const existing = createIntent ? null : await readManifest(name).catch((error) => {
-    if (error.code === 'ENOENT') {
-      return null;
-    }
-    throw error;
-  });
-  const createMode = existing === null;
+  // Only --create creates: a wake whose manifest is gone fails instead of starting a new agent.
+  const createMode = values.create;
+  const existing = createMode ? null : await readManifest(name);
   if (!createMode && !existing.model) {
     throw new Error(`manifest model missing: ${name} — set --model <provider/id> to repair`);
   }
@@ -327,7 +322,7 @@ try {
     try {
       await writeManifest(name, manifest);
     } catch (error) {
-      if (createIntent && error instanceof ManifestExistsError) {
+      if (error instanceof ManifestExistsError) {
         session.dispose();
         process.exit(0);
       }

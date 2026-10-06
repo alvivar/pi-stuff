@@ -49,6 +49,13 @@ this checkout, dated by the day it was completed.
   checking. And `wait` or `send --wait` printing nothing means the run's last turn wrote no
   text; the earlier text is in `logs`. (`0e09f39`)
 
+### Fixed
+
+- **A wake never creates an agent.** If an agent's manifest disappeared before its runner
+  started, the runner used to create a new agent, with a new session in the command's current
+  directory. Now only `spawn` creates; a wake without a manifest logs `failed` with the
+  missing file and exits, and the command reports the failed handshake.
+
 ---
 
 ## 0.2.0 — 2026-10-01

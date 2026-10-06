@@ -1144,6 +1144,15 @@ async function main() {
     ], 'a boundary custom_message entry logs external exactly once');
     await stop(extName, ext);
 
+    const ghostName = `ghost-${randomUUID()}`;
+    const ghostManifest = path.join(dock, `${ghostName}.json`);
+    const ghost = own(launchRunner(sandbox, ['--name', ghostName, '--cwd', corrCwd, '--model', 'regress/alpha-2']), ghostName);
+    assert.deepEqual(await waitForExit(ghost), { code: 1, signal: null }, 'a wake without a manifest fails');
+    assert.deepEqual((await logEvents(dock, ghostName)).map(({ ts: _ts, ...event }) => event), [
+      { event: 'failed', reason: `ENOENT: no such file or directory, open '${ghostManifest}'` },
+    ], 'the failed wake logs the missing manifest');
+    await assert.rejects(fs.access(ghostManifest), { code: 'ENOENT' }, 'a failed wake creates no manifest');
+
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
 
     const runnerName = `t1-${randomUUID()}`;
@@ -1182,7 +1191,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 49 cases passed');
+    console.log('regression: 50 cases passed');
   } catch (error) {
     primaryError = error;
   }
