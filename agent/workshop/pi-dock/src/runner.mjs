@@ -282,8 +282,7 @@ function runCompact(instructions) {
   }
 
   compacting = true;
-  const compactInstructions = typeof instructions === 'string' && instructions.length > 0 ? instructions : undefined;
-  const task = queue.then(() => runOneCompact(compactInstructions));
+  const task = queue.then(() => runOneCompact(instructions));
   // The pipe handles task; this unhandled tail crashes the runner if task rejects, as for prompts.
   queue = task.then(() => undefined);
   return task;

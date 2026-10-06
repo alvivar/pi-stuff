@@ -789,12 +789,15 @@ async function main() {
 
     const unknownSetName = `set-unknown-${randomUUID()}`;
     const unknownSetFile = await writeSetFixture(dock, unknownSetName);
-    const unknownServer = serve(pipePath(unknownSetName), () => ({ unexpected: true }));
+    let unknownReply;
+    const unknownServer = serve(pipePath(unknownSetName), () => unknownReply);
     await withOwnedServer(unknownServer, new Set(), async () => {
       const beforeUnknownSet = await fs.readFile(unknownSetFile);
-      const unknownSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', unknownSetName, '--thinking', 'low']);
-      assert.equal(unknownSet.code, 1);
-      assert.equal(unknownSet.stderr.trim(), `agent ${unknownSetName} liveness check failed: invalid status reply`);
+      // Any reply means something listens: a runner shutting down, or an unexpected shape.
+      for (unknownReply of [{ ok: false, error: 'terminal' }, { unexpected: true }]) {
+        const unknownSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', unknownSetName, '--thinking', 'low']);
+        assert.deepEqual(unknownSet, { code: 1, signal: null, stdout: '', stderr: `agent ${unknownSetName} is running — stop it first\n` }, `set refuses on status reply ${JSON.stringify(unknownReply)}`);
+      }
       assert.deepEqual(await fs.readFile(unknownSetFile), beforeUnknownSet, 'unknown status refusal preserves manifest bytes');
     });
 
@@ -811,9 +814,8 @@ async function main() {
     await withOwnedServer(malformedServer, malformedSockets, async () => {
       const beforeMalformedSet = await fs.readFile(malformedSetFile);
       const malformedSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', malformedSetName, '--thinking', 'low']);
-      assert.equal(malformedSet.code, 1);
-      assert.equal(malformedSet.stderr.trim(), `agent ${malformedSetName} liveness check failed: invalid status reply`);
-      assert.equal(malformedSet.stderr.includes(malformedSentinel), false, 'malformed payload does not leak into diagnostic');
+      // Not a reply: the raw parse error is reported, as stop does.
+      assert.deepEqual(malformedSet, { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} liveness check failed: Unexpected token 'M', "MALFORMED_"... is not valid JSON\n` });
       assert.deepEqual(await fs.readFile(malformedSetFile), beforeMalformedSet, 'malformed status refusal preserves manifest bytes');
       assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', malformedSetName]), { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} Unexpected token 'M', "MALFORMED_"... is not valid JSON\n` }, 'a non-JSON stop reply is a failure, not already stopped');
     });

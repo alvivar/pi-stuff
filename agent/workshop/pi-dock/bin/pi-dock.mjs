@@ -639,23 +639,18 @@ async function logsCommand(argv) {
 
 async function confirmPipeAbsent(manifest, name) {
   try {
-    const status = await request(manifest.pipe, { cmd: 'status' });
-    if (status?.ok === true && typeof status.state === 'string') {
-      fail(`agent ${name} is running — stop it first`);
-    }
-    fail(`agent ${name} liveness check failed: invalid status reply`);
+    await request(manifest.pipe, { cmd: 'status' });
   } catch (error) {
-    if (error instanceof SyntaxError) {
-      fail(`agent ${name} liveness check failed: invalid status reply`);
+    if (pipeAbsent(error)) {
+      return;
     }
     if (error.code === 'ETIMEDOUT') {
       failNotResponding(name);
     }
-    if (pipeAbsent(error)) {
-      return;
-    }
     fail(`agent ${name} liveness check failed: ${error.message}`);
   }
+  // Any reply, even a refusal from a runner shutting down, means something still listens.
+  fail(`agent ${name} is running — stop it first`);
 }
 
 async function setCommand(argv) {

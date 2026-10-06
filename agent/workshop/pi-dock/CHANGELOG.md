@@ -115,6 +115,12 @@ this checkout, dated by the day it was completed.
   merged line from then on, even for earlier results. A wake now truncates the log to its
   last complete line first; the fragment is discarded. (`23447f3`)
 
+- **`set` on an agent that is shutting down says it is running.** Any reply on the agent's
+  pipe now gives `agent <name> is running — stop it first`. Before, a reply other than a
+  normal status, such as the refusal of a runner that is shutting down, gave the misleading
+  `agent <name> liveness check failed: invalid status reply`. A reply that is not JSON now
+  reports the raw parse error, as `stop` does. `set` refuses in exactly the same cases.
+
 ---
 
 ## 0.2.0 — 2026-10-01

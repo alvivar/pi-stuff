@@ -100,7 +100,7 @@ generates the help's usage section.
     (not responding, did not exit, unexpected reply) goes to stderr and the rest still stop;
     exit 1 if any failed. No transaction, no rollback.
 12. **`set`** edits model / thinking / flags only when the agent is confirmed powered off.
-    Alive → `agent <name> is running — stop it first`; unresponsive →
+    Any reply on the pipe → `agent <name> is running — stop it first`; unresponsive →
     `agent <name> is not responding`; missing → `no such agent: <name>`. `--model` is
     preflighted (`…; no agent was changed`). `--x` replaces the whole flag list. Hard
     identity (`name`, `sessionFile`, `cwd`, `pipe`, `startedAt`) is untouchable. Next wake
