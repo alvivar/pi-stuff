@@ -23,7 +23,8 @@ of every command.
    filter is a case-insensitive substring of `provider/id`, or `provider-part/id-part` when it
    contains a slash; no match exits 1.
 2. `pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...`
-   — create the agent in the current directory. It starts idle and takes no prompt. It prints
+   — create the agent in the current directory. It takes no prompt and normally starts
+   idle, though an extension may already have started work. It prints
    `<name> <state> <provider/id>`.
    - Without `--model`, Pi's default model is used.
    - An unknown model (the error suggests matches) or one without credentials fails preflight,

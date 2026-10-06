@@ -82,7 +82,8 @@ pi-dock stop w1
 - `models haiku` lists the matching `provider/id` refs you can use, with context, max-out,
   thinking and images columns.
 - `spawn` creates `w1` in the current directory and prints `w1 idle anthropic/claude-haiku-4-5`.
-  The agent waits idle; spawn never takes a prompt.
+  The agent normally waits idle, though an extension may already have started work (the state
+  then reads `running` or `compacting`); spawn never takes a prompt.
 - `send --wait` queues the prompt, prints its id (`p` + 12 hex) on stderr, and prints the run's
   final text on stdout once it is done.
 - `logs` shows what happened; `show` prints the agent's name, state, model, thinking, flags, cwd,
