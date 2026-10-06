@@ -30,7 +30,7 @@ this checkout, dated by the day it was completed.
 - **Manifests without `model` or `flags` are no longer supported.** Only agents spawned before
   0.1.0 have them. A wake of such an agent no longer fails with
   `manifest model missing … set --model <provider/id> to repair`; delete the agent's
-  `<name>.json` and `<name>.log` and spawn it again.
+  `<name>.json` and `<name>.log` and spawn it again. (`47c1dd0`)
 
 ### Added
 
@@ -119,7 +119,7 @@ this checkout, dated by the day it was completed.
   pipe now gives `agent <name> is running — stop it first`. Before, a reply other than a
   normal status, such as the refusal of a runner that is shutting down, gave the misleading
   `agent <name> liveness check failed: invalid status reply`. A reply that is not JSON now
-  reports the raw parse error, as `stop` does. `set` refuses in exactly the same cases.
+  reports the raw parse error, as `stop` does. `set` refuses in exactly the same cases. (`b41aa08`)
 
 ---
 
