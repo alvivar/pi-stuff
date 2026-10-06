@@ -70,7 +70,8 @@ of every command.
 ## States and waking
 
 - `idle`, `running` or `compacting` while the runner answers; otherwise `stopped` after a stop,
-  or `failed` after a crash or fatal error. The state is derived, never stored.
+  or `failed` after a crash or fatal error. `not-responding` means the runner did not answer in
+  time: whether it is alive is unknown. The state is derived, never stored.
 - `pi-dock ls` prints `name state model age` (age since creation, in its largest whole unit:
   s, m, h or d). `pi-dock show <name>` prints name, state, model, thinking (`-` when unset), flags
   (JSON array), cwd, session (the exact session file) and created, one key and value per line.
@@ -78,7 +79,7 @@ of every command.
 - Agents are resident: a runner never exits because work finished, only on stop or a crash.
 - `start`, `send` and `compact` wake a stopped or failed agent with its memory intact. `start`
   prints `<name> <state> <provider/id>`; on an agent that is already on it just prints that.
-- If the agent stops or crashes mid-request, `send` and `compact` report
+- If the agent stops or crashes mid-request, `start`, `send` and `compact` report
   `agent <name> stopped or crashed during <cmd>` instead of waking or retrying.
 - `pi-dock stop <name>...` takes one or more names and prints one line per name:
   `<name> stopped` only once its runner process has exited, or `<name> already stopped` /

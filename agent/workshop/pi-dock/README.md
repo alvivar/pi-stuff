@@ -123,7 +123,8 @@ message and rule) is in `pi-dock skill`.
 
 An agent is resident: its process never exits because work finished, only on `stop` or a crash.
 `ls` and `show` report its state: `idle`, `running` or `compacting` while it is on; `stopped`
-after a stop; `failed` after a crash. Neither wakes it.
+after a stop; `failed` after a crash; `not-responding` when its process did not answer in time,
+which does not tell whether it is alive. Neither wakes it.
 
 `stop` is a power-off, not a delete. The name, configuration, log and session survive, and
 `start`, `send` and `compact` wake the agent with its memory. pi-dock has no command that

@@ -770,6 +770,11 @@ async function main() {
       assert.equal(timeoutSet.stderr.trim(), `agent ${timeoutSetName} is not responding`);
       assert(timeoutAccepted >= 1, 'timeout fixture accepted the production request');
       assert.deepEqual(await fs.readFile(timeoutSetFile), beforeTimeoutSet, 'timeout refusal preserves manifest bytes');
+      const silentLs = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['ls']);
+      assert.equal(silentLs.code, 0, silentLs.stderr);
+      assert.equal(stateFromLs(silentLs.stdout, timeoutSetName), 'not-responding', 'ls shows a runner that does not answer in time as not-responding');
+      const silentShow = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['show', timeoutSetName]);
+      assert.match(silentShow.stdout, /^state not-responding$/m, 'show shows a runner that does not answer in time as not-responding');
     });
 
     const unknownSetName = `set-unknown-${randomUUID()}`;
@@ -901,7 +906,7 @@ async function main() {
     });
     closedServer.listen(pipePath(closedName));
     await withOwnedServer(closedServer, closedSockets, async () => {
-      for (const [commandArgs, cmd] of [[['compact', closedName], 'compact'], [['send', closedName, 'text'], 'prompt']]) {
+      for (const [commandArgs, cmd] of [[['compact', closedName], 'compact'], [['send', closedName, 'text'], 'prompt'], [['start', closedName], 'status']]) {
         closedAccepted = 0;
         const closed = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
         assert.equal(closed.code, 1);
@@ -1192,6 +1197,8 @@ async function main() {
       const { pid } = await request(pipePath(singleName), { cmd: 'status' });
       await startupsOf(pid, 'two concurrent starts load extensions only in the runner that serves');
       assert.deepEqual((await logEvents(dock, singleName)).slice(since).map((event) => [event.event, event.pid]), [['spawned', pid]], 'one runner starts and nothing fails');
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', singleName]), exited(0, `${singleName} idle regress/alpha-2\n`, ''), 'start on a running agent prints its state');
+      assert.equal((await logEvents(dock, singleName)).length, since + 1, 'start on a running agent does not wake another runner');
     } finally {
       assert.equal((await runOwnedNode(sandbox, cli, ['stop', singleName])).stdout, `${singleName} stopped\n`);
     }
@@ -1216,6 +1223,28 @@ async function main() {
     await startupsOf(ownerPid, 'of two runners launched together, only the pipe owner loads extensions');
     assert.deepEqual((await logEvents(dock, singleName)).slice(since).map((event) => [event.event, event.pid]), [['spawned', ownerPid]], 'the loser writes nothing to the log');
     await stop(singleName, owner);
+
+    // A runner shutting down answers terminal: start wakes a new one once the pipe is free.
+    const shuttingDown = serve(pipePath(singleName), () => {
+      setImmediate(() => shuttingDown.close());
+      return { ok: false, error: 'terminal' };
+    });
+    await waitForServer(shuttingDown);
+    since = (await logEvents(dock, singleName)).length;
+    try {
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', singleName]), exited(0, `${singleName} idle regress/alpha-2\n`, ''), 'start wakes an agent whose runner answers terminal');
+      const { pid } = await request(pipePath(singleName), { cmd: 'status' });
+      assert.deepEqual((await logEvents(dock, singleName)).slice(since).map((event) => [event.event, event.pid]), [['spawned', pid]], 'the terminal reply woke one new runner');
+    } finally {
+      assert.equal((await runOwnedNode(sandbox, cli, ['stop', singleName])).stdout, `${singleName} stopped\n`);
+    }
+
+    const busyName = `start-busy-${randomUUID()}`;
+    await writeSetFixture(dock, busyName);
+    const busyServer = serve(pipePath(busyName), () => ({ ok: false, error: 'busy' }));
+    await withOwnedServer(busyServer, new Set(), async () => {
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', busyName]), exited(1, '', `agent ${busyName} refused status: {"ok":false,"error":"busy"}\n`), 'start fails on a non-terminal refusal instead of waking');
+    });
 
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
 
@@ -1255,7 +1284,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 55 cases passed');
+    console.log('regression: 60 cases passed');
   } catch (error) {
     primaryError = error;
   }

@@ -69,6 +69,18 @@ this checkout, dated by the day it was completed.
   that finds the pipe taken exits without a trace. Requests that arrive while the agent is
   starting wait until it is ready.
 
+- **`start` wakes only an agent that is off or shutting down.** It used to launch a runner on
+  any pipe error other than a timeout and on any refusal, even with a runner still listening.
+  Now it follows the same rule as `send` and `compact`: it wakes only when nothing listens or
+  the runner answers `terminal`. A connection closed mid-request fails with
+  `agent <name> stopped or crashed during status`, and any other refusal with
+  `agent <name> refused status: <reply>`.
+
+- **`ls` and `show` report `not-responding` for an agent that does not answer in time.** They
+  used to fall back to the log and show such an agent as `failed`, even if it was alive.
+  `not-responding` says only that it did not answer within 200 ms; it is computed on each call
+  and never logged.
+
 ---
 
 ## 0.2.0 — 2026-10-01

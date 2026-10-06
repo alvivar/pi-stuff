@@ -112,7 +112,7 @@ function validateThinking(level) {
   }
 }
 
-async function tryStatus(manifest, timeoutMs = 200) {
+async function tryStatus(manifest, timeoutMs) {
   try {
     const reply = await request(manifest.pipe, { cmd: 'status' }, timeoutMs);
     if (reply.ok) {
@@ -300,9 +300,19 @@ function formatAge(startedAt) {
   return `${seconds}s`;
 }
 
+// A timeout means the runner did not answer in time; whether it is alive is unknown.
 async function agentState(manifest) {
-  const status = await tryStatus(manifest, 200);
-  return status ? status.state : stateFromLog(manifest.name);
+  try {
+    const status = await request(manifest.pipe, { cmd: 'status' }, 200);
+    if (status.ok) {
+      return status.state;
+    }
+  } catch (error) {
+    if (isTimeout(error)) {
+      return 'not-responding';
+    }
+  }
+  return stateFromLog(manifest.name);
 }
 
 function renderEvent(line) {
@@ -505,21 +515,11 @@ async function startCommand(argv) {
   }
 
   validateAgentName(name);
-  const manifest = await requireManifest(name);
-  try {
-    const status = await request(manifest.pipe, { cmd: 'status' }, PIPE_REQUEST_TIMEOUT_MS);
-    if (status.ok) {
-      console.log(`${name} ${status.state} ${status.model}`);
-      return;
-    }
-  } catch (error) {
-    if (isTimeout(error)) {
-      failNotResponding(name);
-    }
+  const status = await deliver(await requireManifest(name), { cmd: 'status' }, PIPE_REQUEST_TIMEOUT_MS);
+  if (!status.ok) {
+    fail(`agent ${name} refused status: ${JSON.stringify(status)}`);
   }
-
-  const result = await wake(manifest);
-  console.log(`${name} ${result.status.state} ${result.status.model}`);
+  console.log(`${name} ${status.state} ${status.model}`);
 }
 
 // Same token formatting as `pi --list-models`.
@@ -793,8 +793,8 @@ Essentials:
   Agents are resident. spawn creates an idle agent in the current directory; send queues a prompt
   and prints its id; wait <name> <id>, or send --wait, prints the run's final text. stop powers the
   agent off and keeps its memory; start, send and compact wake it again. ls and show report the
-  state (idle, running, compacting, stopped or failed), logs the event log. Every command exits 0
-  on success and 1 on error.
+  state (idle, running, compacting, stopped, failed or not-responding), logs the event log. Every
+  command exits 0 on success and 1 on error.
 
 Warnings:
   Agents load <cwd>/.pi config and extensions WITHOUT asking for project trust.

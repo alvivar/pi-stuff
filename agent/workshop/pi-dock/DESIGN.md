@@ -31,7 +31,8 @@ generates the help's usage section.
    basenames rejected case-insensitively. Rejected (never normalized) as
    `invalid agent name: <value>` before any path or pipe access, by every command.
 4. **State is derived, never stored.** Pipe answers → `idle` / `running` / `compacting`.
-   Pipe dead → last *complete* log line: `stopped`/`failed` is the state; anything else =
+   Status timeout → `not-responding` (alive or dead unknown; computed live, never logged).
+   Any other outcome → last *complete* log line: `stopped`/`failed` is the state; anything else =
    crash = `failed`. Only a torn final fragment is ignored. `ls` and `show` probe with a
    200 ms status request and never wake.
 5. **Manifest** = identity + config: `name`, `sessionFile`, `cwd`, `model` (qualified
@@ -55,9 +56,10 @@ generates the help's usage section.
    Concurrent same-name spawns: exactly one succeeds (its status PID must equal the
    launched child PID); losers print `agent already exists: <name>` and never touch the
    winner. `spawn` and `start` print `<name> <state> <provider/id>` (live model).
-8. **Wake rule.** `start` wakes unless status answers ok (`not responding` on timeout).
-   `send` and `compact` deliver; only an absent pipe or a `terminal` reply wakes the agent
-   (`SessionManager.open(sessionFile)`, memory intact), once, then redeliver. A pipe that
+8. **Wake rule.** `start` (delivering `status`), `send` and `compact` deliver; only an absent
+   pipe or a `terminal` reply wakes the agent (`SessionManager.open(sessionFile)`, memory
+   intact), once, then redeliver. Any other refusal of `start`'s status fails as
+   `agent <name> refused status: <reply>`. A pipe that
    closes mid-request is reported as `agent <name> stopped or crashed during <cmd>`, never
    woken or retried; a timeout is `agent <name> is not responding`. Wake waits up to 20 s
    for the handshake, else prints manifest/log diagnostics and exits 1. One runner per agent:
