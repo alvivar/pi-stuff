@@ -4,12 +4,15 @@ import path from 'node:path';
 import { dockDir } from '../src/paths.mjs';
 
 // Every agent runs on this model, so the paid calls go to it and no other provider's credentials
-// are needed.
-const model = process.argv[2];
+// are needed. The optional thinking level applies to A (the paid prompts) and B; the CLI validates
+// it. Without it they use Pi's default. E keeps no thinking (its manifest-shape check) and D its
+// own levels (the set check).
+const [model, thinking] = process.argv.slice(2);
 if (!model) {
-  console.error('usage: node test/smoke.mjs <provider/id>');
+  console.error('usage: node test/smoke.mjs <provider/id> [thinking]');
   process.exit(1);
 }
+const thinkingArgs = thinking === undefined ? [] : ['--thinking', thinking];
 
 const cli = path.join(process.cwd(), 'bin', 'pi-dock.mjs');
 const a = `smoke-${process.pid}-a`;
@@ -163,12 +166,12 @@ try {
   expect('wake logs a live spawned pid', result.status === 0 && Number.isInteger(spawnedE?.pid) && spawnedE.pid > 0 && pidAlive(spawnedE.pid), result.stderr || result.stdout || JSON.stringify(spawnedE));
   run(['stop', e]);
 
-  result = run(['spawn', '--name', a, '--model', model]);
-  const aOnModel = result.status === 0 && result.stdout.trim() === `${a} idle ${model}` && manifest(a).model === model;
-  expect('spawn A idle without prompt on the chosen model', aOnModel, result.stderr || result.stdout);
+  result = run(['spawn', '--name', a, '--model', model, ...thinkingArgs]);
+  const aOnModel = result.status === 0 && result.stdout.trim() === `${a} idle ${model}` && manifest(a).model === model && manifest(a).thinking === thinking;
+  expect('spawn A idle without prompt on the chosen model and thinking', aOnModel, result.stderr || result.stdout);
   if (!aOnModel) {
-    // The paid prompts go only to the chosen model; the finally block still cleans up.
-    throw new Error(`smoke aborted before any paid prompt: ${a} is not idle on ${model}`);
+    // The paid prompts go only to the chosen model and thinking; the finally block still cleans up.
+    throw new Error(`smoke aborted before any paid prompt: ${a} is not idle on ${model} with thinking ${thinking ?? 'default'}`);
   }
 
   result = await waitLsState(a, 'idle');
@@ -224,7 +227,7 @@ try {
   result = run(['stop', a]);
   expect('stop A after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
-  result = run(['spawn', '--name', b, '--model', model]);
+  result = run(['spawn', '--name', b, '--model', model, ...thinkingArgs]);
   expect('spawn B idle without prompt', result.status === 0 && result.stdout.trim() === `${b} idle ${manifest(b).model}`, result.stderr || result.stdout);
 
   result = await waitLsState(b, 'idle');

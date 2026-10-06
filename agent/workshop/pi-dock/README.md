@@ -359,4 +359,5 @@ and not a Windows device name such as `con` or `nul`.
 - **Lockfile:** `package-lock.json` reproduces this checkout's dependencies. It does not pin the
   transitive dependencies of anyone who installs pi-dock some other way.
 - Design and contracts: [`DESIGN.md`](DESIGN.md). Tests: `node test/regression.mjs` (free, no
-  model calls); `node test/smoke.mjs <provider/id>` makes real, paid calls to that model.
+  model calls); `node test/smoke.mjs <provider/id> [thinking]` makes real, paid calls to that
+  model, with Pi's default thinking unless a level is given.
