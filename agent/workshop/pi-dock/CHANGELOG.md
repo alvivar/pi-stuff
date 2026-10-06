@@ -27,6 +27,11 @@ this checkout, dated by the day it was completed.
   with `Option '--model' must not be empty` (or `--thinking`) and the usage line, before
   anything is launched or rewritten. To use the default, omit the option. (`ed86c78`)
 
+- **Manifests without `model` or `flags` are no longer supported.** Only agents spawned before
+  0.1.0 have them. A wake of such an agent no longer fails with
+  `manifest model missing … set --model <provider/id> to repair`; delete the agent's
+  `<name>.json` and `<name>.log` and spawn it again.
+
 ### Added
 
 - **`pi-dock stop <name>...` stops several agents.** The whole list is checked first: an

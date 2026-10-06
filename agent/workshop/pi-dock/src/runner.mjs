@@ -311,11 +311,8 @@ try {
   // Only --create creates: a wake whose manifest is gone fails instead of starting a new agent.
   const createMode = values.create;
   const existing = createMode ? null : await readManifest(name);
-  if (!createMode && !existing.model) {
-    throw new Error(`manifest model missing: ${name} — set --model <provider/id> to repair`);
-  }
   const cwd = createMode ? path.resolve(values.cwd ?? process.cwd()) : existing.cwd;
-  const flags = createMode ? values.x ?? [] : existing.flags ?? [];
+  const flags = createMode ? values.x ?? [] : existing.flags;
   const thinking = createMode ? values.thinking : existing.thinking;
 
   // Own the pipe before opening the session or loading extensions, so that of concurrent runners

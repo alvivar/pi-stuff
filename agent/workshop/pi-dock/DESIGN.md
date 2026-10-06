@@ -40,9 +40,7 @@ generates the help's usage section.
    `startedAt`. Creation is exclusive winner-safe publication (temp file + `link`);
    rewrites are atomic (temp file + `rename`). The runner writes it only on create, which
    only `--create` (passed by `spawn`) requests; a wake without a manifest fails. The only
-   later writer is `set` (powered off), which writes exactly these fields. A manifest
-   without `model` refuses to wake:
-   `manifest model missing: <name> — set --model <provider/id> to repair`.
+   later writer is `set` (powered off), which writes exactly these fields.
 6. **Resident lifecycle, no limits.** The runner never exits because work finished. It
    exits only on `stop` (→ `stopped`) or a crash/fatal error (→ `failed`). There is no
    turn, time or cost limit, and work extensions start while idle (e.g. pi-link messages)

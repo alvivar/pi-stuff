@@ -157,8 +157,7 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 - `agent <name> did not exit within 5s; terminate PID <pid> externally`: terminate that PID, then
   check `pi-dock ls`.
 - `handshake failed for <name>`: a spawned or woken runner did not answer status within 20 s.
-  Read the printed manifest and log diagnostics and the `last log` line, if present. If it reports
-  `manifest model missing`, run `pi-dock set <name> --model <provider/id>`.
+  Read the printed manifest and log diagnostics and the `last log` line, if present.
 
 ## Data
 

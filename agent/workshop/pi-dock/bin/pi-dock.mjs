@@ -573,8 +573,7 @@ async function lsCommand(argv) {
   parseCommand(argv, {}, 0);
   const rows = [['name', 'state', 'model', 'age']];
   for (const manifest of await listManifests()) {
-    // A legacy manifest lacks model until `set --model` repairs it; ls still lists it.
-    rows.push([manifest.name, await agentState(manifest), String(manifest.model), formatAge(manifest.startedAt)]);
+    rows.push([manifest.name, await agentState(manifest), manifest.model, formatAge(manifest.startedAt)]);
   }
   printTable(rows);
 }
@@ -695,7 +694,7 @@ async function setCommand(argv) {
   };
 
   await rewriteManifest(name, updated);
-  console.log(`${name} model=${updated.model ?? '-'} thinking=${updated.thinking ?? '-'} flags=${JSON.stringify(updated.flags ?? [])}`);
+  console.log(`${name} model=${updated.model} thinking=${updated.thinking ?? '-'} flags=${JSON.stringify(updated.flags)}`);
 }
 
 async function compactCommand(argv) {

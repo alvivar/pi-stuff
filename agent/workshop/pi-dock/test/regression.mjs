@@ -517,21 +517,6 @@ async function main() {
     }, 'set rewrites only known manifest fields');
     assert.equal(setResult.stdout.trim(), `${staleName} model=anthropic/claude-haiku-4-5 thinking=low flags=[]`);
 
-    const missingName = `missing-model-${randomUUID()}`;
-    const missingSession = path.join(sandbox, 'must-not-open.jsonl');
-    const missingManifest = { ...manifest('missing'), name: missingName, sessionFile: missingSession, modelId: 'legacy-only', pipe: pipePath(missingName) };
-    delete missingManifest.model;
-    const missingBody = `${JSON.stringify(missingManifest)}\n`;
-    await fs.writeFile(path.join(dock, `${missingName}.json`), missingBody);
-    const missingResult = await runOwnedNode(sandbox, runner, ['--name', missingName]);
-    assert.equal(missingResult.code, 1);
-    assert.equal(missingResult.signal, null);
-    assert.equal(await fs.readFile(path.join(dock, `${missingName}.json`), 'utf8'), missingBody, 'missing-model wake does not mutate manifest');
-    await assert.rejects(fs.access(missingSession), { code: 'ENOENT' });
-    const missingEvents = (await fs.readFile(path.join(dock, `${missingName}.log`), 'utf8')).trim().split('\n').map(JSON.parse);
-    assert.deepEqual(missingEvents.map((event) => event.event), ['failed']);
-    assert.equal(missingEvents[0].reason, `manifest model missing: ${missingName} — set --model <provider/id> to repair`);
-
     const followName = `follow-${randomUUID()}`;
     const followManifest = { ...manifest('follow'), name: followName, pipe: pipePath(followName) };
     const followLog = path.join(dock, `${followName}.log`);
@@ -1514,7 +1499,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 73 cases passed');
+    console.log('regression: 72 cases passed');
   } catch (error) {
     primaryError = error;
   }
