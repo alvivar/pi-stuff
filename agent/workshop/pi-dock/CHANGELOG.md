@@ -11,7 +11,7 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.3.0 — 2026-10-06
 
 ### Breaking changes
 
@@ -42,7 +42,7 @@ their version is cut, so a new entry may not have one yet.
   cancelled or aborted compaction logs the new `compact_cancelled` instead of `compact_failed`,
   and `compact_failed`'s `reason` is now Pi's message (e.g.
   `Compaction failed: Nothing to compact (session too small)`); `compact` still prints the
-  bare error.
+  bare error. (`243ccde`)
 
 ### Added
 
@@ -137,7 +137,7 @@ their version is cut, so a new entry may not have one yet.
   of Pi's no-UI context, which Pi does not recognize, so `ctx.hasUI` was true although nobody
   can answer a dialog: an extension that checks it asked for confirmations that always
   returned false instead of taking its headless path. Runners now use Pi's own no-UI context;
-  `ctx.ui.theme` still works.
+  `ctx.ui.theme` still works. (`3d8c017`)
 
 ---
 

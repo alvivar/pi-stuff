@@ -1,1 +1,1 @@
-{"name":"pi-dock","version":"0.2.0","private":true,"keywords":["pi-package"],"type":"module","bin":{"pi-dock":"bin/pi-dock.mjs"},"pi":{"skills":["./skills"]},"dependencies":{"@earendil-works/pi-coding-agent":"^0.99.2"}}
+{"name":"pi-dock","version":"0.3.0","keywords":["pi-package"],"type":"module","bin":{"pi-dock":"bin/pi-dock.mjs"},"pi":{"skills":["./skills"]},"dependencies":{"@earendil-works/pi-coding-agent":"^0.99.2"}}

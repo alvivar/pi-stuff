@@ -23,8 +23,7 @@ CLI, coordinating over pi-link).
 
 ## Release — only if pi-dock is going to be used by others
 
-5. [ ] **Publish** — `package.json` has `"private": true` (npm refuses to publish), no
-       `description`; not pushed.
+5. [ ] **Publish** — `package.json` has no `description`; not pushed.
 
 ## Ideas — need design before building
 

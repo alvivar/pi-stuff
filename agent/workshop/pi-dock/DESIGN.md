@@ -1,4 +1,4 @@
-# pi-dock — design (as built, 0.2.0)
+# pi-dock — design (as built, 0.3.0)
 
 **Identity:** pi-dock keeps named Pi agents running after your shell exits — create one,
 give it work, wait for or read its result, stop it, wake it with memory intact.
