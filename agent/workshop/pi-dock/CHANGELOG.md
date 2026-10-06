@@ -25,7 +25,7 @@ this checkout, dated by the day it was completed.
   `--model ''` or `--thinking ''` as absent, so an unset variable in a script silently fell back
   to Pi's default model, the default thinking level or the manifest's value. They now exit 1
   with `Option '--model' must not be empty` (or `--thinking`) and the usage line, before
-  anything is launched or rewritten. To use the default, omit the option.
+  anything is launched or rewritten. To use the default, omit the option. (`ed86c78`)
 
 ### Added
 
@@ -60,55 +60,55 @@ this checkout, dated by the day it was completed.
 - **A wake never creates an agent.** If an agent's manifest disappeared before its runner
   started, the runner used to create a new agent, with a new session in the command's current
   directory. Now only `spawn` creates; a wake without a manifest logs `failed` with the
-  missing file and exits, and the command reports the failed handshake.
+  missing file and exits, and the command reports the failed handshake. (`0e4a616`)
 
 - **`stop` reports `already stopped|failed` only when nothing listens on the agent's pipe.**
   Before, any pipe error other than a timeout counted as already off, so a connection closed
   before the reply, or a reply that is not JSON, printed `<name> already failed` and exited 0
   while the agent could still be running. Those errors now fail that agent with
-  `agent <name> <error>` on stderr, and `stop` exits 1.
+  `agent <name> <error>` on stderr, and `stop` exits 1. (`bd53b03`)
 
 - **Concurrent wakes start one runner.** Two `start`s (or `send`s) at once could launch two
   runners for one agent: both opened the session and loaded its extensions (pi-link connected
   twice), and the second then logged `failed` with `EADDRINUSE` in the agent's log. Now a
   runner takes the agent's pipe before it opens the session or loads extensions, and a runner
   that finds the pipe taken exits without a trace. Requests that arrive while the agent is
-  starting wait until it is ready.
+  starting wait until it is ready. (`fee5903`)
 
 - **`start` wakes only an agent that is off or shutting down.** It used to launch a runner on
   any pipe error other than a timeout and on any refusal, even with a runner still listening.
   Now it follows the same rule as `send` and `compact`: it wakes only when nothing listens or
   the runner answers `terminal`. A connection closed mid-request fails with
   `agent <name> stopped or crashed during status`, and any other refusal with
-  `agent <name> refused status: <reply>`.
+  `agent <name> refused status: <reply>`. (`27f51cf`)
 
 - **`ls` and `show` report `not-responding` for an agent that does not answer in time.** They
   used to fall back to the log and show such an agent as `failed`, even if it was alive.
   `not-responding` says only that it did not answer within 200 ms; it is computed on each call
-  and never logged.
+  and never logged. (`27f51cf`)
 
 - **A compaction started by an extension shows as `compacting` and makes `compact` busy.**
   Only a compaction started with `pi-dock compact` used to count: during one an extension
   started (for example a remote compaction through pi-link), the agent showed as `idle`, and
-  `pi-dock compact` was accepted and cancelled it.
+  `pi-dock compact` was accepted and cancelled it. (`c3ed627`)
 
 - **Errors thrown by extension handlers are logged.** Pi catches them and the agent keeps
   working, but nothing recorded them: an extension whose `session_start` threw left only
   `spawned` in the log. Each one is now logged as
   `extension_error {id?, extension, on, reason}`: the extension's file, the event its handler
   ran for, and the error message. Errors raised once the agent is stopping are not logged, so
-  the terminal event stays last.
+  the terminal event stays last. (`f6ee480`)
 
 - **A failed log write no longer stalls the prompt queue.** A failed write while a queued
   prompt or compaction ran could leave the runner alive with its queue stuck, so every later
   prompt waited forever without a report. The runner now fails: it logs `failed` if it still
   can, and exits either way. A prompt whose `queued` event cannot be written is refused with
-  the error and is not queued; the agent stays usable.
+  the error and is not queued; the agent stays usable. (`34871e5`)
 
 - **A torn last log line no longer breaks `wait`.** If a write was cut short (power loss, full
   disk), the next wake appended its first event onto the fragment, and `wait` failed on the
   merged line from then on, even for earlier results. A wake now truncates the log to its
-  last complete line first; the fragment is discarded.
+  last complete line first; the fragment is discarded. (`23447f3`)
 
 ---
 
