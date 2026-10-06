@@ -53,7 +53,12 @@ async function recoverUnixListen(server, socketPath) {
     return;
   }
 
-  emitServerError(server, result === 'alive' ? 'already-running' : `cannot probe socket: ${socketPath}`, 'EADDRINUSE');
+  if (result === 'alive') {
+    emitServerError(server, 'already-running', 'EADDRINUSE');
+    return;
+  }
+  // Not contention: the probe itself failed, so this must not read as another runner owning it.
+  emitServerError(server, `cannot probe socket: ${socketPath}`);
 }
 
 function listenUnix(server, socketPath) {

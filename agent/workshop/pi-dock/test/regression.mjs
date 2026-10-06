@@ -1155,6 +1155,68 @@ async function main() {
     ], 'the failed wake logs the missing manifest');
     await assert.rejects(fs.access(ghostManifest), { code: 'ENOENT' }, 'a failed wake creates no manifest');
 
+    // A project extension that records each load and session_start with the runner's PID, and
+    // holds startup in session_start while the hold file exists.
+    const singleName = `single-${randomUUID()}`;
+    const singleCwd = path.join(sandbox, 'single-cwd');
+    const startups = path.join(singleCwd, 'startups.log');
+    const hold = path.join(singleCwd, 'hold');
+    await fs.mkdir(path.join(singleCwd, '.pi', 'extensions'), { recursive: true });
+    await fs.writeFile(path.join(singleCwd, '.pi', 'extensions', 'startups.js'), [
+      "import { appendFileSync, existsSync } from 'node:fs';",
+      `const record = (event) => appendFileSync(${JSON.stringify(startups)}, \`\${event} \${process.pid}\\n\`);`,
+      'export default function (pi) {',
+      "  record('load');",
+      "  pi.on('session_start', async () => {",
+      "    record('session_start');",
+      `    while (existsSync(${JSON.stringify(hold)})) {`,
+      '      await new Promise((resolve) => setTimeout(resolve, 50));',
+      '    }',
+      '  });',
+      '}',
+      '',
+    ].join('\n'));
+    const startupsOf = async (pid, message) => {
+      assert.deepEqual((await fs.readFile(startups, 'utf8')).trim().split('\n'), [`load ${pid}`, `session_start ${pid}`], message);
+      await fs.rm(startups);
+    };
+    const created = own(launchRunner(sandbox, ['--name', singleName, '--cwd', singleCwd, '--model', 'regress/alpha-2', '--create']), singleName);
+    assert(await waitForStatus(pipePath(singleName)), 'single runner starts');
+    await startupsOf(created.pid, 'the created runner loads its extensions once');
+    await stop(singleName, created);
+
+    let since = (await logEvents(dock, singleName)).length;
+    const starts = await Promise.all([1, 2].map(() => runOwnedNode(sandbox, cli, ['start', singleName])));
+    try {
+      assert.deepEqual(starts, [1, 2].map(() => exited(0, `${singleName} idle regress/alpha-2\n`, '')), 'two concurrent starts both report the agent');
+      const { pid } = await request(pipePath(singleName), { cmd: 'status' });
+      await startupsOf(pid, 'two concurrent starts load extensions only in the runner that serves');
+      assert.deepEqual((await logEvents(dock, singleName)).slice(since).map((event) => [event.event, event.pid]), [['spawned', pid]], 'one runner starts and nothing fails');
+    } finally {
+      assert.equal((await runOwnedNode(sandbox, cli, ['stop', singleName])).stdout, `${singleName} stopped\n`);
+    }
+
+    since = (await logEvents(dock, singleName)).length;
+    await fs.writeFile(hold, '');
+    const pair = [1, 2].map(() => own(launchRunner(sandbox, ['--name', singleName]), singleName));
+    for (let tries = 0; !(await fs.readFile(startups, 'utf8').catch(() => '')).includes('session_start'); tries += 1) {
+      assert(tries < 300, 'a runner reaches session_start');
+      await pause(50);
+    }
+    const early = request(pipePath(singleName), { cmd: 'status' }, null);
+    assert.equal(await Promise.race([early.then(() => 'answered'), pause(1000).then(() => 'waiting')]), 'waiting', 'a status request during startup waits instead of answering');
+    const heldPid = Number((await fs.readFile(startups, 'utf8')).match(/session_start (\d+)/)[1]);
+    assert.deepEqual((await logEvents(dock, singleName)).slice(since).map((event) => [event.event, event.pid]), [['spawned', heldPid]], 'spawned names the owner while its startup is still running');
+    await fs.rm(hold);
+    const { ok, pid: ownerPid } = await early;
+    assert.equal(ok, true, 'the waiting status request is answered once the agent is ready');
+    const [owner, loser] = pair[0].pid === ownerPid ? pair : [pair[1], pair[0]];
+    assert.equal(owner.pid, ownerPid, 'one of the two runners owns the agent');
+    assert.deepEqual(await waitForExit(loser), { code: 0, signal: null }, 'the runner that loses the pipe exits quietly');
+    await startupsOf(ownerPid, 'of two runners launched together, only the pipe owner loads extensions');
+    assert.deepEqual((await logEvents(dock, singleName)).slice(since).map((event) => [event.event, event.pid]), [['spawned', ownerPid]], 'the loser writes nothing to the log');
+    await stop(singleName, owner);
+
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
 
     const runnerName = `t1-${randomUUID()}`;
@@ -1193,7 +1255,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 52 cases passed');
+    console.log('regression: 55 cases passed');
   } catch (error) {
     primaryError = error;
   }

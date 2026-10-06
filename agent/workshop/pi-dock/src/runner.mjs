@@ -39,6 +39,11 @@ let compacting = false;
 const queued = new Set();
 let terminal = false;
 let queue = Promise.resolve();
+// Settles once the runner is ready or terminal; pipe requests that arrive earlier wait for it.
+let settleStartup;
+const startup = new Promise((resolve) => {
+  settleStartup = resolve;
+});
 
 const theme = {
   fg: (_role, text) => text,
@@ -127,6 +132,7 @@ async function shutdown(event, details, code) {
   }
 
   terminal = true;
+  settleStartup();
   const dropped = [...queued];
   const interrupted = current;
   unsubscribe();
@@ -286,6 +292,54 @@ try {
   const flags = createMode ? values.x ?? [] : existing.flags ?? [];
   const thinking = createMode ? values.thinking : existing.thinking;
 
+  // Own the pipe before opening the session or loading extensions, so that of concurrent runners
+  // for one agent only the owner does either.
+  server = serve(pipe, async (msg) => {
+    await startup;
+    if (msg.cmd === 'status') {
+      if (terminal || !session) {
+        return { ok: false, error: 'terminal' };
+      }
+
+      const state = compacting ? 'compacting' : current || session.isStreaming ? 'running' : 'idle';
+      return { ok: true, state, model: `${session.model.provider}/${session.model.id}`, pid: process.pid };
+    }
+
+    if (msg.cmd === 'prompt') {
+      const id = runPrompt(msg.text);
+      return id ? { ok: true, id } : { ok: false, error: 'terminal' };
+    }
+
+    if (msg.cmd === 'compact') {
+      return runCompact(msg.instructions);
+    }
+
+    if (msg.cmd === 'stop') {
+      setImmediate(() => {
+        void stopSoon();
+      });
+      return { ok: true, pid: process.pid };
+    }
+
+    return { ok: false, error: 'unknown' };
+  });
+  server.on('error', (error) => {
+    if (error.piDockRetrying) {
+      return;
+    }
+    if (error.code === 'EADDRINUSE') {
+      // Another runner owns this agent: leave its log, manifest and session untouched.
+      process.exit(0);
+    }
+
+    void fail(error);
+  });
+  await new Promise((resolve) => {
+    server.once('listening', resolve);
+  });
+  // Logged as soon as this runner owns the agent, so its PID is known even if startup hangs.
+  appendLog({ event: 'spawned', pid: process.pid });
+
   const services = await createAgentSessionServices({
     cwd,
     extensionFlagValues: parseExtensionFlags(flags),
@@ -339,45 +393,7 @@ try {
     },
   });
 
-  server = serve(pipe, (msg) => {
-    if (msg.cmd === 'status') {
-      if (terminal || !session) {
-        return { ok: false, error: 'terminal' };
-      }
-
-      const state = compacting ? 'compacting' : current || session.isStreaming ? 'running' : 'idle';
-      return { ok: true, state, model: `${session.model.provider}/${session.model.id}`, pid: process.pid };
-    }
-
-    if (msg.cmd === 'prompt') {
-      const id = runPrompt(msg.text);
-      return id ? { ok: true, id } : { ok: false, error: 'terminal' };
-    }
-
-    if (msg.cmd === 'compact') {
-      return runCompact(msg.instructions);
-    }
-
-    if (msg.cmd === 'stop') {
-      setImmediate(() => {
-        void stopSoon();
-      });
-      return { ok: true, pid: process.pid };
-    }
-
-    return { ok: false, error: 'unknown' };
-  });
-
-  server.once('listening', () => {
-    appendLog({ event: 'spawned', pid: process.pid });
-  });
-  server.on('error', (error) => {
-    if (error.piDockRetrying) {
-      return;
-    }
-
-    void fail(error);
-  });
+  settleStartup();
 } catch (error) {
   await fail(error);
 }

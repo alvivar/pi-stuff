@@ -60,7 +60,12 @@ generates the help's usage section.
    (`SessionManager.open(sessionFile)`, memory intact), once, then redeliver. A pipe that
    closes mid-request is reported as `agent <name> stopped or crashed during <cmd>`, never
    woken or retried; a timeout is `agent <name> is not responding`. Wake waits up to 20 s
-   for the handshake, else prints manifest/log diagnostics and exits 1.
+   for the handshake, else prints manifest/log diagnostics and exits 1. One runner per agent:
+   a runner takes the pipe before it opens the session or loads extensions, and a runner
+   that finds the pipe taken exits 0 without touching the log, manifest or session, so
+   concurrent wakes start one agent. Requests that arrive while the owner is still starting
+   wait until it is ready (or terminal); they never get a `terminal` reply that would wake
+   another runner.
 9. **Prompt correlation.** The runner assigns each pipe prompt an id (`p` + 12 hex) and
    logs `queued {id}` synchronously before acking `{ok:true, id}`; `send` prints the id.
    Prompts run one at a time, each only after idle extension work has settled (until then
@@ -178,7 +183,7 @@ unknown cmd                      ← {ok:false, error:"unknown"}
 Log events (append-only NDJSON, one fact per line, each with `ts`):
 
 ```
-{event:"spawned", pid}              every boot, once the pipe listens
+{event:"spawned", pid}              every boot, once the pipe listens (before the session opens)
 {event:"queued", id}                prompt accepted (before the ack)
 {event:"run", id}                   its run starts
 {event:"turn", id?}                 turn start

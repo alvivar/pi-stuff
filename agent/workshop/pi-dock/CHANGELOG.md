@@ -62,6 +62,13 @@ this checkout, dated by the day it was completed.
   while the agent could still be running. Those errors now fail that agent with
   `agent <name> <error>` on stderr, and `stop` exits 1.
 
+- **Concurrent wakes start one runner.** Two `start`s (or `send`s) at once could launch two
+  runners for one agent: both opened the session and loaded its extensions (pi-link connected
+  twice), and the second then logged `failed` with `EADDRINUSE` in the agent's log. Now a
+  runner takes the agent's pipe before it opens the session or loads extensions, and a runner
+  that finds the pipe taken exits without a trace. Requests that arrive while the agent is
+  starting wait until it is ready.
+
 ---
 
 ## 0.2.0 — 2026-10-01
