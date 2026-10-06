@@ -3,6 +3,14 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { dockDir } from '../src/paths.mjs';
 
+// Every agent runs on this model, so the paid calls go to it and no other provider's credentials
+// are needed.
+const model = process.argv[2];
+if (!model) {
+  console.error('usage: node test/smoke.mjs <provider/id>');
+  process.exit(1);
+}
+
 const cli = path.join(process.cwd(), 'bin', 'pi-dock.mjs');
 const a = `smoke-${process.pid}-a`;
 const b = `smoke-${process.pid}-b`;
@@ -146,7 +154,7 @@ try {
   result = run(['wat']);
   expect('unknown command is short and points to help', result.status === 1 && result.stderr.trim() === 'unknown command: wat; run pi-dock --help', result.stderr || result.stdout);
 
-  result = run(['spawn', '--name', e]);
+  result = run(['spawn', '--name', e, '--model', model]);
   expect('spawn manifest holds only known fields', result.status === 0 && JSON.stringify(Object.keys(manifest(e)).sort()) === JSON.stringify(['cwd', 'flags', 'model', 'name', 'pipe', 'sessionFile', 'startedAt']), result.stderr || result.stdout || JSON.stringify(manifest(e)));
   result = run(['stop', e]);
   await waitLsState(e, 'stopped');
@@ -155,8 +163,13 @@ try {
   expect('wake logs a live spawned pid', result.status === 0 && Number.isInteger(spawnedE?.pid) && spawnedE.pid > 0 && pidAlive(spawnedE.pid), result.stderr || result.stdout || JSON.stringify(spawnedE));
   run(['stop', e]);
 
-  result = run(['spawn', '--name', a]);
-  expect('spawn A idle without prompt', result.status === 0 && result.stdout.trim() === `${a} idle ${manifest(a).model}`, result.stderr || result.stdout);
+  result = run(['spawn', '--name', a, '--model', model]);
+  const aOnModel = result.status === 0 && result.stdout.trim() === `${a} idle ${model}` && manifest(a).model === model;
+  expect('spawn A idle without prompt on the chosen model', aOnModel, result.stderr || result.stdout);
+  if (!aOnModel) {
+    // The paid prompts go only to the chosen model; the finally block still cleans up.
+    throw new Error(`smoke aborted before any paid prompt: ${a} is not idle on ${model}`);
+  }
 
   result = await waitLsState(a, 'idle');
   expect('ls shows A idle after spawn', result?.status === 0 && lsState(result.stdout, a) === 'idle', result?.stdout || result?.stderr);
@@ -211,7 +224,7 @@ try {
   result = run(['stop', a]);
   expect('stop A after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
-  result = run(['spawn', '--name', b]);
+  result = run(['spawn', '--name', b, '--model', model]);
   expect('spawn B idle without prompt', result.status === 0 && result.stdout.trim() === `${b} idle ${manifest(b).model}`, result.stderr || result.stdout);
 
   result = await waitLsState(b, 'idle');
@@ -235,7 +248,7 @@ try {
   result = run(['stop', b]);
   expect('stop B after start reports stopped', result.status === 0 && result.stdout.includes('stopped'), result.stderr || result.stdout);
 
-  result = run(['spawn', '--name', d, '--thinking', 'minimal', '--x', 'bogus-flag=1']);
+  result = run(['spawn', '--name', d, '--model', model, '--thinking', 'minimal', '--x', 'bogus-flag=1']);
   expect('spawn D with unknown extension flag and thinking idles', result.status === 0 && result.stdout.trim() === `${d} idle ${manifest(d).model}`, result.stderr || result.stdout);
   expect('D manifest records raw flags and thinking', JSON.stringify(manifest(d).flags) === JSON.stringify(['bogus-flag=1']) && manifest(d).thinking === 'minimal', JSON.stringify(manifest(d)));
 
@@ -255,9 +268,10 @@ try {
   expect('set with no options shows usage', result.status !== 0 && result.stderr.includes('usage: pi-dock set <name>'), result.stderr || result.stdout);
 
   const dBeforeSet = manifest(d);
-  result = run(['set', d, '--model', 'anthropic/claude-haiku-4-5', '--thinking', 'low', '--x', 'link', '--x', `link-name=${d}`]);
+  // --model is the same single model (preflighted again); thinking and flags prove the rewrite.
+  result = run(['set', d, '--model', model, '--thinking', 'low', '--x', 'link', '--x', `link-name=${d}`]);
   const dAfterSet = manifest(d);
-  expect('set stopped D rewrites mutable identity', result.status === 0 && dAfterSet.model === 'anthropic/claude-haiku-4-5' && dAfterSet.thinking === 'low' && JSON.stringify(dAfterSet.flags) === JSON.stringify(['link', `link-name=${d}`]) && result.stdout.includes('model=anthropic/claude-haiku-4-5'), result.stderr || result.stdout || JSON.stringify(dAfterSet));
+  expect('set stopped D rewrites mutable identity', result.status === 0 && result.stdout.trim() === `${d} model=${model} thinking=low flags=${JSON.stringify(['link', `link-name=${d}`])}` && dAfterSet.model === model && dAfterSet.thinking === 'low' && JSON.stringify(dAfterSet.flags) === JSON.stringify(['link', `link-name=${d}`]), result.stderr || result.stdout || JSON.stringify(dAfterSet));
   expect('set stopped D preserves hard identity', dAfterSet.name === dBeforeSet.name && dAfterSet.sessionFile === dBeforeSet.sessionFile && dAfterSet.cwd === dBeforeSet.cwd && dAfterSet.pipe === dBeforeSet.pipe && dAfterSet.startedAt === dBeforeSet.startedAt, JSON.stringify({ before: dBeforeSet, after: dAfterSet }));
 
   result = run(['compact', 'missing-smoke-agent']);

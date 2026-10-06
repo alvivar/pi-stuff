@@ -904,6 +904,14 @@ async function main() {
     assert.equal(hinted.stderr.trim(), 'preflight failed: model regress/alpha not found (did you mean: regress/alpha-10, regress/alpha-2; see: pi-dock models regress/alpha); no agent was created');
     await assert.rejects(fs.access(path.join(dock, 'thinking-max.json')), { code: 'ENOENT' });
 
+    // set --model persists a different model and keeps the hard identity.
+    const switchName = `set-switch-${randomUUID()}`;
+    const switchManifest = { name: switchName, sessionFile: path.join(sandbox, `${switchName}.jsonl`), cwd: sandbox, model: 'regress/alpha-2', thinking: 'low', flags: ['a'], pipe: pipePath(switchName), startedAt: '2026-01-01T00:00:00.000Z' };
+    const switchFile = path.join(dock, `${switchName}.json`);
+    await fs.writeFile(switchFile, `${JSON.stringify(switchManifest)}\n`);
+    assert.deepEqual(await runOwnedNode(sandbox, cli, ['set', switchName, '--model', 'regress/alpha-10']), { code: 0, signal: null, stdout: `${switchName} model=regress/alpha-10 thinking=low flags=["a"]\n`, stderr: '' });
+    assert.deepEqual(JSON.parse(await fs.readFile(switchFile, 'utf8')), { ...switchManifest, model: 'regress/alpha-10' }, 'set persists the new model and keeps everything else');
+
     const closedName = `closed-${randomUUID()}`;
     await writeSetFixture(dock, closedName);
     const closedSockets = new Set();
@@ -1499,7 +1507,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 72 cases passed');
+    console.log('regression: 73 cases passed');
   } catch (error) {
     primaryError = error;
   }

@@ -216,9 +216,9 @@ with that event into a complete but invalid line. Readers do not skip corrupt li
   idle work. Covers names, manifests, spawn races, state derivation, strict args, logs,
   models, wake/deliver classification, correlation, wait, send `--wait`/`--file`/`--`,
   stop confirmation, compaction, help and `skill`. Run after every change.
-- `node test/smoke.mjs` — full lifecycle against the real default model, **2 real
-  prompts** via `send --wait`. Paid: run only on explicit owner authorization, no automatic
-  retry.
+- `node test/smoke.mjs <provider/id>` — full lifecycle with every agent on that real model,
+  **2 real prompts** via `send --wait`. Paid: run only on explicit owner authorization, no
+  automatic retry.
 
 ## Verified
 
