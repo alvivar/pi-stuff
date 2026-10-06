@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util';
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
+  initTheme,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { ManifestExistsError, readManifest, writeManifest } from './manifest.mjs';
@@ -40,52 +41,6 @@ let settleStartup;
 const startup = new Promise((resolve) => {
   settleStartup = resolve;
 });
-
-const theme = {
-  fg: (_role, text) => text,
-  bg: (_role, text) => text,
-  bold: (text) => text,
-  italic: (text) => text,
-  underline: (text) => text,
-  inverse: (text) => text,
-  strikethrough: (text) => text,
-  style: (text) => text,
-  getFgAnsi: () => '',
-  getBgAnsi: () => '',
-  getColorMode: () => '256color',
-  getThinkingBorderColor: () => (text) => text,
-  getBashModeBorderColor: () => (text) => text,
-};
-const headlessUIContext = {
-  select: async () => undefined,
-  confirm: async () => false,
-  input: async () => undefined,
-  notify: () => {},
-  onTerminalInput: () => () => {},
-  setStatus: () => {},
-  setWorkingMessage: () => {},
-  setWorkingVisible: () => {},
-  setWorkingIndicator: () => {},
-  setHiddenThinkingLabel: () => {},
-  setWidget: () => {},
-  setFooter: () => {},
-  setHeader: () => {},
-  setTitle: () => {},
-  custom: async () => undefined,
-  pasteToEditor: () => {},
-  setEditorText: () => {},
-  getEditorText: () => '',
-  editor: async () => undefined,
-  addAutocompleteProvider: () => {},
-  setEditorComponent: () => {},
-  getEditorComponent: () => undefined,
-  theme,
-  getAllThemes: () => [],
-  getTheme: () => undefined,
-  setTheme: () => ({ success: false, error: 'UI not available' }),
-  getToolsExpanded: () => false,
-  setToolsExpanded: () => {},
-};
 
 function appendLog(event) {
   appendFileSync(log, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`, 'utf8');
@@ -404,8 +359,11 @@ try {
   }
 
   subscribeToSession();
+  // Without a uiContext the SDK uses its own no-op UI, so ctx.hasUI is false. That UI still
+  // exposes the SDK's global theme, which throws until initialized; extensions such as pi-link
+  // read it. No file watcher: nothing renders.
+  initTheme();
   await session.bindExtensions({
-    uiContext: headlessUIContext,
     mode: 'print',
     shutdownHandler: () => {
       void stopSoon();

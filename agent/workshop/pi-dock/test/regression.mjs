@@ -1201,6 +1201,17 @@ async function main() {
       '}',
       '',
     ].join('\n'));
+    // A project extension that records what a runner's extensions see of the UI at session_start.
+    const headless = path.join(singleCwd, 'headless.log');
+    await fs.writeFile(path.join(singleCwd, '.pi', 'extensions', 'headless.js'), [
+      "import { appendFileSync } from 'node:fs';",
+      'export default function (pi) {',
+      "  pi.on('session_start', (_event, ctx) => {",
+      `    appendFileSync(${JSON.stringify(headless)}, \`hasUI=\${ctx.hasUI} theme=\${ctx.ui.theme.fg('dim', 'x').includes('x')}\\n\`);`,
+      '  });',
+      '}',
+      '',
+    ].join('\n'));
     const startupsOf = async (pid, message) => {
       assert.deepEqual((await fs.readFile(startups, 'utf8')).trim().split('\n'), [`load ${pid}`, `session_start ${pid}`], message);
       await fs.rm(startups);
@@ -1208,6 +1219,7 @@ async function main() {
     const created = own(launchRunner(sandbox, ['--name', singleName, '--cwd', singleCwd, '--model', 'regress/alpha-2', '--create']), singleName);
     assert(await waitForStatus(pipePath(singleName)), 'single runner starts');
     await startupsOf(created.pid, 'the created runner loads its extensions once');
+    assert.equal(await fs.readFile(headless, 'utf8'), 'hasUI=false theme=true\n', 'extensions see no UI and can still read the theme');
     await stop(singleName, created);
 
     let since = (await logEvents(dock, singleName)).length;
@@ -1509,7 +1521,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 73 cases passed');
+    console.log('regression: 74 cases passed');
   } catch (error) {
     primaryError = error;
   }

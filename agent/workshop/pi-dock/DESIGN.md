@@ -116,7 +116,9 @@ generates the help's usage section.
     1 with the reason (e.g. `Nothing to compact (session too small)`).
 15. **Extension flags** `--x key[=value]` are opaque pass-through
     (`extensionFlagValues`); pi-dock has zero pi-link knowledge. Unknown flags are inert.
-    Runners bind extensions with an explicit inert headless UI context (`mode: 'print'`).
+    Runners bind extensions in `mode: 'print'` without a UI context, so extensions get the SDK's
+    no-op UI and `ctx.hasUI` is false. The runner initializes the SDK theme, which that UI
+    exposes and extensions such as pi-link read.
 16. **No destructive command.** `rm` was rejected: registry-only deletion orphans the
     name→session/config mapping; deleting the session destroys memory. `restart` was
     rejected: `stop` + `start` compose, and sugar cannot help a wedged runner.

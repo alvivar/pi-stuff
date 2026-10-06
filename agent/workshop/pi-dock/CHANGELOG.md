@@ -121,6 +121,12 @@ this checkout, dated by the day it was completed.
   `agent <name> liveness check failed: invalid status reply`. A reply that is not JSON now
   reports the raw parse error, as `stop` does. `set` refuses in exactly the same cases. (`b41aa08`)
 
+- **Extensions in a runner see `ctx.hasUI` as false.** Runners gave extensions their own copy
+  of Pi's no-UI context, which Pi does not recognize, so `ctx.hasUI` was true although nobody
+  can answer a dialog: an extension that checks it asked for confirmations that always
+  returned false instead of taking its headless path. Runners now use Pi's own no-UI context;
+  `ctx.ui.theme` still works.
+
 ---
 
 ## 0.2.0 — 2026-10-01
