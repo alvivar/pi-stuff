@@ -6,6 +6,9 @@ This changelog is reconstructed from the git history from `2026-07-03` (first pi
 through the present. pi-dock has never been published to npm: a version here names a state of
 this checkout, dated by the day it was completed.
 
+Each entry ends with the commit that made the change. Entries under Unreleased get it when
+their version is cut, so a new entry may not have one yet.
+
 ---
 
 ## Unreleased
