@@ -595,6 +595,7 @@ async function main() {
       '--help': 'pi-dock [--help | -h]',
       '-h': 'pi-dock [--help | -h]',
       spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
+      set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
     };
     const emptyPrompt = path.join(sandbox, 'empty-prompt.txt');
     await fs.writeFile(emptyPrompt, '');
@@ -734,6 +735,30 @@ async function main() {
       const lsResult = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['ls']);
       assert.equal(lsResult.code, 0, lsResult.stderr);
       assert.equal(stateFromLs(lsResult.stdout, stateName), expectedState, `${suffix} state`);
+    }
+
+    const emptySetName = `set-empty-${randomUUID()}`;
+    const emptySetFile = await writeSetFixture(dock, emptySetName);
+    const beforeEmptySet = await fs.readFile(emptySetFile);
+    const emptySpawnName = `spawn-empty-${randomUUID()}`;
+    for (const [commandArgs, option] of [
+      [['spawn', '--name', emptySpawnName, '--model='], 'model'],
+      [['spawn', '--name', emptySpawnName, '--thinking', ''], 'thinking'],
+      [['set', emptySetName, '--model='], 'model'],
+      [['set', emptySetName, '--model=', '--thinking', 'max'], 'model'],
+      [['set', emptySetName, '--thinking='], 'thinking'],
+      [['set', emptySetName, '--x', 'a', '--thinking='], 'thinking'],
+    ]) {
+      assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs), {
+        code: 1,
+        signal: null,
+        stdout: '',
+        stderr: `Option '--${option}' must not be empty\nusage: ${usage[commandArgs[0]]}\n`,
+      }, `${commandArgs.join(' ')} is a usage error`);
+    }
+    assert.deepEqual(await fs.readFile(emptySetFile), beforeEmptySet, 'an empty value rewrites no manifest');
+    for (const extension of ['json', 'log']) {
+      await assert.rejects(fs.access(path.join(dock, `${emptySpawnName}.${extension}`)), { code: 'ENOENT' }, 'an empty value launches no agent');
     }
 
     const absentSetName = `set-absent-${randomUUID()}`;
@@ -1489,7 +1514,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 72 cases passed');
+    console.log('regression: 73 cases passed');
   } catch (error) {
     primaryError = error;
   }

@@ -51,6 +51,12 @@ function parseCommand(argv, options, maxPositionals) {
   if (parsed.positionals.length > maxPositionals) {
     failUsage(`Unexpected argument '${parsed.positionals[maxPositionals]}'`);
   }
+  // An explicit empty value is likely an unset variable in a script, never "use the default".
+  for (const option of ['model', 'thinking']) {
+    if (parsed.values[option] === '') {
+      failUsage(`Option '--${option}' must not be empty`);
+    }
+  }
 
   return parsed;
 }
@@ -107,7 +113,7 @@ function processAlive(pid) {
 }
 
 function validateThinking(level) {
-  if (level && !VALID_THINKING_LEVELS.has(level)) {
+  if (level !== undefined && !VALID_THINKING_LEVELS.has(level)) {
     fail(`invalid thinking level: ${level}`);
   }
 }
@@ -221,7 +227,7 @@ async function preflightSpawn(cwd, modelSpec) {
   } = await import('@earendil-works/pi-coding-agent');
   const modelRuntime = await ModelRuntime.create();
 
-  if (modelSpec) {
+  if (modelSpec !== undefined) {
     const slash = modelSpec.indexOf('/');
     const model = slash === -1 ? null : modelRuntime.getModel(modelSpec.slice(0, slash), modelSpec.slice(slash + 1));
     if (!model) {
@@ -659,7 +665,8 @@ async function setCommand(argv) {
     thinking: { type: 'string' },
     x: { type: 'string', multiple: true },
   }, 1);
-  if (name === undefined || (!values.model && !values.thinking && values.x === undefined)) {
+  // values holds only the options given, and set needs at least one.
+  if (name === undefined || Object.keys(values).length === 0) {
     failUsage();
   }
 
@@ -668,7 +675,7 @@ async function setCommand(argv) {
   const manifest = await requireManifest(name);
   await confirmPipeAbsent(manifest, name);
 
-  if (values.model) {
+  if (values.model !== undefined) {
     try {
       await preflightSpawn(manifest.cwd, values.model);
     } catch (error) {
@@ -680,8 +687,8 @@ async function setCommand(argv) {
     name: manifest.name,
     sessionFile: manifest.sessionFile,
     cwd: manifest.cwd,
-    model: values.model || manifest.model,
-    thinking: values.thinking || manifest.thinking,
+    model: values.model ?? manifest.model,
+    thinking: values.thinking ?? manifest.thinking,
     flags: values.x ?? manifest.flags,
     pipe: manifest.pipe,
     startedAt: manifest.startedAt,

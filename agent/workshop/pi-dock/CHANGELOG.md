@@ -21,6 +21,12 @@ this checkout, dated by the day it was completed.
   Scripts that split `ls` output on tabs must split on whitespace; agent names and model refs
   contain no spaces. (`808fbf0`)
 
+- **An empty `--model` or `--thinking` is a usage error.** `spawn` and `set` used to treat
+  `--model ''` or `--thinking ''` as absent, so an unset variable in a script silently fell back
+  to Pi's default model, the default thinking level or the manifest's value. They now exit 1
+  with `Option '--model' must not be empty` (or `--thinking`) and the usage line, before
+  anything is launched or rewritten. To use the default, omit the option.
+
 ### Added
 
 - **`pi-dock stop <name>...` stops several agents.** The whole list is checked first: an
