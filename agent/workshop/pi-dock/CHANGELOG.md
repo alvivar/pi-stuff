@@ -81,6 +81,11 @@ this checkout, dated by the day it was completed.
   `not-responding` says only that it did not answer within 200 ms; it is computed on each call
   and never logged.
 
+- **A compaction started by an extension shows as `compacting` and makes `compact` busy.**
+  Only a compaction started with `pi-dock compact` used to count: during one an extension
+  started (for example a remote compaction through pi-link), the agent showed as `idle`, and
+  `pi-dock compact` was accepted and cancelled it.
+
 ---
 
 ## 0.2.0 — 2026-10-01

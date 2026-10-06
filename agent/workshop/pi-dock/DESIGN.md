@@ -112,9 +112,10 @@ generates the help's usage section.
     configured default (per-model, then global); levels a model does not support are stored
     as requested and clamped by the SDK.
 14. **`compact [instructions]`** is idle-only (`agent <name> is busy` otherwise, including
-    queued prompts), wakes an off agent and leaves it on, and waits without a timeout for
-    the runner's reply. It logs `compacted`, or `compact_failed {reason}` and exits 1 with
-    the reason (e.g. `Nothing to compact (session too small)`).
+    queued prompts and any compaction in progress, whoever started it; `status` reports such
+    a compaction as `compacting`), wakes an off agent and leaves it on, and waits without a
+    timeout for the runner's reply. It logs `compacted`, or `compact_failed {reason}` and exits
+    1 with the reason (e.g. `Nothing to compact (session too small)`).
 15. **Extension flags** `--x key[=value]` are opaque pass-through
     (`extensionFlagValues`); pi-dock has zero pi-link knowledge. Unknown flags are inert.
     Runners bind extensions with an explicit inert headless UI context (`mode: 'print'`).

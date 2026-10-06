@@ -98,10 +98,11 @@ of every command.
   the change; name, session, cwd and creation time never change.
 - `--x key[=value]` flags are passed opaquely to extensions and are inert without them.
 - `pi-dock compact <name> [instructions]` compacts the session. It requires an idle agent
-  (`agent <name> is busy` otherwise, including while prompts are queued), wakes an off agent and
-  leaves it on, and waits without a timeout for the result; Ctrl-C only stops waiting, not
-  the compaction. All remaining arguments form the instructions. A failed compaction exits 1
-  with its reason and is logged as `compact_failed`.
+  (`agent <name> is busy` otherwise, including while prompts are queued or another compaction,
+  such as one an extension started, is in progress), wakes an off agent and leaves it on, and
+  waits without a timeout for the result; Ctrl-C only stops waiting, not the compaction. All
+  remaining arguments form the instructions. A failed compaction exits 1 with its reason and is
+  logged as `compact_failed`.
 
 ## Reading logs
 

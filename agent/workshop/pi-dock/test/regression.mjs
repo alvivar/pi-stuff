@@ -1246,6 +1246,91 @@ async function main() {
       assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', busyName]), exited(1, '', `agent ${busyName} refused status: {"ok":false,"error":"busy"}\n`), 'start fails on a non-terminal refusal instead of waking');
     });
 
+    // A project extension that compacts when the trigger file appears and, for compactions with
+    // the instructions 'hold', holds session_before_compact while the hold file exists and the
+    // compaction is not aborted, then supplies a local summary (no LLM). It also holds
+    // session_compact_failed while the hold file exists. keepRecentTokens 1 leaves earlier turns to summarize.
+    const compactName = `compact-${randomUUID()}`;
+    const compactCwd = path.join(sandbox, 'compact-cwd');
+    const compactRecord = path.join(compactCwd, 'compactions.log');
+    const compactTrigger = path.join(compactCwd, 'trigger');
+    const compactHold = path.join(compactCwd, 'hold');
+    await fs.mkdir(path.join(compactCwd, '.pi', 'extensions'), { recursive: true });
+    await fs.writeFile(path.join(compactCwd, '.pi', 'settings.json'), JSON.stringify({ compaction: { keepRecentTokens: 1 } }));
+    await fs.writeFile(path.join(compactCwd, '.pi', 'extensions', 'compactor.js'), [
+      "import { appendFileSync, existsSync, rmSync } from 'node:fs';",
+      `const record = (line) => appendFileSync(${JSON.stringify(compactRecord)}, \`\${line}\\n\`);`,
+      'export default function (pi) {',
+      "  pi.on('session_start', (_event, ctx) => {",
+      '    setInterval(() => {',
+      `      if (existsSync(${JSON.stringify(compactTrigger)})) {`,
+      `        rmSync(${JSON.stringify(compactTrigger)});`,
+      "        ctx.compact({ customInstructions: 'hold', onComplete: () => record('completed'), onError: (error) => record(`failed ${error.message}`) });",
+      '      }',
+      '    }, 50).unref();',
+      '  });',
+      "  pi.on('session_before_compact', async ({ preparation, customInstructions, signal }) => {",
+      '    record(`before_compact ${customInstructions}`);',
+      `    while (customInstructions === 'hold' && existsSync(${JSON.stringify(compactHold)}) && !signal.aborted) {`,
+      '      await new Promise((resolve) => setTimeout(resolve, 50));',
+      '    }',
+      "    return { compaction: { summary: 'local summary', firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore } };",
+      '  });',
+      "  pi.on('session_compact_failed', async ({ errorMessage }) => {",
+      '    record(`compact_failed ${errorMessage}`);',
+      `    while (existsSync(${JSON.stringify(compactHold)})) {`,
+      '      await new Promise((resolve) => setTimeout(resolve, 50));',
+      '    }',
+      '  });',
+      '}',
+      '',
+    ].join('\n'));
+    const recorded = async (expected) => {
+      for (const deadline = Date.now() + 15000; Date.now() < deadline; await pause(50)) {
+        const lines = (await fs.readFile(compactRecord, 'utf8').catch(() => '')).trim().split('\n');
+        if (lines.at(-1) === expected) {
+          return lines;
+        }
+      }
+      throw new Error(`compactor did not record ${expected}`);
+    };
+    const compactor = own(launchRunner(sandbox, ['--name', compactName, '--cwd', compactCwd, '--model', 'regress/alpha-2', '--create']), compactName);
+    assert(await waitForStatus(pipePath(compactName)), 'compactor runner starts');
+    for (const reply of ['first', 'second']) {
+      provider.replies.push(textReply(reply));
+      assert.equal((await wait(compactName, await send(compactName, reply))).stdout, `${reply}\n`);
+    }
+
+    await fs.writeFile(compactHold, '');
+    await fs.writeFile(compactTrigger, '');
+    await recorded('before_compact hold');
+    since = (await logEvents(dock, compactName)).length;
+    assert.equal((await request(pipePath(compactName), { cmd: 'status' })).state, 'compacting', 'status reports a compaction an extension started on an idle agent');
+    assert.deepEqual(await runOwnedNode(sandbox, cli, ['compact', compactName]), exited(1, '', `agent ${compactName} is busy\n`), 'compact is busy during an extension compaction');
+    await fs.rm(compactHold);
+    assert.deepEqual(await recorded('completed'), ['before_compact hold', 'completed'], 'the extension compaction completes uncancelled');
+    assert.deepEqual((await logEvents(dock, compactName)).slice(since), [], 'the refused compact started no compaction');
+
+    provider.replies.push(textReply('third'));
+    assert.equal((await wait(compactName, await send(compactName, 'third'))).stdout, 'third\n');
+    await fs.writeFile(compactHold, '');
+    const heldCompact = runOwnedNode(sandbox, cli, ['compact', compactName, 'hold']);
+    await recorded('before_compact hold');
+    assert.equal((await request(pipePath(compactName), { cmd: 'status' })).state, 'compacting', 'status reports a compaction the CLI started');
+    await fs.rm(compactHold);
+    assert.deepEqual(await heldCompact, exited(0, 'compacted\n', ''), 'the CLI compaction completes');
+
+    // The SDK reports no compaction while its failure hooks run, but the CLI's compact is pending.
+    await fs.writeFile(compactHold, '');
+    const failingCompact = runOwnedNode(sandbox, cli, ['compact', compactName]);
+    await recorded('compact_failed Compaction failed: Already compacted');
+    assert.equal((await request(pipePath(compactName), { cmd: 'status' })).state, 'compacting', 'status reports a CLI compaction until it settles');
+    // Bounded, because a compact accepted here would wait behind the held one.
+    assert.deepEqual(await request(pipePath(compactName), { cmd: 'compact' }, 5000), { ok: false, error: 'busy' }, 'compact is busy until the pending CLI compaction settles');
+    await fs.rm(compactHold);
+    assert.deepEqual(await failingCompact, exited(1, '', 'Already compacted\n'), 'the pending CLI compaction fails with its reason');
+    await stop(compactName, compactor);
+
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
 
     const runnerName = `t1-${randomUUID()}`;
@@ -1284,7 +1369,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 60 cases passed');
+    console.log('regression: 64 cases passed');
   } catch (error) {
     primaryError = error;
   }

@@ -228,7 +228,7 @@ function runPrompt(text) {
 }
 
 function busyForCompact() {
-  return current || compacting || queued.size > 0 || session?.isStreaming;
+  return current || compacting || queued.size > 0 || session?.isStreaming || session?.isCompacting;
 }
 
 async function runOneCompact(instructions) {
@@ -301,7 +301,11 @@ try {
         return { ok: false, error: 'terminal' };
       }
 
-      const state = compacting ? 'compacting' : current || session.isStreaming ? 'running' : 'idle';
+      // compacting reserves the runner until its own compact settles (the SDK clears isCompacting
+      // earlier); isCompacting adds compactions others started, such as an extension's.
+      const state = compacting || session.isCompacting
+        ? 'compacting'
+        : current || session.isStreaming ? 'running' : 'idle';
       return { ok: true, state, model: `${session.model.provider}/${session.model.id}`, pid: process.pid };
     }
 
