@@ -7,8 +7,8 @@
     "pi-link": [
       {
         "name": "polaris",
-        "icon": "organization",
-        "color": "terminal.ansiBrightWhite",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightCyan",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -17,7 +17,7 @@
       },
       {
         "name": "vega",
-        "icon": "compass",
+        "icon": "star-full",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
@@ -48,7 +48,7 @@
         "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link compactor@pi-link"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --no-session --link-name compactor@pi-link"
         ]
       },
       {
@@ -127,8 +127,8 @@
     "pi-dock": [
       {
         "name": "polaris",
-        "icon": "organization",
-        "color": "terminal.ansiBrightWhite",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightCyan",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -137,7 +137,7 @@
       },
       {
         "name": "vega",
-        "icon": "compass",
+        "icon": "star-full",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
@@ -177,7 +177,7 @@
         "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link compactor@pi-dock"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --no-session --link-name compactor@pi-dock"
         ]
       },
       {
@@ -202,8 +202,8 @@
     "pi-sub": [
       {
         "name": "polaris",
-        "icon": "organization",
-        "color": "terminal.ansiBrightWhite",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightCyan",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -212,7 +212,7 @@
       },
       {
         "name": "vega",
-        "icon": "compass",
+        "icon": "star-full",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
@@ -243,7 +243,7 @@
         "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link compactor@pi-sub"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --no-session --link-name compactor@pi-sub"
         ]
       },
       {
@@ -307,8 +307,8 @@
     "pi-chrome": [
       {
         "name": "polaris",
-        "icon": "organization",
-        "color": "terminal.ansiBrightWhite",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightCyan",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -373,8 +373,8 @@
     "pi-rules": [
       {
         "name": "polaris",
-        "icon": "organization",
-        "color": "terminal.ansiBrightWhite",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightCyan",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -383,7 +383,7 @@
       },
       {
         "name": "vega",
-        "icon": "compass",
+        "icon": "star-full",
         "color": "terminal.ansiBrightMagenta",
         "autoExecuteCommands": true,
         "commands": [
@@ -414,7 +414,7 @@
         "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
         "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link compactor@pi-rules"
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi --no-session --link-name compactor@pi-rules"
         ]
       },
       {
@@ -439,8 +439,8 @@
     "pi.claude.hack": [
       {
         "name": "polaris",
-        "icon": "organization",
-        "color": "terminal.ansiBrightWhite",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightCyan",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
