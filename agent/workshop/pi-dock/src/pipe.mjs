@@ -184,7 +184,6 @@ export function request(pipePath, msg, timeoutMs = PIPE_REQUEST_TIMEOUT_MS) {
     });
 
     socket.on('error', finish);
-    socket.on('end', () => finish(new Error('pipe closed before reply')));
     socket.on('close', () => finish(new Error('pipe closed before reply')));
   });
 }

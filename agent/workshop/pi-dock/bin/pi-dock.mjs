@@ -89,7 +89,7 @@ async function requireManifest(name) {
 }
 
 function isTimeout(error) {
-  return error?.code === 'ETIMEDOUT';
+  return error.code === 'ETIMEDOUT';
 }
 
 function failNotResponding(name) {
@@ -371,7 +371,7 @@ async function spawnCommand(argv) {
     reportHandshakeFailure(name);
     process.exit(1);
   }
-  if (!Number.isInteger(result.status.pid) || result.status.pid !== child.pid) {
+  if (result.status.pid !== child.pid) {
     fail(`agent already exists: ${name}`);
   }
 

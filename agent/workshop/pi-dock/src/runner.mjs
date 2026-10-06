@@ -24,10 +24,6 @@ const { values } = parseArgs({
 
 const name = values.name;
 
-if (!name) {
-  process.exit(1);
-}
-
 const log = logPath(name);
 const pipe = pipePath(name);
 let session;
@@ -126,12 +122,8 @@ function thinkingOption(level) {
 }
 
 function textFromMessage(message) {
-  if (!Array.isArray(message?.content)) {
-    return '';
-  }
-
   return message.content
-    .filter((part) => part.type === 'text' && typeof part.text === 'string')
+    .filter((part) => part.type === 'text')
     .map((part) => part.text)
     .join('')
     .trim();
@@ -383,7 +375,7 @@ try {
 
   if (createMode) {
     const resolvedModel = model ?? session.model;
-    if (!resolvedModel?.provider || !resolvedModel?.id) {
+    if (!resolvedModel) {
       session.dispose();
       session = undefined;
       throw new Error('no model with usable credentials available');
