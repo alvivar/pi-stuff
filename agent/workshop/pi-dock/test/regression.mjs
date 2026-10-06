@@ -1348,6 +1348,18 @@ async function main() {
     assert.equal(stateFromLs((await runOwnedNode(sandbox, cli, ['ls'])).stdout, compactName), 'stopped', 'ls still shows the agent stopped');
     assert.match((await runOwnedNode(sandbox, cli, ['show', compactName])).stdout, /^state stopped$/m, 'show still shows the agent stopped');
 
+    // A compact whose outcome cannot be logged fails the runner, which must still exit.
+    const compactLog = path.join(dock, `${compactName}.log`);
+    const uncompacted = own(launchRunner(sandbox, ['--name', compactName]), compactName);
+    assert(await waitForStatus(pipePath(compactName)), 'compactor runner wakes');
+    await fs.chmod(compactLog, 0o444);
+    try {
+      await request(pipePath(compactName), { cmd: 'compact' }, 5000).catch(() => {});
+      assert.deepEqual(await waitForExit(uncompacted), { code: 1, signal: null }, 'a runner that cannot log a compaction exits');
+    } finally {
+      await fs.chmod(compactLog, 0o644);
+    }
+
     // A project extension whose session_start and turn_start handlers throw.
     const throwsName = `throws-${randomUUID()}`;
     const throwsCwd = path.join(sandbox, 'throws-cwd');
@@ -1382,6 +1394,33 @@ async function main() {
       assert(throwsLogs.some((line) => line.endsWith(` extension_error extension=${throwsExtension} on=session_start reason=start broke`)), 'logs renders an extension error on one line');
     } finally {
       assert.equal((await runOwnedNode(sandbox, cli, ['stop', throwsName])).stdout, `${throwsName} stopped\n`);
+    }
+
+    // A log that can no longer be written fails the runner's own failure path too: the runner
+    // must still exit rather than linger with its queue stalled.
+    const unloggedName = `unlogged-${randomUUID()}`;
+    const unlogged = own(launchRunner(sandbox, ['--name', unloggedName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--create']), unloggedName);
+    assert(await waitForStatus(pipePath(unloggedName)), 'unlogged runner starts');
+    const unloggedLog = path.join(dock, `${unloggedName}.log`);
+    await fs.chmod(unloggedLog, 0o444);
+    try {
+      const refused = { ok: false, error: `EPERM: operation not permitted, open '${unloggedLog}'` };
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['send', unloggedName, 'unqueued']), exited(1, '', `${JSON.stringify(refused)}\n`), 'a prompt whose queued event cannot be logged is refused');
+    } finally {
+      await fs.chmod(unloggedLog, 0o644);
+    }
+    assert.deepEqual(await request(pipePath(unloggedName), { cmd: 'compact' }), { ok: false, error: 'Nothing to compact (session too small)' }, 'a refused prompt leaves nothing queued');
+    const unloggedHold = held(textReply('unlogged'));
+    provider.replies.push(unloggedHold.reply);
+    await send(unloggedName, 'first');
+    await unloggedHold.arrived;
+    await send(unloggedName, 'second');
+    await fs.chmod(unloggedLog, 0o444);
+    try {
+      unloggedHold.release();
+      assert.deepEqual(await waitForExit(unlogged), { code: 1, signal: null }, 'a runner that cannot write its log exits');
+    } finally {
+      await fs.chmod(unloggedLog, 0o644);
     }
 
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
@@ -1422,7 +1461,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 66 cases passed');
+    console.log('regression: 69 cases passed');
   } catch (error) {
     primaryError = error;
   }

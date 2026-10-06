@@ -93,6 +93,12 @@ this checkout, dated by the day it was completed.
   ran for, and the error message. Errors raised once the agent is stopping are not logged, so
   the terminal event stays last.
 
+- **A failed log write no longer stalls the prompt queue.** A failed write while a queued
+  prompt or compaction ran could leave the runner alive with its queue stuck, so every later
+  prompt waited forever without a report. The runner now fails: it logs `failed` if it still
+  can, and exits either way. A prompt whose `queued` event cannot be written is refused with
+  the error and is not queued; the agent stays usable.
+
 ---
 
 ## 0.2.0 — 2026-10-01

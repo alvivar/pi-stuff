@@ -198,9 +198,8 @@ async function runOnePrompt(id, text) {
   queued.delete(id);
   current = id;
   runError = undefined;
-  appendLog({ event: 'run', id });
-
   try {
+    appendLog({ event: 'run', id });
     await session.prompt(text, { streamingBehavior: 'followUp' });
     // A prompt that joined an already streaming run returns at once; its outcome is that run's.
     await session.waitForIdle();
@@ -220,10 +219,12 @@ function runPrompt(text) {
   }
 
   const id = `p${randomBytes(6).toString('hex')}`;
-  queued.add(id);
+  // Log first: a failed write rejects the request and leaves no phantom queued prompt.
   appendLog({ event: 'queued', id });
+  queued.add(id);
+  // Nothing handles the queue: a task can reject only if fail() itself fails, and that crashes
+  // the runner instead of stalling the prompts behind it.
   queue = queue.then(() => runOnePrompt(id, text));
-  void queue.catch(() => {});
   return id;
 }
 
@@ -232,20 +233,25 @@ function busyForCompact() {
 }
 
 async function runOneCompact(instructions) {
+  let reply;
   try {
     await session.compact(instructions);
-    if (!terminal) {
-      appendLog({ event: 'compacted' });
-    }
-    return { ok: true };
+    reply = { ok: true };
   } catch (error) {
-    if (!terminal) {
-      appendLog({ event: 'compact_failed', reason: error.message });
-    }
-    return { ok: false, error: error.message };
+    reply = { ok: false, error: error.message };
   } finally {
     compacting = false;
   }
+
+  // A compaction error is its outcome; a log failure is the runner's, like in runOnePrompt.
+  try {
+    if (!terminal) {
+      appendLog(reply.ok ? { event: 'compacted' } : { event: 'compact_failed', reason: reply.error });
+    }
+  } catch (error) {
+    await fail(error);
+  }
+  return reply;
 }
 
 function runCompact(instructions) {
@@ -259,7 +265,8 @@ function runCompact(instructions) {
   compacting = true;
   const compactInstructions = typeof instructions === 'string' && instructions.length > 0 ? instructions : undefined;
   const task = queue.then(() => runOneCompact(compactInstructions));
-  queue = task.then(() => undefined, () => undefined);
+  // The pipe handles task; this unhandled tail crashes the runner if task rejects, as for prompts.
+  queue = task.then(() => undefined);
   return task;
 }
 
