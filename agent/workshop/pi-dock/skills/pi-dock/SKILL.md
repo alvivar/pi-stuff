@@ -118,6 +118,8 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 {event:"turn", id?}                a model turn started
 {event:"text", id?, text}          assistant text of a finished turn
 {event:"external", id?, type}      a custom extension message of this type entered the context
+{event:"extension_error", id?, extension, on, reason}
+                                   an extension handler for event `on` threw; the agent goes on
 {event:"done", id}                 the run finished (not terminal)
 {event:"run_failed", id, reason}   the run ended in an unrecovered error or abort; agent stays on
 {event:"compacted"}  {event:"compact_failed", reason}
@@ -142,6 +144,10 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
   what caused a turn, and not that the model acted on it. Absence proves nothing: extension
   prompts sent as user messages, and messages queued but lost to a stop or abort, log no
   `external`.
+- `extension_error` names the extension file (`extension`) and the event its handler threw on
+  (`on`), with the error message as `reason`. Pi catches the error and the agent keeps working:
+  it is not a state change, and it follows the same id rule. Errors raised once the agent is
+  stopping or failing are not logged, so `stopped`/`failed` always stays the last event.
 
 ## Recovery
 

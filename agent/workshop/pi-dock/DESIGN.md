@@ -192,6 +192,10 @@ Log events (append-only NDJSON, one fact per line, each with `ts`):
 {event:"turn", id?}                 turn start
 {event:"text", id?, text}           assistant text of a finished turn (non-empty)
 {event:"external", id?, type}       a custom message entered the context (non-terminal)
+{event:"extension_error", id?, extension, on, reason}
+                                    an extension handler threw (SDK onError); extension = its
+                                    path, on = its event, reason = the message (non-terminal;
+                                    dropped once shutdown begins, so terminal stays last)
 {event:"done", id}                  run complete (non-terminal)
 {event:"run_failed", id, reason}    run ended in an unrecovered error/abort (non-terminal)
 {event:"compacted"} | {event:"compact_failed", reason}                (non-terminal)

@@ -395,6 +395,20 @@ try {
     shutdownHandler: () => {
       void stopSoon();
     },
+    // The SDK catches a handler's throw and the agent carries on; only the log records it.
+    onError: ({ extensionPath, event, error }) => {
+      // Like session events: once shutdown begins, nothing may follow the terminal event.
+      if (terminal) {
+        return;
+      }
+      appendLog({
+        event: 'extension_error',
+        ...(current && { id: current }),
+        extension: extensionPath,
+        on: event,
+        reason: error,
+      });
+    },
   });
 
   settleStartup();

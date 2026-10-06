@@ -86,6 +86,13 @@ this checkout, dated by the day it was completed.
   started (for example a remote compaction through pi-link), the agent showed as `idle`, and
   `pi-dock compact` was accepted and cancelled it.
 
+- **Errors thrown by extension handlers are logged.** Pi catches them and the agent keeps
+  working, but nothing recorded them: an extension whose `session_start` threw left only
+  `spawned` in the log. Each one is now logged as
+  `extension_error {id?, extension, on, reason}`: the extension's file, the event its handler
+  ran for, and the error message. Errors raised once the agent is stopping are not logged, so
+  the terminal event stays last.
+
 ---
 
 ## 0.2.0 — 2026-10-01

@@ -1249,7 +1249,8 @@ async function main() {
     // A project extension that compacts when the trigger file appears and, for compactions with
     // the instructions 'hold', holds session_before_compact while the hold file exists and the
     // compaction is not aborted, then supplies a local summary (no LLM). It also holds
-    // session_compact_failed while the hold file exists. keepRecentTokens 1 leaves earlier turns to summarize.
+    // session_compact_failed while the hold file exists, then throws. keepRecentTokens 1 leaves
+    // earlier turns to summarize.
     const compactName = `compact-${randomUUID()}`;
     const compactCwd = path.join(sandbox, 'compact-cwd');
     const compactRecord = path.join(compactCwd, 'compactions.log');
@@ -1281,6 +1282,7 @@ async function main() {
       `    while (existsSync(${JSON.stringify(compactHold)})) {`,
       '      await new Promise((resolve) => setTimeout(resolve, 50));',
       '    }',
+      "    throw new Error('failure hook broke');",
       '  });',
       '}',
       '',
@@ -1329,7 +1331,58 @@ async function main() {
     assert.deepEqual(await request(pipePath(compactName), { cmd: 'compact' }, 5000), { ok: false, error: 'busy' }, 'compact is busy until the pending CLI compaction settles');
     await fs.rm(compactHold);
     assert.deepEqual(await failingCompact, exited(1, '', 'Already compacted\n'), 'the pending CLI compaction fails with its reason');
-    await stop(compactName, compactor);
+
+    // Stop while a failure hook is held: the runner logs stopped and waits for the pending
+    // compact; the hook then throws, and nothing may follow the terminal event.
+    await fs.writeFile(compactHold, '');
+    await fs.rm(compactRecord);
+    const lateCompact = runOwnedNode(sandbox, cli, ['compact', compactName]);
+    await recorded('compact_failed Compaction failed: Already compacted');
+    const stopping = runOwnedNode(sandbox, cli, ['stop', compactName]);
+    await waitForLog(dock, compactName, (all) => all.at(-1).event === 'stopped');
+    await fs.rm(compactHold);
+    assert.deepEqual(await stopping, exited(0, `${compactName} stopped\n`, ''));
+    assert.deepEqual(await lateCompact, exited(1, '', 'Already compacted\n'), 'the compact pending at stop still gets its reply');
+    await waitForExit(compactor);
+    assert.equal((await logEvents(dock, compactName)).at(-1).event, 'stopped', 'an extension error during shutdown does not follow the terminal event');
+    assert.equal(stateFromLs((await runOwnedNode(sandbox, cli, ['ls'])).stdout, compactName), 'stopped', 'ls still shows the agent stopped');
+    assert.match((await runOwnedNode(sandbox, cli, ['show', compactName])).stdout, /^state stopped$/m, 'show still shows the agent stopped');
+
+    // A project extension whose session_start and turn_start handlers throw.
+    const throwsName = `throws-${randomUUID()}`;
+    const throwsCwd = path.join(sandbox, 'throws-cwd');
+    const throwsExtension = path.join(throwsCwd, '.pi', 'extensions', 'throws.js');
+    await fs.mkdir(path.dirname(throwsExtension), { recursive: true });
+    await fs.writeFile(throwsExtension, [
+      'export default function (pi) {',
+      "  pi.on('session_start', () => { throw new Error('start broke'); });",
+      "  pi.on('turn_start', () => { throw new Error('turn broke'); });",
+      '}',
+      '',
+    ].join('\n'));
+    const throwsCreated = own(launchRunner(sandbox, ['--name', throwsName, '--cwd', throwsCwd, '--model', 'regress/alpha-2', '--create']), throwsName);
+    assert(await waitForStatus(pipePath(throwsName)), 'a runner whose extension throws starts');
+    await stop(throwsName, throwsCreated);
+    since = (await logEvents(dock, throwsName)).length;
+    try {
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', throwsName]), exited(0, `${throwsName} idle regress/alpha-2\n`, ''), 'start succeeds although a session_start handler throws');
+      provider.replies.push(textReply('still works'));
+      const throwsId = await send(throwsName, 'hello');
+      assert.equal((await wait(throwsName, throwsId)).stdout, 'still works\n', 'a throwing turn_start handler does not stop the run');
+      assert.deepEqual(withoutTimes((await logEvents(dock, throwsName)).slice(since)), [
+        { event: 'extension_error', extension: throwsExtension, on: 'session_start', reason: 'start broke' },
+        { event: 'queued', id: throwsId },
+        { event: 'run', id: throwsId },
+        { event: 'extension_error', id: throwsId, extension: throwsExtension, on: 'turn_start', reason: 'turn broke' },
+        { event: 'turn', id: throwsId },
+        { event: 'text', id: throwsId, text: 'still works' },
+        { event: 'done', id: throwsId },
+      ], 'extension handler errors are logged, with the prompt id during a run');
+      const throwsLogs = (await runOwnedNode(sandbox, cli, ['logs', throwsName])).stdout.split('\n');
+      assert(throwsLogs.some((line) => line.endsWith(` extension_error extension=${throwsExtension} on=session_start reason=start broke`)), 'logs renders an extension error on one line');
+    } finally {
+      assert.equal((await runOwnedNode(sandbox, cli, ['stop', throwsName])).stdout, `${throwsName} stopped\n`);
+    }
 
     assert.equal(provider.unexpected(), 0, 'the faux provider received only scripted requests');
 
@@ -1369,7 +1422,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 64 cases passed');
+    console.log('regression: 66 cases passed');
   } catch (error) {
     primaryError = error;
   }
