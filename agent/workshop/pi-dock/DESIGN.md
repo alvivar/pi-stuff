@@ -112,8 +112,8 @@ generates the help's usage section.
 14. **`compact [instructions]`** is idle-only (`agent <name> is busy` otherwise, including
     queued prompts and any compaction in progress, whoever started it; `status` reports such
     a compaction as `compacting`), wakes an off agent and leaves it on, and waits without a
-    timeout for the runner's reply. It logs `compacted`, or `compact_failed {reason}` and exits
-    1 with the reason (e.g. `Nothing to compact (session too small)`).
+    timeout for the runner's reply. A failure exits 1 with the reason (e.g.
+    `Nothing to compact (session too small)`). The outcome is logged like any compaction's.
 15. **Extension flags** `--x key[=value]` are opaque pass-through
     (`extensionFlagValues`); pi-dock has zero pi-link knowledge. Unknown flags are inert.
     Runners bind extensions in `mode: 'print'` without a UI context, so extensions get the SDK's
@@ -198,7 +198,16 @@ Log events (append-only NDJSON, one fact per line, each with `ts`):
                                     dropped once shutdown begins, so terminal stays last)
 {event:"done", id}                  run complete (non-terminal)
 {event:"run_failed", id, reason}    run ended in an unrecovered error/abort (non-terminal)
-{event:"compacted"} | {event:"compact_failed", reason}                (non-terminal)
+{event:"compacted", id?}            a compaction succeeded, whoever started it: pi-dock compact,
+                                    an extension, or the SDK (threshold/overflow). The session
+                                    subscription logs one outcome per SDK compaction_end (which
+                                    may come without a start); runOneCompact only replies.
+                                    id = the run it happened in, for correlation only: it never
+                                    ends the run (non-terminal; dropped once shutdown begins)
+{event:"compact_failed", id?, reason}
+                                    it failed; reason = the SDK's errorMessage, e.g.
+                                    `Compaction failed: …` (the CLI prints the bare error)
+{event:"compact_cancelled", id?}    it was aborted, or an extension cancelled it
 {event:"dropped", ids}              queued prompts lost to shutdown, just before terminal
 {event:"stopped", id?} | {event:"failed", id?, reason}                terminal
 ```

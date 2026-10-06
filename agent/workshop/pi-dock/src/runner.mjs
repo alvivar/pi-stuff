@@ -150,6 +150,27 @@ function subscribeToSession() {
       if (text) {
         appendLog({ event: 'text', ...(current && { id: current }), text });
       }
+      return;
+    }
+
+    // Every compaction's one outcome, whoever started it: pi-dock compact, an extension or the
+    // SDK's automatic compaction. compaction_end may come without a compaction_start.
+    if (event.type === 'compaction_end') {
+      const id = current && { id: current };
+      try {
+        if (event.result) {
+          appendLog({ event: 'compacted', ...id });
+        } else if (event.aborted) {
+          appendLog({ event: 'compact_cancelled', ...id });
+        } else {
+          appendLog({ event: 'compact_failed', ...id, reason: event.errorMessage });
+        }
+      } catch (error) {
+        // Thrown into the SDK, the error would turn into a failed compaction and the runner would
+        // carry on. It fails instead, as when it cannot log a prompt's outcome; if it cannot log
+        // that either, the unhandled rejection crashes it.
+        void fail(error);
+      }
     }
   });
 }
@@ -198,26 +219,16 @@ function busyForCompact() {
   return current || compacting || queued.size > 0 || session?.isStreaming || session?.isCompacting;
 }
 
+// Replies only: the session subscription logs the outcome, as for every compaction.
 async function runOneCompact(instructions) {
-  let reply;
   try {
     await session.compact(instructions);
-    reply = { ok: true };
+    return { ok: true };
   } catch (error) {
-    reply = { ok: false, error: error.message };
+    return { ok: false, error: error.message };
   } finally {
     compacting = false;
   }
-
-  // A compaction error is its outcome; a log failure is the runner's, like in runOnePrompt.
-  try {
-    if (!terminal) {
-      appendLog(reply.ok ? { event: 'compacted' } : { event: 'compact_failed', reason: reply.error });
-    }
-  } catch (error) {
-    await fail(error);
-  }
-  return reply;
 }
 
 function runCompact(instructions) {

@@ -101,8 +101,7 @@ of every command.
   (`agent <name> is busy` otherwise, including while prompts are queued or another compaction,
   such as one an extension started, is in progress), wakes an off agent and leaves it on, and
   waits without a timeout for the result; Ctrl-C only stops waiting, not the compaction. All
-  remaining arguments form the instructions. A failed compaction exits 1 with its reason and is
-  logged as `compact_failed`.
+  remaining arguments form the instructions. A failed compaction exits 1 with its reason.
 
 ## Reading logs
 
@@ -122,12 +121,17 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
                                    an extension handler for event `on` threw; the agent goes on
 {event:"done", id}                 the run finished (not terminal)
 {event:"run_failed", id, reason}   the run ended in an unrecovered error or abort; agent stays on
-{event:"compacted"}  {event:"compact_failed", reason}
+{event:"compacted", id?}           a compaction finished, whoever started it: pi-dock compact,
+                                   an extension, or Pi when the context grew too large
+{event:"compact_failed", id?, reason}
+                                   it failed; reason is Pi's message, e.g. "Compaction failed: …"
+{event:"compact_cancelled", id?}   it was cancelled or aborted
 {event:"dropped", ids}             queued prompts that never ran, just before stopped/failed
 {event:"stopped", id?}  {event:"failed", id?, reason}
                                    terminal; id is the run they interrupted
 ```
 
+- A compaction event's `id` is the run it happened in; it never ends that run.
 - `done` proves that run ended, not that the agent is idle: queued prompts or extension work
   may keep it running. Use `ls` or `show` for the state.
 - `done` of an initial mission does not end a collaboration: extension callbacks (e.g. pi-link

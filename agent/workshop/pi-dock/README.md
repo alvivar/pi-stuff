@@ -184,7 +184,9 @@ turns appear in the agent's log, and they fall under the "no limits" warning abo
 `pi-dock compact <name> [instructions]` compacts the agent's session. The agent must be idle
 (no run, no queued prompts); a stopped agent is woken first and stays on. It waits without a
 timeout for the result and exits 1 with the reason when compaction fails (e.g.
-`Nothing to compact (session too small)`).
+`Nothing to compact (session too small)`). The log records the outcome of every compaction
+(`compacted`, `compact_failed` or `compact_cancelled`), including those an extension or Pi
+itself starts.
 
 ### Recovery
 

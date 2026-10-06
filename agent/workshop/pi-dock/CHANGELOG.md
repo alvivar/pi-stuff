@@ -35,6 +35,15 @@ their version is cut, so a new entry may not have one yet.
   `manifest model missing … set --model <provider/id> to repair`; delete the agent's
   `<name>.json` and `<name>.log` and spawn it again. (`47c1dd0`)
 
+- **Every compaction is logged, whoever started it.** Before, only `pi-dock compact` logged
+  `compacted` or `compact_failed`; a compaction started by an extension (such as pi-link's
+  `link_compact`) or by Pi when the context grew too large left no event. Each compaction now
+  logs one outcome, with the `id` of the run it happened in, if any; it never ends that run. A
+  cancelled or aborted compaction logs the new `compact_cancelled` instead of `compact_failed`,
+  and `compact_failed`'s `reason` is now Pi's message (e.g.
+  `Compaction failed: Nothing to compact (session too small)`); `compact` still prints the
+  bare error.
+
 ### Added
 
 - **`pi-dock stop <name>...` stops several agents.** The whole list is checked first: an
