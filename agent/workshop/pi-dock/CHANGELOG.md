@@ -56,6 +56,12 @@ this checkout, dated by the day it was completed.
   directory. Now only `spawn` creates; a wake without a manifest logs `failed` with the
   missing file and exits, and the command reports the failed handshake.
 
+- **`stop` reports `already stopped|failed` only when nothing listens on the agent's pipe.**
+  Before, any pipe error other than a timeout counted as already off, so a connection closed
+  before the reply, or a reply that is not JSON, printed `<name> already failed` and exited 0
+  while the agent could still be running. Those errors now fail that agent with
+  `agent <name> <error>` on stderr, and `stop` exits 1.
+
 ---
 
 ## 0.2.0 — 2026-10-01

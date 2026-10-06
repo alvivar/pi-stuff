@@ -718,10 +718,14 @@ async function stopAgent({ name, pipe }) {
   try {
     reply = await request(pipe, { cmd: 'stop' }, PIPE_REQUEST_TIMEOUT_MS);
   } catch (error) {
+    // Only nobody listening proves the agent is off; any other failure leaves it possibly alive.
+    if (pipeAbsent(error)) {
+      return `already ${stateFromLog(name)}`;
+    }
     if (isTimeout(error)) {
       throw new Error('is not responding');
     }
-    return `already ${stateFromLog(name)}`;
+    throw error;
   }
   if (!reply.ok) {
     throw new Error(`refused stop: ${JSON.stringify(reply)}`);

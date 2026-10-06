@@ -800,6 +800,7 @@ async function main() {
       assert.equal(malformedSet.stderr.trim(), `agent ${malformedSetName} liveness check failed: invalid status reply`);
       assert.equal(malformedSet.stderr.includes(malformedSentinel), false, 'malformed payload does not leak into diagnostic');
       assert.deepEqual(await fs.readFile(malformedSetFile), beforeMalformedSet, 'malformed status refusal preserves manifest bytes');
+      assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', malformedSetName]), { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} Unexpected token 'M', "MALFORMED_"... is not valid JSON\n` }, 'a non-JSON stop reply is a failure, not already stopped');
     });
 
     const regressModel = { reasoning: false, input: ['text'] };
@@ -908,6 +909,7 @@ async function main() {
         assert.equal(closedAccepted, 1, `${cmd} mid-request close is not retried`);
       }
       await assert.rejects(fs.access(path.join(dock, `${closedName}.log`)), { code: 'ENOENT' }, 'mid-request close does not wake a runner');
+      assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', closedName]), { code: 1, signal: null, stdout: '', stderr: `agent ${closedName} pipe closed before reply\n` }, 'a stop closed before its reply is a failure, not already stopped');
     });
 
     const own = (child, name) => {
@@ -1191,7 +1193,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 50 cases passed');
+    console.log('regression: 52 cases passed');
   } catch (error) {
     primaryError = error;
   }
