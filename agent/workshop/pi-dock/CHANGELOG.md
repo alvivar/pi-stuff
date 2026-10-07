@@ -11,6 +11,18 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **A woken agent keeps its cwd even before its first message.** Pi writes the session file
+  only after the first message, so an agent stopped before any has none. Waking it from another
+  directory gave its session that directory: the session file recorded it, and resuming the
+  session in Pi opened there, while the agent's tools and extensions used the agent's cwd. The
+  session now always takes the agent's cwd.
+
+---
+
 ## 0.3.0 — 2026-10-06
 
 ### Breaking changes

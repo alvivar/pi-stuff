@@ -331,7 +331,11 @@ try {
   });
   const modelSpec = createMode ? values.model : existing.model;
   const model = modelSpec ? findModel(services.modelRuntime, modelSpec) : undefined;
-  const sessionManager = createMode ? SessionManager.create(cwd) : SessionManager.open(existing.sessionFile);
+  // The session file is written only after the first message; without the cwd override, opening
+  // a missing one would start a session in the waker's cwd instead of the agent's.
+  const sessionManager = createMode
+    ? SessionManager.create(cwd)
+    : SessionManager.open(existing.sessionFile, undefined, cwd);
   ({ session } = await createAgentSessionFromServices({
     services,
     sessionManager,

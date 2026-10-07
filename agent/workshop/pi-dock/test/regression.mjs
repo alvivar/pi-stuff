@@ -1099,6 +1099,21 @@ async function main() {
       { event: 'stopped' },
     ], 'a stop while waiting for idle drops the pipe prompt instead of interrupting it');
 
+    // An agent stopped before any message has no session file. Woken from this process's cwd, it
+    // keeps its own: the session header written by its first message records corrCwd.
+    const freshName = `fresh-${randomUUID()}`;
+    const fresh = own(launchRunner(sandbox, ['--name', freshName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--create']), freshName);
+    assert(await waitForStatus(pipePath(freshName)), 'fresh runner starts');
+    await stop(freshName, fresh);
+    const { sessionFile: freshSession } = JSON.parse(await fs.readFile(path.join(dock, `${freshName}.json`), 'utf8'));
+    await assert.rejects(fs.access(freshSession), { code: 'ENOENT' }, 'an agent without messages has no session file');
+    const freshWoken = own(launchRunner(sandbox, ['--name', freshName]), freshName);
+    provider.replies.push(textReply('fresh reply'));
+    assert.equal((await wait(freshName, await send(freshName, 'fresh work'))).stdout, 'fresh reply\n');
+    const freshHeader = JSON.parse((await fs.readFile(freshSession, 'utf8')).split('\n')[0]);
+    assert.equal(freshHeader.cwd, corrCwd, 'a woken agent without a session file keeps its cwd');
+    await stop(freshName, freshWoken);
+
     const multiName = `multi-${randomUUID()}`;
     const multi = own(launchRunner(sandbox, ['--name', multiName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--create']), multiName);
     const corrWoken = own(launchRunner(sandbox, ['--name', corrName]), corrName);
@@ -1595,7 +1610,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 78 cases passed');
+    console.log('regression: 79 cases passed');
   } catch (error) {
     primaryError = error;
   }
