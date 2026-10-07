@@ -1,8 +1,15 @@
 ---
-description: Reassess the smallest solution that meets the goal
-argument-hint: "[proposal or goal]"
+description: Propose the minimal implementation that meets the goal
+argument-hint: "[work]"
 ---
 
-Reassess $ARGUMENTS against the original goal. If no subject is supplied, use the current proposal.
+Propose the minimal implementation for ${ARGUMENTS:-the work established in the current discussion}.
 
-What can we accomplish with what already exists? Propose the smallest solution that satisfies the goal, keeping verification and safeguards justified by concrete risks. Separate what is necessary now from optional improvements. Question the need for the architecture before refining its implementation. If the current solution is already appropriate, say so. Do not make changes.
+- Start from the original goal and what already exists. Question the need for new architecture before refining it.
+- Aim for the simplest readable, idiomatic code that satisfies the requirements. Don't favor fewer lines over clarity.
+- Keep changes focused. Prefer direct solutions over speculative abstractions.
+- Include abstractions, dependencies, checks, fallbacks, and tests only for a concrete need or risk in the current task. When requirements are ambiguous, state the assumption rather than covering every interpretation.
+- Rely on contracts already guaranteed by types, callers, or other layers. Make failures explicit; never silently mask them.
+- Treat unjustified complexity as a defect. Justify each addition with a concrete need or risk.
+
+Propose only. Do not modify files or initiate orchestration.
