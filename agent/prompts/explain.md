@@ -1,5 +1,5 @@
 ---
-description: Explain
+description: Explain a topic clearly
 argument-hint: "[topic]"
 ---
 

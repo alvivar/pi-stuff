@@ -1,6 +1,6 @@
 ---
 description: Review work for concrete, prioritized findings
-argument-hint: "[scope]"
+argument-hint: "[work]"
 ---
 
 Review ${ARGUMENTS:-the work established in the current discussion}.
