@@ -21,6 +21,11 @@ their version is cut, so a new entry may not have one yet.
   session in Pi opened there, while the agent's tools and extensions used the agent's cwd. The
   session now always takes the agent's cwd.
 
+- **Extensions that fail to load are logged.** An extension whose import or setup threw was
+  left out without a trace, while `spawn` and `start` succeeded. Each one now logs
+  `extension_error` with `on: load`, its path as `extension` and Pi's message as `reason`
+  (e.g. `Failed to load extension: …`); the agent goes on without it.
+
 ---
 
 ## 0.3.0 — 2026-10-06

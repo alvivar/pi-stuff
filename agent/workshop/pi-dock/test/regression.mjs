@@ -1114,6 +1114,27 @@ async function main() {
     assert.equal(freshHeader.cwd, corrCwd, 'a woken agent without a session file keeps its cwd');
     await stop(freshName, freshWoken);
 
+    // An extension that fails to load is logged once, and the agent works without it.
+    const brokenCwd = path.join(sandbox, 'broken-cwd');
+    const brokenExtension = path.join(brokenCwd, '.pi', 'extensions', 'broken.js');
+    await fs.mkdir(path.dirname(brokenExtension), { recursive: true });
+    await fs.writeFile(brokenExtension, "throw new Error('broken at load');\n");
+    const brokenName = `broken-${randomUUID()}`;
+    const broken = own(launchRunner(sandbox, ['--name', brokenName, '--cwd', brokenCwd, '--model', 'regress/alpha-2', '--create']), brokenName);
+    assert.equal((await waitForStatus(pipePath(brokenName))).state, 'idle', 'an agent with a broken extension starts idle');
+    provider.replies.push(textReply('still works'));
+    const brokenId = await send(brokenName, 'work');
+    assert.equal((await wait(brokenName, brokenId)).stdout, 'still works\n');
+    assert.deepEqual(withoutTimes(await logEvents(dock, brokenName)), [
+      { event: 'extension_error', extension: brokenExtension, on: 'load', reason: 'Failed to load extension: broken at load' },
+      { event: 'queued', id: brokenId },
+      { event: 'run', id: brokenId },
+      { event: 'turn', id: brokenId },
+      { event: 'text', id: brokenId, text: 'still works' },
+      { event: 'done', id: brokenId },
+    ], 'the load error is logged once, before any work');
+    await stop(brokenName, broken);
+
     const multiName = `multi-${randomUUID()}`;
     const multi = own(launchRunner(sandbox, ['--name', multiName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--create']), multiName);
     const corrWoken = own(launchRunner(sandbox, ['--name', corrName]), corrName);
@@ -1610,7 +1631,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 79 cases passed');
+    console.log('regression: 80 cases passed');
   } catch (error) {
     primaryError = error;
   }

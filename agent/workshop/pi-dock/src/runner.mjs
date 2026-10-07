@@ -336,7 +336,8 @@ try {
   const sessionManager = createMode
     ? SessionManager.create(cwd)
     : SessionManager.open(existing.sessionFile, undefined, cwd);
-  ({ session } = await createAgentSessionFromServices({
+  let extensionsResult;
+  ({ session, extensionsResult } = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(model ? { model } : {}),
@@ -371,6 +372,12 @@ try {
       }
       throw error;
     }
+  }
+
+  // The SDK returns extensions that failed to load instead of reporting them to onError. Like a
+  // handler's error, each is only logged; the agent goes on without that extension.
+  for (const { path: extension, error } of extensionsResult.errors) {
+    appendLog({ event: 'extension_error', extension, on: 'load', reason: error });
   }
 
   subscribeToSession();

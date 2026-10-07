@@ -195,7 +195,9 @@ Log events (append-only NDJSON, one fact per line, each with `ts`):
 {event:"extension_error", id?, extension, on, reason}
                                     an extension handler threw (SDK onError); extension = its
                                     path, on = its event, reason = the message (non-terminal;
-                                    dropped once shutdown begins, so terminal stays last)
+                                    dropped once shutdown begins, so terminal stays last).
+                                    Also, once per boot before any work, each extension the SDK
+                                    failed to load (extensionsResult.errors): on = load, no id
 {event:"done", id}                  run complete (non-terminal)
 {event:"run_failed", id, reason}    run ended in an unrecovered error/abort (non-terminal)
 {event:"compacted", id?}            a compaction succeeded, whoever started it: pi-dock compact,

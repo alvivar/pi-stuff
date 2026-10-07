@@ -119,7 +119,8 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 {event:"text", id?, text}          assistant text of a finished turn
 {event:"external", id?, type}      a custom extension message of this type entered the context
 {event:"extension_error", id?, extension, on, reason}
-                                   an extension handler for event `on` threw; the agent goes on
+                                   an extension handler for event `on` threw, or with `on` load
+                                   the extension failed to load; the agent goes on
 {event:"done", id}                 the run finished (not terminal)
 {event:"run_failed", id, reason}   the run ended in an unrecovered error or abort; agent stays on
 {event:"compacted", id?}           a compaction finished, whoever started it: pi-dock compact,
@@ -153,6 +154,8 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
   (`on`), with the error message as `reason`. Pi catches the error and the agent keeps working:
   it is not a state change, and it follows the same id rule. Errors raised once the agent is
   stopping or failing are not logged, so `stopped`/`failed` always stays the last event.
+  An extension that fails to load logs one `extension_error` with `on` load and no id each time
+  the agent boots; the agent works without it.
 
 ## Recovery
 

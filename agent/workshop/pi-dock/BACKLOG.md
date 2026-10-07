@@ -51,7 +51,7 @@ Everything not yet built or decided. Contracts live in `DESIGN.md`; shipped work
 | A `spawn` racing a stopped agent of the same name can leave an extra `spawned`; `ls` shows `failed` until the next wake. | No damage; the next wake fixes it; very rare race. | Seen in real use. |
 | While a runner starts, `start`/`stop`/`wait` wait up to 3 s, then say `not responding`; `ls`/`show` show `not-responding`. | True: it doesn't answer yet. Before, a second runner was launched. | A normal boot takes over 3 s. |
 | A failed log write from session events (`turn`, `text`, `external`) or `onError` throws inside the SDK; in tests it ended in `fail()`. | The observed outcome is already explicit. | A log failure that does not end in `failed`. |
-| Extension errors after shutdown begins are not logged; extension load (import) errors never reach `onError`. | Keeps `stopped`/`failed` the last event; loading is a separate SDK path. | Shutdown errors need diagnosing. |
+| Extension errors after shutdown begins are not logged. | Keeps `stopped`/`failed` the last event. | Shutdown errors need diagnosing. |
 | `textFromMessage` trusts that `turn_end` carries an assistant message. | Guaranteed by the SDK 0.99.2 emitters, not by its public types. | The SDK is upgraded. |
 | A pipe request relies on `'close'` (no `'end'` handler). | Correct with our runner, the only peer. | Another process talks on the pipe. |
 | A non-JSON pipe reply is reported with Node's raw error, which shows its first 10 characters. | The pipe belongs to our own runner. | Sensitive data crosses the pipe. |
