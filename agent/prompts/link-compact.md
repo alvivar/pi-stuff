@@ -1,5 +1,5 @@
 ---
-description: Ask compactor to compact this terminal and report completion
+description: Ask compactor to compact this terminal and report result
 ---
 
-Ask `compactor` to run `link_compact` on you. Specify what context to preserve in the prompt, and ask it to notify you via `link_send` when complete.
+Ask `compactor` to run `link_compact` on you. Specify what context to preserve, and ask it to report the result via `link_send`.
