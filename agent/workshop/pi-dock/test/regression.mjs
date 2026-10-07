@@ -472,6 +472,8 @@ async function main() {
     assert.equal(validSegmentedResult.stderr.trim(), `no such agent: ${validSegmentedName}`);
 
     const raceName = 'manifest-race';
+    // The runner creates the dock dir before it writes a manifest; these workers skip the runner.
+    await fs.mkdir(dock, { recursive: true });
     const racers = await Promise.all(Array.from({ length: 12 }, (_, index) => runWorker(sandbox, 'create', raceName, `racer-${index}`)));
     const winners = racers.filter((result) => result.ok);
     const losers = racers.filter((result) => !result.ok);

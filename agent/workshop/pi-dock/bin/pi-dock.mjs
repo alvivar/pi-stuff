@@ -288,11 +288,7 @@ function lastCompleteLogEvent(name) {
 
 function stateFromLog(name) {
   const event = lastCompleteLogEvent(name);
-  if (event?.event === 'stopped' || event?.event === 'failed') {
-    return event.event;
-  }
-
-  return 'failed';
+  return event?.event === 'stopped' ? 'stopped' : 'failed';
 }
 
 function formatAge(startedAt) {
@@ -379,7 +375,7 @@ async function spawnCommand(argv) {
 }
 
 async function wake(manifest) {
-  launchRunner(manifest.name, { thinking: manifest.thinking, flags: manifest.flags });
+  launchRunner(manifest.name);
   const result = await handshake(manifest.name);
   if (!result) {
     reportHandshakeFailure(manifest.name);
@@ -706,7 +702,7 @@ async function compactCommand(argv) {
     if (reply.error === 'busy') {
       fail(`agent ${name} is busy`);
     }
-    fail(reply.error ?? JSON.stringify(reply));
+    fail(reply.error);
   }
 
   console.log('compacted');

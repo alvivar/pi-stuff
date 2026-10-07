@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { ensureDockDir, manifestPath } from './paths.mjs';
+import { dockDir, ensureDockDir, manifestPath } from './paths.mjs';
 
 export class ManifestExistsError extends Error {
   constructor(name) {
@@ -15,17 +15,13 @@ async function removeOwnedTempManifest(tmp) {
 }
 
 async function writeTempManifest(name, manifest) {
-  const dir = await ensureDockDir();
-  const tmp = path.join(dir, `${name}.json.${process.pid}.${randomUUID()}.tmp`);
+  const tmp = path.join(dockDir(), `${name}.json.${process.pid}.${randomUUID()}.tmp`);
   const body = `${JSON.stringify(manifest)}\n`;
-  const handle = await fs.open(tmp, 'wx');
 
   try {
-    await handle.writeFile(body);
-    await handle.close();
+    await fs.writeFile(tmp, body, { flag: 'wx' });
     return tmp;
   } catch (error) {
-    await handle.close().catch(() => {});
     await removeOwnedTempManifest(tmp);
     throw error;
   }

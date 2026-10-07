@@ -10,8 +10,7 @@ const WINDOWS_RESERVED_BASENAMES = new Set([
 ]);
 
 export function validateAgentName(name) {
-  const basename = typeof name === 'string' ? name.split('.', 1)[0].toLowerCase() : '';
-  if (typeof name !== 'string' || name.length === 0 || name.length > 64 || !AGENT_NAME_PATTERN.test(name) || WINDOWS_RESERVED_BASENAMES.has(basename)) {
+  if (typeof name !== 'string' || name.length > 64 || !AGENT_NAME_PATTERN.test(name) || WINDOWS_RESERVED_BASENAMES.has(name.split('.', 1)[0])) {
     throw new Error(`invalid agent name: ${String(name)}`);
   }
   return name;

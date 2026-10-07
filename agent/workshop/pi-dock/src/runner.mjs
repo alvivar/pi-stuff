@@ -201,7 +201,7 @@ async function runOnePrompt(id, text) {
 }
 
 function runPrompt(text) {
-  if (terminal || !session) {
+  if (terminal) {
     return undefined;
   }
 
@@ -216,7 +216,7 @@ function runPrompt(text) {
 }
 
 function busyForCompact() {
-  return current || compacting || queued.size > 0 || session?.isStreaming || session?.isCompacting;
+  return current || compacting || queued.size > 0 || session.isStreaming || session.isCompacting;
 }
 
 // Replies only: the session subscription logs the outcome, as for every compaction.
@@ -232,7 +232,7 @@ async function runOneCompact(instructions) {
 }
 
 function runCompact(instructions) {
-  if (terminal || !session) {
+  if (terminal) {
     return { ok: false, error: 'terminal' };
   }
   if (busyForCompact()) {
@@ -277,7 +277,7 @@ try {
   server = serve(pipe, async (msg) => {
     await startup;
     if (msg.cmd === 'status') {
-      if (terminal || !session) {
+      if (terminal) {
         return { ok: false, error: 'terminal' };
       }
 
