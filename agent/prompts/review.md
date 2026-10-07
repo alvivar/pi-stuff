@@ -11,4 +11,4 @@ Review ${ARGUMENTS:-the work established in the current discussion}.
 - Flag redundant checks of contracts already guaranteed by types, callers, or other layers. Flag failures that are silently masked.
 - Treat unjustified complexity as a defect. Every requested addition must cite a concrete need or risk.
 
-Review only. Do not modify files or initiate orchestration.
+Do not modify files or initiate orchestration.

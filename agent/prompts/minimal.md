@@ -12,4 +12,4 @@ Propose the minimal implementation for ${ARGUMENTS:-the work established in the 
 - Rely on contracts already guaranteed by types, callers, or other layers. Make failures explicit; never silently mask them.
 - Treat unjustified complexity as a defect. Justify each addition with a concrete need or risk.
 
-Propose only. Do not modify files or initiate orchestration.
+Do not modify files or initiate orchestration.
