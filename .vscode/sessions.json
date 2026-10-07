@@ -61,15 +61,6 @@
         ]
       },
       {
-        "name": "docs",
-        "icon": "book",
-        "color": "terminal.ansiBrightCyan",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link docs@pi-link"
-        ]
-      },
-      {
         "name": "test1",
         "icon": "beaker",
         "color": "terminal.ansiBrightCyan",
@@ -274,15 +265,6 @@
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link fixer@pi-bugs"
-        ]
-      },
-      {
-        "name": "docs",
-        "icon": "book",
-        "color": "terminal.ansiBrightCyan",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link docs@pi-bugs"
         ]
       },
       {
