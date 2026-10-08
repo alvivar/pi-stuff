@@ -1137,6 +1137,28 @@ async function main() {
     ], 'the load error is logged once, before any work');
     await stop(brokenName, broken);
 
+    // stop sends extensions session_shutdown once, before the runner logs stopped: the handler
+    // records the log's last event at that moment.
+    const shutdownName = `shutdown-${randomUUID()}`;
+    const shutdownCwd = path.join(sandbox, 'shutdown-cwd');
+    const shutdownRecord = path.join(shutdownCwd, 'shutdowns.log');
+    await fs.mkdir(path.join(shutdownCwd, '.pi', 'extensions'), { recursive: true });
+    await fs.writeFile(path.join(shutdownCwd, '.pi', 'extensions', 'shutdown.js'), [
+      "import { appendFileSync, readFileSync } from 'node:fs';",
+      'export default function (pi) {',
+      "  pi.on('session_shutdown', (event) => {",
+      `    const last = JSON.parse(readFileSync(${JSON.stringify(path.join(dock, `${shutdownName}.log`))}, 'utf8').trim().split('\\n').at(-1)).event;`,
+      `    appendFileSync(${JSON.stringify(shutdownRecord)}, \`\${event.reason} after \${last}\\n\`);`,
+      '  });',
+      '}',
+      '',
+    ].join('\n'));
+    const shutdownRunner = own(launchRunner(sandbox, ['--name', shutdownName, '--cwd', shutdownCwd, '--model', 'regress/alpha-2', '--create']), shutdownName);
+    assert(await waitForStatus(pipePath(shutdownName)), 'shutdown runner starts');
+    await stop(shutdownName, shutdownRunner);
+    assert.equal(await fs.readFile(shutdownRecord, 'utf8'), 'quit after spawned\n', 'session_shutdown ran once, before stopped');
+    assert.deepEqual(withoutTimes(await logEvents(dock, shutdownName)), [{ event: 'stopped' }]);
+
     const multiName = `multi-${randomUUID()}`;
     const multi = own(launchRunner(sandbox, ['--name', multiName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--create']), multiName);
     const corrWoken = own(launchRunner(sandbox, ['--name', corrName]), corrName);
@@ -1633,7 +1655,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 80 cases passed');
+    console.log('regression: 81 cases passed');
   } catch (error) {
     primaryError = error;
   }

@@ -26,6 +26,13 @@ their version is cut, so a new entry may not have one yet.
   `extension_error` with `on: load`, its path as `extension` and Pi's message as `reason`
   (e.g. `Failed to load extension: …`); the agent goes on without it.
 
+- **Extensions get `session_shutdown` when an agent stops.** Runners disposed the session
+  without it, so extensions skipped their cleanup (pi-link, for one, registers a handler). As
+  Pi does on quit, the runner now emits it with reason `quit` after aborting any run, also when
+  it fails after extension binding has completed, and waits for the handlers without a limit:
+  a handler that hangs makes `stop` report `did not exit within 5s`. Handler errors at this
+  point are not logged, so `stopped` or `failed` stays the last event.
+
 ---
 
 ## 0.3.0 — 2026-10-06

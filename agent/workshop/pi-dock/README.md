@@ -195,7 +195,9 @@ itself starts.
   `spawned pid=<pid>` line in `pi-dock logs <name>`, terminate that process, then run
   `pi-dock start <name>`.
 - **`agent <name> did not exit within 5s; terminate PID <pid> externally`**: `stop` asked the
-  agent to exit and it did not. Terminate that process, then check `pi-dock ls`.
+  agent to exit and it did not, e.g. because an extension's `session_shutdown` handler, which
+  the agent waits for as Pi does on quit, never finished. Terminate that process, then check
+  `pi-dock ls`.
 - **`handshake failed for <name>`**: a spawned or woken agent did not answer within 20 s. The
   printed diagnostics include the last log line, if any.
 

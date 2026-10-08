@@ -89,6 +89,9 @@ of every command.
   after another; a failure on one (e.g. not responding) is printed on stderr and the others are
   still stopped. The exit code is 1 if any failed. There is no `--all` and no pattern: list the
   names you mean.
+- Stopping sends the agent's extensions `session_shutdown`, as Pi does on quit, and waits for
+  their handlers. A handler that hangs keeps the agent from exiting, so `stop` reports
+  `did not exit within 5s`.
 - There is no destructive command: names, logs and sessions are never deleted by pi-dock.
 
 ## Changing an agent

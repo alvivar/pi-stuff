@@ -35,6 +35,9 @@ let runError;
 let compacting = false;
 const queued = new Set();
 let terminal = false;
+// Set once bindExtensions has completed; only a shutdown that begins after that emits
+// session_shutdown.
+let bound = false;
 let queue = Promise.resolve();
 // Settles once the runner is ready or terminal; pipe requests that arrive earlier wait for it.
 let settleStartup;
@@ -101,8 +104,17 @@ async function shutdown(event, details, code) {
   settleStartup();
   const dropped = [...queued];
   const interrupted = current;
+  // Read before abort's await, during which a pending bindExtensions could still complete.
+  const extensionsBound = bound;
   unsubscribe();
   await session?.abort().catch(() => {});
+  // As Pi does on quit, on the now idle session. Handlers are awaited without a limit, so one that
+  // never settles keeps the runner from exiting. The SDK catches a handler's error and passes it
+  // to the onError listeners without a catch of its own; ours returns at once now that terminal
+  // is set, so the error is dropped and nothing is thrown here.
+  if (extensionsBound) {
+    await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
+  }
   session?.dispose();
   if (dropped.length > 0) {
     appendLog({ event: 'dropped', ids: dropped });
@@ -405,6 +417,7 @@ try {
       });
     },
   });
+  bound = true;
 
   settleStartup();
 } catch (error) {

@@ -91,7 +91,14 @@ generates the help's usage section.
 11. **`stop` confirms exit.** The stop reply carries the runner PID; `stop` prints
     `<name> stopped` only once that process no longer exists (pid liveness, not pipe absence:
     the pipe closes before exit). Still alive after 5 s → `agent <name> did not exit within 5s;
-    terminate PID <pid> externally`, no kill. An agent already off prints
+    terminate PID <pid> externally`, no kill. A shutdown that begins after `bindExtensions` has
+    completed (on `stop`, or on a later failure) aborts any run, then emits `session_shutdown`
+    (reason `quit`) to the extensions and awaits their handlers without a limit, as Pi does on
+    quit, then disposes the session and logs the terminal event. A handler that never settles
+    surfaces as that error; handler errors are not logged (shutdown has begun). A shutdown that
+    begins earlier, including during `bindExtensions` (e.g. `ctx.shutdown()` in a
+    `session_start` handler), emits nothing, even if binding completes meanwhile. An agent
+    already off prints
     `<name> already stopped|failed`. `stop <name>...` takes explicit names only (no `--all`, no
     patterns: a wrong pattern on stop is expensive). The whole list is validated before acting
     (syntax, no repeats, every manifest exists), so a typo stops nothing. Then each agent is
