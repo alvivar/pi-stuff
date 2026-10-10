@@ -132,8 +132,9 @@ minutes in practice, or the floor moves to 0.84.3+ for another reason.
 
 *Constraints:* the release must be correlated with the compaction that raised the
 gate — the event carries no id, and a release on the wrong failure reopens
-delivery into a compaction still running. Requires raising `MIN_PI_VERSION` to
-0.84.3; no compatibility branch for the floor below it.
+delivery into a compaction still running. Chosen policy, not a runtime need: ship
+it with `MIN_PI_VERSION` raised to 0.84.3 and no compatibility branch for the
+floor below it. A handler is runtime-safe on 0.84.2, but its typings lack the event.
 
 ### BL-7 — `!ctx.compact` guard and the `"unsupported"` reason
 
@@ -161,8 +162,8 @@ back into one of them. Rejecting them again is not free; do not re-derive.
 - **No restored prompt/broadcast machinery, and no chat receipts** — remote prompt
   execution and `to: "*"` fan-out were removed on purpose, and chat delivery gets no
   receipts and no blocking chat RPC: it stays one unified, attributed, non-blocking
-  path. This is about agent messages only — `link_compact` remains what it is, a
-  request/response tool that waits for the target's result.
+  path. This is about agent messages only — a `link_compact` outcome is not a chat
+  RPC: pi-link itself produces it, correlated by request ID, as a notification.
 - **No mixed-version compatibility branch** — behavior holds when every terminal
   runs the same version; upgrade and restart together.
 - **No implicit group selector or fan-out** — a target is always one terminal's
