@@ -1271,6 +1271,34 @@ async function bootClientNamed(name, terminals, extra = {}) {
     JSON.stringify(details));
 }
 
+// ── 15. A hub's own link_compact reports through its inbox ──────────────────
+
+{
+  // The hub reaches its targets directly and hears a departure by self-delivering
+  // the terminal_left it broadcasts, so both paths differ from a client's.
+  const { t, server, self } = await bootHub();
+  const a = register(server, "a");
+  const b = register(server, "b");
+  await tick();
+  const sent = await t.tool("link_compact", { to: "a" });
+  const id = sent.details.id;
+  const frame = a.sent.find((f) => f.type === "compact_request");
+  check("15: the hub's call returns at once with the ID it routed",
+    frame?.id === id && frame.from === self && sent.content[0].text.includes(`[${id}]`),
+    JSON.stringify({ sent, frame }));
+  a.receive({ type: "compact_response", id, from: "a", to: self, ok: true });
+  const { id: leftId } = (await t.tool("link_compact", { to: "b" })).details;
+  peerClose(b);
+  await new Promise((resolve) => setTimeout(resolve, 300)); // one batching window
+  const linkBatches = t.delivered.filter((m) => m.customType === "link");
+  check("15: the routed answer and the departure arrive as inbox lines",
+    linkBatches.length === 1 &&
+      linkBatches[0].content ===
+        `[Link: 2 message(s) received]\n\nlink_compact "a" [${id}]: compacted\n\n` +
+          `link_compact "b" [${leftId}]: left the link before answering; result unknown`,
+    JSON.stringify(linkBatches));
+}
+
 // ── Teardown: every instance closes its own transports and timers ───────────
 
 for (const { t, ctx } of booted) await t.emit("session_shutdown", { reason: "quit" }, ctx);

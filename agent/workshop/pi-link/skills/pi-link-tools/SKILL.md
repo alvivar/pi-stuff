@@ -27,17 +27,25 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 
 ### `link_send`
 
-- Messages that reach the receiver close together are batched before entering its model. A batch arrives as one `[Link: N message(s) received]` block, in arrival order, containing one `From "name":` block per message.
+- Messages that reach the receiver close together are batched before entering its model. A batch arrives as one `[Link: N message(s) received]` block, in arrival order, containing one `From "name":` block per message. The same batch may also carry outcome lines for your own `link_compact` requests.
 - A delivered message always enters the receiver's reasoning: if the receiver is idle it starts a turn; if it is running, the batch is steered into that run at Pi's next safe boundary — current tool calls finish first, before the next LLM call. The receiver's state is read when the batch is delivered, not when you send and not when you last ran `link_list`.
 - Each call has one recipient; there is no broadcast.
 - The call returns send status, not the receiver's eventual work result. A target absent from your local, group-filtered list — a typo, an offline terminal or a name in another group — fails immediately; the error lists the names currently visible to you. A successful send means the message was accepted for delivery, not that it arrived. For a client, if the target has vanished, the routing failure is shown to the human as a notification and never reaches the sending model. A terminal's queued messages are invisible to you, and silence alone does not tell you whether your message was received or acted on.
 
 ### `link_compact`
 
-- Asks another terminal to compact its context and waits for a result.
-- Has a five-minute ceiling that bounds your wait only:
-  - Nothing aborts the target.
-  - A timed-out call may mean the compaction is still running.
+- Asks another terminal to compact its context and returns as soon as the request is sent, with a request ID. That result does not mean the target accepted, started or finished compacting.
+- The outcome arrives later through your inbox, delivered like a received message: it starts a turn if you are idle, steers your run if you are busy, and is held while your own compaction gate stands. It is one line, `link_compact "<target>" [<id>]: <outcome>`, with no `From` header: the target did not send it, and the hub or your own terminal may have produced it. Match it to your request by the target and the ID.
+- While your terminal keeps running, each sent request produces exactly one outcome:
+  - `compacted`;
+  - `not done: <reason>` — `busy`, `unsupported`, `not_found`, or the target runtime's own message;
+  - `left the link before answering; result unknown`;
+  - `no confirmation within 300s; the target may still be compacting`;
+  - `link disconnected before an answer; result unknown, the target may still be compacting`, after `/link-disconnect`.
+- A request that fails before anything is sent — not connected, yourself, a name not in your list, an already-cancelled call, or one not handed on — fails in the call's result, and no outcome follows.
+- Several requests can be outstanding at once. Waiting for their outcomes needs no live run.
+- The five-minute deadline only observes: nothing aborts the target, there is no cancel, and an answer arriving after the deadline is ignored.
+- Outstanding requests exist only in your memory. If you reload or exit, their outcomes never arrive. A response sent while the hub is down is not replayed, and after you rename, the response goes to your old name; in those two cases the deadline reports the request.
 - A target accepts only when Pi reports its session idle and no compaction holds its gate.
 - Busy targets decline the request rather than being interrupted; the request is not queued to run later.
 - Optional `instructions` guide the summary; they are not a new task and do not guarantee what survives.
@@ -47,10 +55,10 @@ description: "How `link_send`, `link_list` and `link_compact` behave between Pi 
 
 ## Callbacks
 
-- A callback is an ordinary `link_send` from the other terminal back to you. There is no request ID, no automatic response, no delivery receipt, and no protocol timeout — nothing correlates a callback with the request that asked for it except the text of both, and nothing produces one except the receiver choosing to send it.
+- A callback is an ordinary `link_send` from the other terminal back to you. Unlike a `link_compact` outcome, which pi-link itself produces and correlates by request ID, a callback has no request ID, no automatic response, no delivery receipt, and no protocol timeout — nothing correlates a callback with the request that asked for it except the text of both, and nothing produces one except the receiver choosing to send it.
 - Your ordinary reply stays in your own conversation; use `link_send` to send a result to the requester or the designated recipient. If you need a reply, say who should receive it; a label in the request and reply can help distinguish concurrent exchanges.
 - Waiting for one requires no live run. Keeping a run alive only to wait — by sleeping or polling `link_list` — can postpone delivery to the model until active tool calls end.
-- A callback can be sent before its sender's run settles; receiving it does not prove the sender is idle, so a `link_compact` aimed at it can still decline as busy.
+- A callback can be sent before its sender's run settles; receiving it does not prove the sender is idle, so a `link_compact` aimed at it can still come back `not done: busy`.
 - An accepted send does not wait for a reply, so several requests can be sent before any callback arrives, and callbacks may arrive separately or batched into one of your turns. The protocol does not decide when an exchange is complete; it supplies no exit condition for an A → B → C → A chain.
 
 ---

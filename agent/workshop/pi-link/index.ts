@@ -267,21 +267,17 @@ export default function (pi: ExtensionAPI) {
   };
   let connectionAttempt: ConnectionAttempt | null = null;
 
-  // Pending compact responses (sender waiting for remote compaction to finish)
+  // link_compact requests this terminal sent and still tracks, by request ID. The
+  // first outcome reported ends tracking; a response arriving after that is ignored.
   const pendingCompactResponses = new Map<
     string,
-    {
-      resolve: (result: {
-        content: { type: "text"; text: string }[];
-        details: Record<string, unknown>;
-      }) => void;
-      targetName: string;
-      timeout: ReturnType<typeof setTimeout>;
-    }
+    { targetName: string; timeout: ReturnType<typeof setTimeout> }
   >();
 
-  // Inbox: fixed-window batching; every batch is delivered to the receiver's model
-  const inbox: { from: string; content: string }[] = [];
+  // Inbox: fixed-window batching; every batch is delivered to the receiver's model.
+  // Each entry is one rendered block: a received chat, or the outcome of a
+  // link_compact this terminal requested.
+  const inbox: string[] = [];
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -498,8 +494,7 @@ export default function (pi: ExtensionAPI) {
     const batch: string[] = [];
     let totalChars = 0;
     for (let i = 0; i < inbox.length && batch.length < BATCH_MAX_ITEMS; i++) {
-      const item = inbox[i];
-      const text = `From "${item.from}":\n${item.content}`;
+      const text = inbox[i];
       if (batch.length > 0 && totalChars + text.length > BATCH_MAX_CHARS) break;
       batch.push(text);
       totalChars += text.length;
@@ -585,8 +580,8 @@ export default function (pi: ExtensionAPI) {
    * and cleared on every transition: a bare setTimeout outlives its own
    * compaction and would release a *later* compaction's flag.
    *
-   * COMPACT_TIMEOUT_MS also bounds the remote-request wait. The two share a
-   * value, not a meaning: nothing here depends on their being equal.
+   * COMPACT_TIMEOUT_MS also bounds how long a requester tracks a remote request.
+   * The two share a value, not a meaning: nothing here depends on their being equal.
    */
   function setCompacting(on: boolean) {
     localCompacting = on;
@@ -617,6 +612,20 @@ export default function (pi: ExtensionAPI) {
     clearTimeout(pending.timeout);
     pendingCompactResponses.delete(requestId);
     return pending;
+  }
+
+  /**
+   * End tracking of a link_compact request and report its outcome to this terminal's
+   * model through the inbox, so it is delivered like a received message. The line
+   * names the requested target, never a response's `from`: a hub-synthesized
+   * not_found comes from the hub. It carries no `From` header, because the outcome
+   * may come from the hub or from this terminal rather than from the target.
+   */
+  function reportCompact(requestId: string, outcome: string) {
+    const pending = cleanupPendingCompact(requestId);
+    if (!pending) return;
+    inbox.push(`link_compact "${pending.targetName}" [${requestId}]: ${outcome}`);
+    scheduleFlush(FLUSH_DELAY_MS);
   }
 
   function allTerminalNames(): Set<string> {
@@ -754,7 +763,7 @@ export default function (pi: ExtensionAPI) {
 
       if (msg.from === terminalName) {
         // For compact_request, deliver the error response locally so the
-        // matching pending map resolves. For chat, skip — the tool result
+        // pending request reports it. For chat, skip — the tool result
         // (via return false) is sufficient; no extra UI toast.
         if (errorMsg.type === "compact_response") handleIncoming(errorMsg);
       } else {
@@ -819,17 +828,10 @@ export default function (pi: ExtensionAPI) {
         terminalStatuses.delete(msg.name);
         terminalCwds.delete(msg.name);
         terminalContexts.delete(msg.name);
-        // Fail any pending compact request to the departed terminal
+        // A departed target can no longer answer; whether it compacted is unknown.
         for (const [id, pending] of pendingCompactResponses) {
-          if (pending.targetName === msg.name) {
-            cleanupPendingCompact(id);
-            pending.resolve(
-              textResult(`Terminal "${msg.name}" disconnected`, {
-                to: msg.name,
-                error: "disconnected",
-              }),
-            );
-          }
+          if (pending.targetName === msg.name)
+            reportCompact(id, "left the link before answering; result unknown");
         }
         updateStatus();
         if (groupOf(msg.name) === groupOf(terminalName))
@@ -845,7 +847,7 @@ export default function (pi: ExtensionAPI) {
 
       // ── Chat message ──
       case "chat":
-        inbox.push({ from: msg.from, content: msg.content });
+        inbox.push(`From "${msg.from}":\n${msg.content}`);
         scheduleFlush(FLUSH_DELAY_MS);
         break;
 
@@ -912,28 +914,12 @@ export default function (pi: ExtensionAPI) {
       }
 
       // ── Response to a compact we requested ──
-      case "compact_response": {
-        const pending = cleanupPendingCompact(msg.id);
-        if (pending) {
-          // Use the requested target, not msg.from: a hub-synthesized
-          // not_found response comes from the hub, not the target.
-          const target = pending.targetName;
-          if (msg.ok) {
-            pending.resolve(
-              textResult(`Compacted "${target}"`, { to: target }),
-            );
-          } else {
-            const reason = msg.reason ?? "failed";
-            pending.resolve(
-              textResult(`Compact on "${target}" not done: ${reason}`, {
-                to: target,
-                error: reason,
-              }),
-            );
-          }
-        }
+      case "compact_response":
+        reportCompact(
+          msg.id,
+          msg.ok ? "compacted" : `not done: ${msg.reason ?? "failed"}`,
+        );
         break;
-      }
 
       case "error":
         notify(`Link: ${msg.message}`, "error");
@@ -1302,10 +1288,13 @@ export default function (pi: ExtensionAPI) {
     // Runs before role is cleared, so peers still get a final status; more to the
     // point, the local gate record stays honest for the reconnect.
     syncCompactionStatus();
-    for (const [id, pending] of pendingCompactResponses) {
-      cleanupPendingCompact(id);
-      pending.resolve(
-        textResult("Link disconnected", { error: "disconnected" }),
+    // A response could only arrive over the link being closed. The inbox survives
+    // disconnect, so these are delivered once no gate holds it; on shutdown,
+    // cleanup() clears them with the rest of the inbox.
+    for (const id of pendingCompactResponses.keys()) {
+      reportCompact(
+        id,
+        "link disconnected before an answer; result unknown, the target may still be compacting",
       );
     }
 
@@ -1640,7 +1629,8 @@ export default function (pi: ExtensionAPI) {
     name: "link_compact",
     label: "Link Compact",
     description: [
-      "Ask another Pi terminal to compact its context window and wait until it finishes.",
+      "Ask another Pi terminal to compact its context window.",
+      "Returns as soon as the request is sent, with its request ID; the outcome arrives later as a link notification naming the target and that ID.",
       "A target declines unless Pi reports its session idle and no compaction holds its gate, so an active run, retry, automatic compaction, queued continuation or reported `compacting` all decline.",
     ].join(" "),
     promptSnippet: "Ask another Pi terminal to compact its context window",
@@ -1674,62 +1664,42 @@ export default function (pi: ExtensionAPI) {
       if (miss) return miss;
 
       const requestId = crypto.randomUUID();
-
-      return new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          const pending = cleanupPendingCompact(requestId);
-          if (pending) {
-            pending.resolve(
-              textResult(
-                `Compact request to "${params.to}" timed out after ${COMPACT_TIMEOUT_MS / 1000}s; the target may still be compacting.`,
-                { to: params.to, error: "timeout" },
-              ),
-            );
-          }
-        }, COMPACT_TIMEOUT_MS);
-
-        pendingCompactResponses.set(requestId, {
-          resolve,
-          targetName: params.to,
-          timeout,
-        });
-
-        signal?.addEventListener(
-          "abort",
-          () => {
-            const pending = cleanupPendingCompact(requestId);
-            if (pending) {
-              pending.resolve(
-                textResult("Compact request aborted", {
-                  to: params.to,
-                  error: "aborted",
-                }),
-              );
-            }
-          },
-          { once: true },
-        );
-
-        const delivered = routeMessage({
-          type: "compact_request",
-          id: requestId,
-          from: terminalName,
-          to: params.to,
-          instructions: params.instructions,
-        });
-
-        if (!delivered) {
-          const pending = cleanupPendingCompact(requestId);
-          if (pending) {
-            pending.resolve(
-              textResult(`Failed to request compact on "${params.to}"`, {
-                to: params.to,
-                error: "not_delivered",
-              }),
-            );
-          }
-        }
+      // Tracked before routing, because the hub can synthesize a response in this
+      // same stack. From here on the request belongs to the extension, not to this
+      // call: the signal is not consulted again, and there is no remote cancel. The
+      // deadline only observes; nothing aborts the target.
+      pendingCompactResponses.set(requestId, {
+        targetName: params.to,
+        timeout: setTimeout(
+          () =>
+            reportCompact(
+              requestId,
+              `no confirmation within ${COMPACT_TIMEOUT_MS / 1000}s; the target may still be compacting`,
+            ),
+          COMPACT_TIMEOUT_MS,
+        ),
       });
+
+      const delivered = routeMessage({
+        type: "compact_request",
+        id: requestId,
+        from: terminalName,
+        to: params.to,
+        instructions: params.instructions,
+      });
+
+      // Still tracked means it was never handed on. No longer tracked means it was
+      // answered in this stack, and that outcome is already in the inbox.
+      if (!delivered && cleanupPendingCompact(requestId)) {
+        return textResult(`Failed to request compact on "${params.to}"`, {
+          to: params.to,
+          error: "not_delivered",
+        });
+      }
+      return textResult(
+        `Compact request sent to "${params.to}" [${requestId}]; the result will arrive as a link notification.`,
+        { to: params.to, id: requestId },
+      );
     },
 
     renderCall(args, theme, context) {
@@ -1946,15 +1916,15 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, _ctx) => {
       pi.appendEntry("link-active", { active: false });
       manuallyDisconnected = true;
-      if (role === "disconnected") {
-        // Nothing is established, but a startup or reconnect attempt may still be
-        // dialing or binding; persisted intent has to win over it too.
-        cancelConnectionAttempt();
-        _ctx.ui.notify("Link disconnected", "info");
-        return;
-      }
+      // Also when nothing is established: a startup or reconnect attempt may still
+      // be dialing or binding, and compact requests sent before the hub was lost are
+      // still tracked. Persisted intent has to win over both.
+      const wasConnected = role !== "disconnected";
       disconnect();
-      _ctx.ui.notify("Disconnected from link", "info");
+      _ctx.ui.notify(
+        wasConnected ? "Disconnected from link" : "Link disconnected",
+        "info",
+      );
     },
   });
 

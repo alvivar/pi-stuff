@@ -6,6 +6,21 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **Contract change: `link_compact` no longer waits for the target.** The call now returns as soon as the request is sent, with its request ID: `Compact request sent to "<name>" [<id>]; the result will arrive as a link notification.` That result no longer means the target compacted, or even that it accepted. Callers must wait for the outcome, which arrives later as a notification in the requester's own inbox, delivered like a received message: it starts a turn if the requester is idle, steers it if it is busy, and is held while the requester's own compaction gate stands. Each sent request produces exactly one line, `link_compact "<name>" [<id>]: <outcome>`, naming the requested target. The line has no `From` header, because the hub or the requester may have produced it. The outcome is one of:
+  - `compacted`;
+  - `not done: <reason>`, covering a decline, a hub `not_found`, or a runtime failure or cancellation;
+  - `left the link before answering; result unknown`;
+  - `no confirmation within 300s; the target may still be compacting`;
+  - `link disconnected before an answer; result unknown, the target may still be compacting`, after `/link-disconnect`.
+
+  A requester is no longer kept busy for up to five minutes, and can have several compactions outstanding at once. Failures that need no answer still return immediately in the result and produce no notification: not connected, self target, a target not in your group's list, an already-aborted call, or a request that could not be sent. Aborting after the request is sent no longer ends anything, since there is no remote cancel. The wire protocol is unchanged. Outstanding requests live only in the requester's memory: a reload or exit loses their outcomes, a response sent while the hub is down is not replayed, and a response after the requester renames goes to its old name; the deadline reports the last two.
+
+---
+
 ## 0.5.2 — 2026-09-29
 
 ### Fixed

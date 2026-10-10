@@ -200,7 +200,8 @@ function boot() {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
     // The registered tool, invoked exactly as Pi invokes it.
-    tool: (name, params = {}) => tools.get(name).execute("probe", params),
+    tool: (name, params = {}, signal) => tools.get(name).execute("probe", params, signal),
+    cmd: (name, args = "") => commands.get(name).handler(args, ctx),
     sockets: () => wsStub.sockets.slice(socketBase),
   };
   booted.push(t);
@@ -215,8 +216,8 @@ async function establishedClient() {
   const socket = t.sockets()[0];
   socket.emit("open");
   await settle();
-  t.chat = (from, content) =>
-    socket.emit("message", Buffer.from(JSON.stringify({ type: "chat", from, to: "me", content })));
+  t.receive = (frame) => socket.emit("message", Buffer.from(JSON.stringify(frame)));
+  t.chat = (from, content) => t.receive({ type: "chat", from, to: "me", content });
   t.socket = socket;
   return t;
 }
@@ -405,43 +406,236 @@ const bodies = (delivery) => blocks(delivery).map((b) => b.split("\n").slice(1).
     JSON.stringify(t.delivered));
 }
 
-// ── 6. The remote request waits five minutes, then reports what it waited ────
+// ── 6. link_compact returns at once; every outcome arrives through the inbox ──
+
+/** A client welcomed as "me" with `peers` visible, ready to request compactions. */
+async function requester(peers = ["peer"]) {
+  const t = await establishedClient();
+  t.receive({ type: "welcome", name: "me", terminals: ["me", ...peers] });
+  await settle();
+  return t;
+}
+
+/** Sends a request and returns the tool result plus the frame that went out. */
+async function request(t, to, signal) {
+  const result = await t.tool("link_compact", { to }, signal);
+  const frame = [...t.socket.sent].reverse().find((f) => f.type === "compact_request");
+  return { result, frame, id: result.details?.id };
+}
+
+const respond = (t, id, from, ok, reason) =>
+  t.receive({ type: "compact_response", id, from, to: "me", ok, reason });
+const contents = (t) => t.delivered.map((d) => d.message.content);
+const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
 
 {
-  // A dispatched `link_compact` whose target never answers. The wait is the
-  // caller's alone: it ends with a timeout result, not with a cancellation.
-  const t = await establishedClient();
-  t.socket.emit("message", Buffer.from(JSON.stringify({
-    type: "welcome", name: "me", terminals: ["me", "peer"],
-  })));
-  await settle();
+  // The call returns before anything is known, naming the ID the wire carries.
+  const t = await requester();
+  const before = clockNow;
+  const { result, frame, id } = await request(t, "peer");
+  check("6a: the call returns at once, without waiting on the target",
+    clockNow === before && typeof id === "string" && frame?.id === id && frame.to === "peer",
+    JSON.stringify({ result, frame }));
+  check("6a: the result reports a sent request, not an accepted one",
+    result.content[0].text ===
+      `Compact request sent to "peer" [${id}]; the result will arrive as a link notification.` &&
+      result.details.to === "peer" && result.details.error === undefined,
+    JSON.stringify(result));
 
-  let settled = null;
-  t.tool("link_compact", { to: "peer" }).then((result) => { settled = result; });
-  await settle();
+  // A success arrives as one sender-less line, in a normal batching window.
+  respond(t, id, "peer", true);
+  check("6b: the response alone delivers nothing synchronously", t.delivered.length === 0);
+  await advance(FLUSH_DELAY_MS);
+  check("6b: a success is one inbox line naming the target and the ID",
+    t.delivered.length === 1 &&
+      contents(t)[0] === `[Link: 1 message(s) received]\n\n${lineFor("peer", id, "compacted")}` &&
+      t.delivered[0].options?.triggerTurn === true,
+    JSON.stringify(t.delivered));
+
+  // A duplicate or late response for an outcome already reported is ignored.
+  respond(t, id, "peer", false, "busy");
+  await advance(FLUSH_DELAY_MS);
+  check("6b: a second response for a reported request is ignored", t.delivered.length === 1,
+    JSON.stringify(contents(t)));
+}
+
+{
+  // Declines and failures, including the hub's not_found, which comes from the hub.
+  // Responses close together share one window with a chat, in arrival order.
+  const t = await requester(["busy", "old", "small", "gone"]);
+  const ids = {};
+  for (const to of ["busy", "old", "small", "gone"]) ids[to] = (await request(t, to)).id;
+  respond(t, ids.busy, "busy", false, "busy");
+  respond(t, ids.old, "old", false, "unsupported");
+  respond(t, ids.small, "small", false, "Nothing to compact (session too small)");
+  t.chat("peer", "hello");
+  respond(t, ids.gone, "hub", false, "not_found");
+  await advance(FLUSH_DELAY_MS);
+  const expected = [
+    lineFor("busy", ids.busy, "not done: busy"),
+    lineFor("old", ids.old, "not done: unsupported"),
+    lineFor("small", ids.small, "not done: Nothing to compact (session too small)"),
+    'From "peer":\nhello',
+    lineFor("gone", ids.gone, "not done: not_found"),
+  ];
+  check("6c: each outcome names its requested target, never the responder",
+    t.delivered.length === 1 &&
+      contents(t)[0] === `[Link: 5 message(s) received]\n\n${expected.join("\n\n")}`,
+    JSON.stringify(contents(t)));
+  check("6c: the mixed batch keeps the chat as the only From block",
+    senders(t.delivered[0]).join(",") === ",,,peer,", JSON.stringify(senders(t.delivered[0])));
+  check("6c: the four IDs are distinct", new Set(Object.values(ids)).size === 4, JSON.stringify(ids));
+}
+
+{
+  // A departed target can no longer answer; others are untouched.
+  const t = await requester(["peer", "other"]);
+  const { id } = await request(t, "peer");
+  const { id: otherId } = await request(t, "other");
+  t.receive({ type: "terminal_left", name: "peer", terminals: ["me", "other"] });
+  await advance(FLUSH_DELAY_MS);
+  check("6d: departure reports an unknown result, once",
+    contents(t).join("|") ===
+      `[Link: 1 message(s) received]\n\n${lineFor("peer", id, "left the link before answering; result unknown")}`,
+    JSON.stringify(contents(t)));
+  respond(t, otherId, "other", true);
+  await advance(FLUSH_DELAY_MS);
+  check("6d: another target's request still reports its own outcome",
+    t.delivered.length === 2 && contents(t)[1].endsWith(lineFor("other", otherId, "compacted")),
+    JSON.stringify(contents(t)));
+}
+
+{
+  // The deadline only observes: five minutes with no answer is reported, and the
+  // answer that comes after it is ignored.
+  const t = await requester();
+  const { id } = await request(t, "peer");
   const dispatched = clockNow;
-  check("6: the request goes out on the wire and the call keeps waiting",
-    settled === null && t.socket.sent.some((f) => f.type === "compact_request" && f.to === "peer"),
-    JSON.stringify(t.socket.sent));
+  await advance(COMPACT_TIMEOUT_MS - 1);
+  check("6e: nothing is reported one millisecond before the deadline",
+    t.delivered.length === 0 && clockNow - dispatched === COMPACT_TIMEOUT_MS - 1,
+    JSON.stringify(contents(t)));
+  await advance(1 + FLUSH_DELAY_MS);
+  check("6e: at five minutes the deadline is reported, saying the target may still compact",
+    contents(t).join("|") ===
+      `[Link: 1 message(s) received]\n\n${lineFor("peer", id, "no confirmation within 300s; the target may still be compacting")}`,
+    JSON.stringify(contents(t)));
+  respond(t, id, "peer", true);
+  await advance(FLUSH_DELAY_MS);
+  check("6e: a response after the deadline is ignored", t.delivered.length === 1,
+    JSON.stringify(contents(t)));
+}
 
-  await advance(OLD_COMPACT_TIMEOUT_MS);
-  check("6: it is still pending at the old three-minute deadline",
-    settled === null && clockNow - dispatched === OLD_COMPACT_TIMEOUT_MS,
-    `elapsed=${clockNow - dispatched} settled=${JSON.stringify(settled)}`);
+{
+  // The requester's own compaction gate holds an outcome like any message.
+  const t = await requester();
+  const { id } = await request(t, "peer");
+  await t.emit("session_before_compact", { reason: "manual" });
+  respond(t, id, "peer", true);
+  await advance(FLUSH_DELAY_MS * 3);
+  check("6f: an outcome is held while the requester is compaction-gated", t.delivered.length === 0);
+  await t.emit("session_compact", { reason: "manual" });
+  await advance(FLUSH_DELAY_MS);
+  check("6f: and delivered once the gate clears",
+    t.delivered.length === 1 && contents(t)[0].endsWith(lineFor("peer", id, "compacted")),
+    JSON.stringify(contents(t)));
+}
 
-  await advance(COMPACT_TIMEOUT_MS - OLD_COMPACT_TIMEOUT_MS - 1);
-  check("6: and one millisecond before the new one",
-    settled === null && clockNow - dispatched === COMPACT_TIMEOUT_MS - 1,
-    `elapsed=${clockNow - dispatched} settled=${JSON.stringify(settled)}`);
+{
+  // Losing the hub keeps tracking, so an answer can still arrive after reconnecting.
+  const t = await requester();
+  const { id } = await request(t, "peer");
+  t.socket.close();
+  await advance(5_000); // past the reconnect delay, jitter included
+  const next = t.sockets()[1];
+  next.emit("open");
+  await settle();
+  next.emit("message", Buffer.from(JSON.stringify({ type: "welcome", name: "me", terminals: ["me", "peer"] })));
+  next.emit("message", Buffer.from(JSON.stringify({ type: "compact_response", id, from: "peer", to: "me", ok: true })));
+  await advance(FLUSH_DELAY_MS);
+  check("6g: a response after a reconnect still reports its outcome",
+    t.delivered.length === 1 && contents(t)[0].endsWith(lineFor("peer", id, "compacted")),
+    JSON.stringify(contents(t)));
+}
 
-  await advance(1);
-  const text = settled?.content?.[0]?.text ?? "";
-  check("6: at five minutes the caller resolves with the timeout result",
-    settled?.details?.error === "timeout" && settled?.details?.to === "peer",
-    JSON.stringify(settled));
-  check("6: the message reports the budget it actually waited, and that nothing was aborted",
-    text === 'Compact request to "peer" timed out after 300s; the target may still be compacting.',
-    JSON.stringify(text));
+{
+  // An explicit disconnect ends tracking with one explicit notification per request.
+  const t = await requester(["peer", "other"]);
+  const { id } = await request(t, "peer");
+  const { id: otherId } = await request(t, "other");
+  await t.cmd("link-disconnect");
+  await advance(FLUSH_DELAY_MS);
+  const outcome = "link disconnected before an answer; result unknown, the target may still be compacting";
+  check("6h: disconnect reports each pending request as unknown, in one delivery",
+    contents(t).join("|") ===
+      `[Link: 2 message(s) received]\n\n${lineFor("peer", id, outcome)}\n\n${lineFor("other", otherId, outcome)}`,
+    JSON.stringify(contents(t)));
+  await advance(COMPACT_TIMEOUT_MS);
+  check("6h: and nothing else follows, not even the deadline", t.delivered.length === 1,
+    JSON.stringify(contents(t)));
+}
+
+{
+  // The hub is lost first, so requests are still tracked while nothing is
+  // established; an explicit disconnect then must end them the same way.
+  const t = await requester(["peer", "other"]);
+  const { id } = await request(t, "peer");
+  const { id: otherId } = await request(t, "other");
+  t.socket.close();
+  await settle();
+  await t.cmd("link-disconnect");
+  await advance(FLUSH_DELAY_MS);
+  const outcome = "link disconnected before an answer; result unknown, the target may still be compacting";
+  check("6h: after a hub loss, disconnect still reports each request once",
+    contents(t).join("|") ===
+      `[Link: 2 message(s) received]\n\n${lineFor("peer", id, outcome)}\n\n${lineFor("other", otherId, outcome)}`,
+    JSON.stringify(contents(t)));
+  const reported = contents(t).join("|");
+  await advance(COMPACT_TIMEOUT_MS);
+  check("6h: and neither a reconnect nor the deadline follows",
+    contents(t).join("|") === reported && t.sockets().length === 1, JSON.stringify(contents(t)));
+}
+
+{
+  // Local failures stay immediate and leave nothing tracked.
+  const t = await requester();
+  const aborted = new AbortController();
+  aborted.abort();
+  const sentBefore = t.socket.sent.length;
+  const { result: abortedResult } = await request(t, "peer", aborted.signal);
+  check("6i: an already-aborted call sends nothing and says so",
+    abortedResult.details.error === "aborted" && t.socket.sent.length === sentBefore,
+    JSON.stringify(abortedResult));
+
+  // Aborting after the request went out changes nothing: the outcome still arrives.
+  const later = new AbortController();
+  const { id } = await request(t, "peer", later.signal);
+  later.abort();
+  respond(t, id, "peer", true);
+  await advance(FLUSH_DELAY_MS);
+  check("6i: an abort after sending does not cancel the outcome",
+    t.delivered.length === 1 && contents(t)[0].endsWith(lineFor("peer", id, "compacted")),
+    JSON.stringify(contents(t)));
+
+  t.socket.readyState = 3; // the hub connection is not open: the request is not handed on
+  const failed = await t.tool("link_compact", { to: "peer" });
+  t.socket.readyState = 1;
+  check("6i: a request that cannot be sent fails in the result",
+    failed.details.error === "not_delivered" && failed.details.id === undefined,
+    JSON.stringify(failed));
+  await advance(COMPACT_TIMEOUT_MS + FLUSH_DELAY_MS);
+  check("6i: and leaves nothing tracked to report later", t.delivered.length === 1,
+    JSON.stringify(contents(t)));
+}
+
+{
+  // Shutdown drops outcomes with the inbox: no turn is started in a dead context.
+  const t = await requester();
+  await request(t, "peer");
+  await t.emit("session_shutdown", { reason: "quit" });
+  await advance(COMPACT_TIMEOUT_MS + FLUSH_DELAY_MS);
+  check("6j: shutdown with a pending request delivers nothing", t.delivered.length === 0,
+    JSON.stringify(contents(t)));
 }
 
 // ── 7. Shutdown cancels the pending window and drops the queue ──────────────
