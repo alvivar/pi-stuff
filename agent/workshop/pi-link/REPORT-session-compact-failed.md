@@ -3,6 +3,7 @@
 > **Status:** deferred candidate for a version after 0.3.0. **Not a 0.3.0 publication blocker.**
 > **Build from this?** Not yet — only after focused harness proof, a source recheck against whatever Pi is current then, and a live two-terminal confirmation.
 > **Last aligned:** Pi **0.84.3** (installed), pi-link **0.3.0** at HEAD `313f2313e97415ecd7541b10c9d404054dcd3acf`.
+> **Since then:** "today" and every pi-link line number below mean that HEAD. The deadline has been 300 seconds since 0.5.0, so read each 180 seconds as 300. The stale `setCompacting()` comment this report flags was corrected in `bd1ddbc`. The cancellation wording cited at `README.md:307` now lives in README's *Remote compaction* section. pi-link still does not handle `session_compact_failed`.
 > **Summary:** Pi 0.84.3 adds a `session_compact_failed` extension event. **If a future implementation can first correlate a failure with the `session_before_compact` that raised the current gate**, pi-link could release held messages promptly instead of waiting for the next agent run, a later successful compaction, or the 180-second deadline.
 
 ## What pi-link does today

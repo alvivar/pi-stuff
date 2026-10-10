@@ -132,6 +132,7 @@ Caveats to verify during implementation:
   Defect 1 is fixed. Open question 2 below is answered: automatic compaction can
   overlap a remote request, and that is exactly the window `ctx.isIdle()` closes.
 - Bonus observation for SKILL.md accuracy: the skill's "(3 min ceiling …)" note
-  remains correct — this race produces an immediate error, not a timeout. Its
+  was correct then — this race produces an immediate error, not a timeout. The
+  limit has been five minutes (300 s) since 0.5.0. Its
   busy-decline wording was correct for the guard of the time and was rewritten in
   0.3.0, when the guard became "idle by Pi, and ungated".

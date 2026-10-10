@@ -1,6 +1,6 @@
 # Deferred: OMP `renderCall` signature mismatch
 
-- **Status:** deferred until after the next pi-link release. **Not a release blocker.**
+- **Status:** deferred until after the pi-link release being prepared when this was recorded on 2026-08-28. **Not a blocker for that release.**
 - **Last aligned:** 2026-08-28.
 - **Build from this?** No — reproduce under a live OMP session first.
 - **Summary:** pi-link's `link_send` and `link_compact` call renderers take Pi's `(args, theme)` argument order, while Oh My Pi passes `(args, options, theme)`, so under OMP the second argument is an options object rather than a theme and the custom call rendering is predicted to fail into OMP's generic fallback.
@@ -9,8 +9,11 @@
 
 During source review of the GitHub issue about pi-link tools not being reachable as
 top-level tools under Oh My Pi (OMP). That issue is about **tool visibility**, which
-is a different mechanism with a different fix; see `REPORT-omp-tool-visibility.md`.
-This finding was deliberately excluded from that work and from the next release. It
+is a different mechanism with a different fix, recorded in
+`REPORT-omp-tool-visibility.md`. That report was deleted when its fix shipped in
+0.5.1 (`5b81431`); read it with
+`git show 5b81431^:agent/workshop/pi-link/REPORT-omp-tool-visibility.md`.
+This finding was deliberately excluded from that work. It
 surfaced from reading OMP's extension adapter, not from any report of broken
 rendering.
 
