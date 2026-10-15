@@ -229,8 +229,8 @@ export default function (pi: ExtensionAPI) {
 
   // Status tracking (local truth)
   let agentRunning = false; // agent_start until agent_settled, not until agent_end
-  let compactRunning = false; // true while compacting for a remote request
-  let localCompacting = false; // true while compacting for a human /compact
+  let compactRunning = false; // gate held while handling a remote compaction request
+  let localCompacting = false; // gate set by Pi's manual-reason hook (human or remote)
   let compactDeadline: ReturnType<typeof setTimeout> | undefined;
   let wasCompactionGated = false; // gate state syncCompactionStatus() last acted on
   // toolCallId → toolName. Pi runs tools in parallel by default and both tool
@@ -484,9 +484,9 @@ export default function (pi: ExtensionAPI) {
     if (inbox.length === 0) return;
     if (!ctx) return;
 
-    // Compacting: hold everything and return WITHOUT rescheduling. setCompacting()
-    // drains on release, so polling a compaction that may run to the 300s ceiling
-    // would be ~1500 wakeups for no information.
+    // Compacting: hold everything and return WITHOUT rescheduling. releaseInbox()
+    // schedules delivery once both gates clear, so polling a hold that may last
+    // to the 300s ceiling would be ~1500 wakeups for no information.
     if (compactionGated()) return;
 
     // Select batch: up to BATCH_MAX_ITEMS, ~BATCH_MAX_CHARS total (soft cap —
@@ -523,12 +523,14 @@ export default function (pi: ExtensionAPI) {
    *
    * The two flags are not duplication. compactRunning is set synchronously by the
    * compact_request handler before it calls ctx.compact(), covering the window
-   * before session_before_compact arrives; localCompacting covers a human /compact,
-   * which pi-link never initiates.
+   * before session_before_compact arrives. localCompacting is set by that hook for
+   * reason "manual", whether initiated by a human or a remote request that reaches
+   * the hook. It can survive a failed compaction, so a gate is not proof of a live
+   * compaction process.
    *
    * Both are load-bearing because Pi will not save us here: AgentSession.prompt()
-   * refuses to run during compaction, but sendCustomMessage reaches _runAgentPrompt
-   * directly and is not covered by that guard.
+   * refuses to run during compaction, but sendCustomMessage starts a run directly,
+   * bypassing prompt()'s guard.
    */
   function compactionGated() {
     return localCompacting || compactRunning;
@@ -555,14 +557,15 @@ export default function (pi: ExtensionAPI) {
   }
 
   /**
-   * Drain the inbox once NO gate remains. Call after clearing either flag.
+   * Schedule inbox delivery once NO gate remains. Call after clearing either flag.
    *
-   * Both gates must be checked together, because a remote compact sets both:
-   * ctx.compact() reaches Pi's compact(), which reports reason "manual", so
-   * session_before_compact sets localCompacting on top of compactRunning. Pi emits
-   * session_compact strictly before it resolves and fires onComplete, so releasing
-   * on either flag alone can arm a flush that finds the other flag still standing,
-   * returns without rescheduling, and strands the inbox with no release left.
+   * Both gates must be checked together, because a remote compact can set both:
+   * ctx.compact() reaches Pi's compact(), which reports reason "manual". If it reaches
+   * session_before_compact, that hook sets localCompacting on top of compactRunning;
+   * an early rejection may never reach the hook. Pi emits session_compact strictly
+   * before it resolves and fires onComplete, so releasing on either flag alone can
+   * arm a flush that finds the other flag still standing, returns without
+   * rescheduling, and strands the inbox with no release left.
    */
   function releaseInbox() {
     if (!localCompacting && !compactRunning && inbox.length > 0) {
@@ -571,7 +574,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   /**
-   * Gate and release inbox delivery around a local manual compaction.
+   * Gate and release inbox delivery for Pi's manual-reason compaction hook.
    *
    * The deadline is the only backstop pi-link uses. Pi 0.84.3+ reports failure and
    * abort through `session_compact_failed`, which pi-link does not handle (see
@@ -589,7 +592,7 @@ export default function (pi: ExtensionAPI) {
     compactDeadline = on
       ? setTimeout(() => setCompacting(false), COMPACT_TIMEOUT_MS)
       : undefined;
-    // Release drains; it never polls. Nothing else wakes a waiting inbox.
+    // Release schedules delivery; it never polls.
     if (!on) releaseInbox();
     syncCompactionStatus();
   }
@@ -727,9 +730,9 @@ export default function (pi: ExtensionAPI) {
 
   /**
    * Route a message to its destination. Works in both hub and client roles.
-   * Returns true if the message was delivered (or sent to the hub for routing).
-   * For the hub, this is authoritative. For clients, it's optimistic (hub may
-   * still reject via protocol-level error responses).
+   * Returns true after local handling or handoff to a connection, not a receipt ACK.
+   * The hub resolves the recipient locally; a client hands routing to the hub,
+   * which may still reject via protocol-level error responses.
    */
   function routeMessage(
     msg: ChatMsg | CompactRequestMsg | CompactResponseMsg,
@@ -874,9 +877,9 @@ export default function (pi: ExtensionAPI) {
         // agentRunning is not: Pi may still retry, run an automatic compaction, or
         // drain a queued continuation inside a run whose agent_end already fired, and
         // compact() would abort that work and compact the same branch a second time.
-        // compactionGated() adds what Pi's idle flag cannot cover — a manual
-        // compaction is not an agent run — and keeps declining while either gate
-        // stands, so we never touch a compaction we did not start.
+        // Pi 1.2's idle flag also covers compaction. Our gates extend beyond Pi's
+        // compaction state: compactRunning starts before ctx.compact(), and
+        // localCompacting can remain after a failure. Decline while either gate stands.
         if (!ctx.isIdle() || compactionGated()) {
           respond(false, "busy");
           break;
@@ -888,8 +891,9 @@ export default function (pi: ExtensionAPI) {
           compactRunning = false;
           releaseInbox(); // last gate may clear here, after session_compact already fired
           // Only reverts status if localCompacting is also clear. A failure after
-          // session_before_compact leaves it standing, so the terminal truthfully
-          // keeps reporting compacting until the deadline or agent_start.
+          // session_before_compact leaves it standing, so the terminal keeps
+          // reporting the hold as compacting until the deadline, agent_start,
+          // or a later successful compaction.
           syncCompactionStatus();
           respond(ok, reason);
         };
@@ -1101,7 +1105,7 @@ export default function (pi: ExtensionAPI) {
       });
 
       server.on("error", () => {
-        // Port in use → someone else is the hub
+        // Listen failed; a port conflict is possible, but does not prove another hub.
         settle(false);
       });
 
@@ -1229,7 +1233,8 @@ export default function (pi: ExtensionAPI) {
       if (await startHub(attempt)) return;
       if (!attemptIsCurrent(attempt)) return;
 
-      // Port busy but couldn't connect (rare race). Retry after delay.
+      // Establishment failed (e.g. a race, port conflict, or other listen failure).
+      // Retry after delay.
       scheduleReconnect();
     } finally {
       // Only while still the owner: an attempt cancelled mid-flight must not clear
@@ -1283,7 +1288,7 @@ export default function (pi: ExtensionAPI) {
     // This also clears the reconnect and startup timers.
     cancelConnectionAttempt();
 
-    // Clear link-owned remote compaction state; a local /compact survives disconnect.
+    // Clear the remote-request gate; the manual-reason hook's gate survives disconnect.
     compactRunning = false;
     // Runs before role is cleared, so peers still get a final status; more to the
     // point, the local gate record stays honest for the reconnect.
@@ -1322,7 +1327,7 @@ export default function (pi: ExtensionAPI) {
     lastPushedStatus = null;
     updateStatus();
 
-    // Inbox survives disconnect; flush unless a local /compact still gates it.
+    // Inbox survives disconnect; schedule delivery unless localCompacting still holds it.
     releaseInbox();
   }
 
@@ -1437,14 +1442,14 @@ export default function (pi: ExtensionAPI) {
     // There is deliberately no abort listener: event.signal firing is not an ending.
     // Pi passes that signal into the summarizer and its compaction controller lives
     // until the catch/finally, so releasing on abort would re-open delivery while the
-    // aborted compaction is still unwinding. A cancelled compaction is released by
-    // the user's next run (agent_start) or by the deadline.
+    // aborted compaction is still unwinding. A cancelled compaction's gate is released
+    // by the next run (agent_start), the deadline, or a later successful compaction.
     //
-    // Accepted gap: compact() aborts, authorises and prepares *before* emitting this
+    // Accepted gap: compact() aborts and prepares *before* emitting this
     // event, so a flush in that window can still start a turn against context about
     // to be rebuilt. The message itself survives — it is persisted and restored — so
     // only the turn is wasted. No heuristics to guess at the window. This is a
-    // manual-compaction limit only; remote compaction is already gated by
+    // human /compact limit only; remote compaction is already gated by
     // compactRunning, set before ctx.compact() is ever called.
     if (event.reason === "manual") setCompacting(true);
   });
@@ -1600,7 +1605,8 @@ export default function (pi: ExtensionAPI) {
           error: "not_delivered",
         });
       }
-      // Hub delivery is authoritative; client delivery is optimistic (hub routes)
+      // The hub hands off to the target connection; clients hand routing to the hub.
+      // Neither transport handoff confirms receipt.
       const verb = role === "hub" ? "Sent to" : "Sent to hub for delivery to";
       return textResult(`${verb} ${target}`, { to: params.to });
     },
