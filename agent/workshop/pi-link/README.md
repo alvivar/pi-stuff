@@ -20,8 +20,8 @@ Questions, ideas? There's a [pi-link thread](https://discord.com/channels/145680
 - [Walkthrough](#walkthrough)
 - [LLM Tools](#llm-tools)
 - [Slash Commands](#slash-commands)
-- [CLI: `pi-link`](#cli-pi-link)
 - [Configuration](#configuration)
+- [CLI: `pi-link`](#cli-pi-link)
 - [Troubleshooting](#troubleshooting)
 - [Limitations & Design Decisions](#limitations--design-decisions)
 - [Dependencies](#dependencies)
@@ -42,7 +42,7 @@ Pi's package installation does not check the host version, so `pi install` succe
 
 ### Install
 
-The minimum install — enables every in-Pi feature (`/link`, `link_send`, `/link-connect`, `--link` flag, auto-resume, and all LLM tools):
+The minimum install enables all in-Pi tools, commands and startup flags. It also restores the saved link name and connection preference when you resume a session:
 
 ```bash
 pi install npm:pi-link
@@ -66,7 +66,7 @@ pi install npm:pi-link && npm i -g pi-link
 
 Pi installs packages into its own npm root (`~/.pi/agent/npm/`), which is not on `PATH`; `npm i -g pi-link` is what puts the `pi-link` command there.
 
-The shell launcher is convenience-only — you can always reach the same functionality from inside Pi via `/link-connect` and `/link-name <name>`.
+You do not need the shell launcher for communication inside Pi: use `/link-connect` and `/link-name <name>`. The launcher adds shell commands for resuming sessions by name, listing saved sessions, and checking live link status.
 
 ### Uninstall
 
@@ -91,6 +91,8 @@ Already in a session? Use `/link-connect`. Use `/link` any time to check status,
 
 ## Walkthrough
 
+A message shares only its text, not the sender's full conversation. Separate conversations do not isolate files: terminals may share a working tree, and pi-link does not coordinate their writes.
+
 Here's a concrete example of two terminals collaborating. Open two terminals, each with its name already set:
 
 ```bash
@@ -103,7 +105,7 @@ The first one to start becomes the hub; the second joins it. **In Terminal 1**, 
 ```
 > /link
 ⚡ Link: builder (hub) · 2 online
-  builder: idle (5s) · 45K/272K (17%)
+  builder (you): idle (5s) · 45K/272K (17%)
     cwd: ~/my-project
   researcher: idle (12s) · 80K/272K (29%)
     cwd: ~/my-project
@@ -143,7 +145,7 @@ The model has three tools: `link_send` to talk to another terminal, `link_list` 
 | Tool           | Behavior                                                | Returns                                                 |
 | -------------- | ------------------------------------------------------- | ------------------------------------------------------- |
 | `link_send`    | Send a message to one other terminal                    | Reports whether sending started, not whether it arrived |
-| `link_list`    | List currently connected terminals                      | Terminal list with roles, status, cwd, and context      |
+| `link_list`    | List currently connected terminals                     | Terminal list with status, cwd, and context             |
 | `link_compact` | Ask another terminal to compact, without waiting        | Request ID now; the outcome later as a notification     |
 
 ### `link_send`
@@ -165,7 +167,7 @@ Targets are pre-validated against the terminals in your group, so a definite typ
 
 ### `link_list`
 
-Lists the connected terminals in your [group](#configuration), with role info, status, working directory, context usage, and self-identification. Takes no parameters. Your own status and context are read when you run `link_list`; for other terminals, you see their most recently reported values, which may be slightly behind.
+Lists the connected terminals in your [group](#configuration), with status, working directory, context usage, and self-identification. Takes no parameters. Your own status and context are read when you run `link_list`; for other terminals, you see their most recently reported values, which may be slightly behind.
 
 Each terminal reports its current working directory on connect. `link_list` shows the full absolute path.
 
@@ -263,7 +265,7 @@ For the tool-result fields and implementation behind these behaviors, see [Remot
 ```
 > /link
 ⚡ Link: builder (hub) · 3 online
-  builder: idle (12s) · 45K/272K (17%)
+  builder (you): idle (12s) · 45K/272K (17%)
     cwd: ~/my-project
   worker-1: thinking (3s) · ?/272K
     cwd: ~/my-project
@@ -280,7 +282,7 @@ For the tool-result fields and implementation behind these behaviors, see [Remot
 ✓ Disconnected from link
 
 > /link-connect
-✓ Joined link as "orchestrator" (3 online)
+✓ Joined link as "my-session" (3 online)
 ```
 
 With no argument, `/link-name` adopts the Pi session name. `/link-connect` joins an existing hub if one is running; otherwise it starts the hub.
@@ -291,13 +293,43 @@ See [Configuration](#configuration) for details on `--link`, `/link-connect`, an
 
 ---
 
+## Configuration
+
+Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, a fresh session is completely silent — no status bar, no connections, no warnings.
+
+**Naming concepts**
+
+- **link name** — identity used on the network (visible in `link_list`, `/link`, and messages).
+- **group** — the text after the first `@` in a link name, compared exactly. `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h`, and a name without `@` (or ending in one, like `a@`) belongs to the single implicit group of plain names. Comparison is **case-sensitive**: `a@Team` and `a@team` are different groups. `link_list`, `link_send`, `link_compact`, `/link` and the footer see only your own group; the hub still routes for every group, and `pi-link --status` shows all of them. Renaming with `/link-name` moves you.
+- **Pi session name** — identity Pi gives the session itself; lives in the session JSONL's latest `session_info` entry.
+- **saved link name** — the link name persisted to the session, restored on resume. Set by `/link-name`, `pi-link <name>`, or `pi --link-name <name>`.
+- **`--link-name` flag vs `/link-name` command** — same concept (the link name) at different times (startup vs mid-session).
+
+| What you want                        | Use                     |
+| ------------------------------------ | ----------------------- |
+| Resume/create a named session        | `pi-link <name>`        |
+| Stable link identity, normal Pi flow | `pi --link-name <name>` |
+| Quick try, random name               | `pi --link`             |
+| Already in a session                 | `/link-connect`         |
+| Disconnect mid-session               | `/link-disconnect`      |
+
+`pi-link <name>` resumes/creates a session AND sets your link identity in one step. `pi --link-name <name>` sets only the link identity, leaving Pi's normal session selection (latest in cwd, or fresh) untouched.
+
+**Name normalization:** Link names are normalized — leading/trailing whitespace removed and internal whitespace runs collapsed to a single space. `/link-name build   lead` saves and shows as `build lead`.
+
+**Name precedence:** `pi --link-name` > `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`. _(The `pi-link` wrapper itself does not accept `--link-name`; pick one or the other.)_
+
+`/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
+
+---
+
 ## CLI: `pi-link`
 
 `pi-link` is the optional shell launcher installed with `npm i -g pi-link`. It resolves sessions by name, lists them, and asks the running hub who is connected.
 
 ### Session Resume
 
-Pi's `--session` flag requires a file path, not a display name. `pi-link` bridges this — it resolves a session by name and launches Pi directly:
+Pi's `--session` flag accepts a file path or session ID, not a display name. `pi-link` bridges this — it resolves a session by name and launches Pi directly:
 
 ```bash
 pi-link worker-1                # resume or create session "worker-1"
@@ -437,36 +469,6 @@ Exit `2` means no hub answered **at that instant**. When a hub exits, a survivin
 The endpoint is bound to `127.0.0.1` with no authentication, the same trust boundary as the WebSocket surface it shares a port with: any process on this machine can already connect to the link.
 
 Finally, `--status` and `--json` belong to the wrapper only until a session name appears. After one, they are pi's: `pi-link mybot --status` forwards `--status` to pi untouched, exactly like any other passthrough flag.
-
----
-
-## Configuration
-
-Link is **off by default**. Without `--link`, `--link-name`, or `pi-link`, a fresh session is completely silent — no status bar, no connections, no warnings.
-
-**Naming concepts**
-
-- **link name** — identity used on the network (visible in `link_list`, `/link`, and messages).
-- **group** — the text after the first `@` in a link name, compared exactly. `archon@pi-link` is in `pi-link`, `a@g@h` is in `g@h`, and a name without `@` (or ending in one, like `a@`) belongs to the single implicit group of plain names. Comparison is **case-sensitive**: `a@Team` and `a@team` are different groups. `link_list`, `link_send`, `link_compact`, `/link` and the footer see only your own group; the hub still routes for every group, and `pi-link --status` shows all of them. Renaming with `/link-name` moves you.
-- **Pi session name** — identity Pi gives the session itself; lives in the session JSONL's latest `session_info` entry.
-- **saved link name** — the link name persisted to the session, restored on resume. Set by `/link-name`, `pi-link <name>`, or `pi --link-name <name>`.
-- **`--link-name` flag vs `/link-name` command** — same concept (the link name) at different times (startup vs mid-session).
-
-| What you want                        | Use                     |
-| ------------------------------------ | ----------------------- |
-| Resume/create a named session        | `pi-link <name>`        |
-| Stable link identity, normal Pi flow | `pi --link-name <name>` |
-| Quick try, random name               | `pi --link`             |
-| Already in a session                 | `/link-connect`         |
-| Disconnect mid-session               | `/link-disconnect`      |
-
-`pi-link <name>` resumes/creates a session AND sets your link identity in one step. `pi --link-name <name>` sets only the link identity, leaving Pi's normal session selection (latest in cwd, or fresh) untouched.
-
-**Name normalization:** Link names are normalized — leading/trailing whitespace removed and internal whitespace runs collapsed to a single space. `/link-name "build   lead"` saves and shows as `build lead`.
-
-**Name precedence:** `pi --link-name` > `pi-link <name>` > saved `/link-name` > Pi session name > random `t-xxxx`. _(The `pi-link` wrapper itself does not accept `--link-name`; pick one or the other.)_
-
-`/link-connect` and `/link-disconnect` save their intent to the session — resume later and the connection state is restored without needing the flag. Explicit user intent takes precedence over `--link`.
 
 ---
 
@@ -668,7 +670,7 @@ Default names are random 4-character hex IDs: `t-a1b2`, `t-c3d4`, etc.
 Internally, teardown is split into two functions:
 
 - **`disconnect()`** - closes sockets, clears connection state, reports each outstanding compact request as unknown. Used by `/link-disconnect` and called internally by `cleanup()`.
-- **`cleanup()`** - calls `disconnect()`, sets `disposed = true`, clears `ctx`. Used on `session_shutdown`.
+- **`cleanup()`** - sets `disposed = true`, then calls `disconnect()` and clears `ctx`. Used on `session_shutdown`.
 
 Three helpers protect WebSocket callbacks from stale extension context:
 
