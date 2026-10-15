@@ -136,9 +136,9 @@ With two projects open, you may not want their terminals to see each other. Put 
 
 ## LLM Tools
 
-Three tools: `link_send` to talk to another terminal, `link_list` to see who is there, and `link_compact` to trim another terminal's context. pi-link also ships a **pi-link-tools** skill describing how they behave.
+The model has three tools: `link_send` to talk to another terminal, `link_list` to see who is there, and `link_compact` to trim another terminal's context. You can ask for these actions in a normal prompt. The bundled [pi-link-tools skill](skills/pi-link-tools/SKILL.md) provides usage guidance for agents.
 
-### Which tool should I use?
+### What the model can do
 
 | Tool           | Behavior                                                | Returns                                                 |
 | -------------- | ------------------------------------------------------- | ------------------------------------------------------- |
@@ -178,11 +178,11 @@ Each terminal's status is derived automatically from Pi lifecycle events - agent
 | `idle (2m)`       | Waiting for user input                                                             |
 | `thinking (3s)`   | Work Pi has not settled yet — the LLM call, plus any automatic retry or compaction |
 | `tool:bash (12s)` | The first still-active call, not a list                                            |
-| `compacting (8s)` | Manual compaction gate raised; messages held                                       |
+| `compacting (8s)` | Incoming messages held for compaction                                             |
 
 Pi can run tools in parallel, so `tool:<name>` names the first still-active call Pi reported — one call that really is still running, not a list of every concurrent one — and it advances only when that call ends, staying `tool:<name>` until the last one does.
 
-Only a manual compaction shows `compacting`; while it does, messages to that terminal are held — see [Inbox](#inbox).
+Both `/compact` and an accepted `link_compact` request can show `compacting`; automatic compaction shows `thinking`. While `compacting` is displayed, incoming messages are held. The state reports that hold, not proof that compaction is still running — see [Inbox](#inbox).
 
 Durations are computed at render time from a `since` timestamp - no timer traffic over the wire. Terminals that just joined with no status data yet render as blank, not fake idle.
 
@@ -202,26 +202,50 @@ Connected terminals:
 
 ### `link_compact`
 
-Ask another terminal to compact its context window. The call returns as soon as the request is sent, with its request ID; it does not wait, and its result does not mean the target accepted, started or finished compacting. The outcome arrives later as a notification in your own [inbox](#inbox), delivered like a received message: it starts a turn if you are idle, is steered into your run if you are busy, and is held while your own compaction gate stands. Several requests can be outstanding at once, each reported separately. A `compacted` notification means that compaction finished; it does not reserve the target, which may be busy again by the time your next `link_send` reaches it.
+Use this tool to ask another terminal in the same group to compact its context — the same operation as `/compact`: summarize older conversation while keeping recent messages. A summary can omit details. Optional instructions guide what it preserves, but do not guarantee what survives or assign the target a task to perform afterwards.
+
+For example, ask the model in the requesting terminal:
+
+```text
+Ask researcher to compact its context, preserving pending decisions, and tell me the result.
+```
+
+The tool first reports that the request was sent. **Sent does not mean accepted or finished.** A separate notification reports the outcome later. In this successful example, `<id>` stands for the request ID; the same ID connects the two messages:
+
+```text
+Compact request sent to "researcher" [<id>]; the result will arrive as a link notification.
+```
+
+Later, on success:
+
+```text
+link_compact "researcher" [<id>]: compacted
+```
+
+The notification appears as a link message in the requesting terminal and reaches its model: it starts a turn if the model is idle, steers an active run, and waits while that terminal reports `compacting`. pi-link generates it automatically; the target's model does not need to send a reply. The requesting model can continue other work while waiting, and several compaction requests can be outstanding at once.
+
+The tool's parameters are:
 
 | Parameter      | Type     | Description                                            |
 | -------------- | -------- | ------------------------------------------------------ |
 | `to`           | `string` | Target terminal name                                   |
-| `instructions` | `string` | Optional custom compaction instructions for the target |
+| `instructions` | `string` | Optional guidance for the compaction summary           |
 
-- **Immediate result** — `Compact request sent to "<name>" [<id>]; the result will arrive as a link notification.`, with the same ID in `details.id`. A failure that needs no answer is reported in the result instead, and no notification follows: not connected, yourself as the target (`self_target`, `Cannot compact yourself.`), a target not in your group's list (`not_found`), a call already aborted (`aborted`), or a request that could not be handed on (`not_delivered`).
-- **Notification** — one line per request, `link_compact "<name>" [<id>]: <outcome>`, naming the target you asked and the ID from the result. It joins the usual `[Link: N message(s) received]` batch and counts toward `N`, but carries no `From "name":` header: some outcomes are produced by the hub or by your own terminal, and none is a message the target chose to send.
-- **Success** — `compacted`.
-- **Busy decline** — `not done: busy`. The target accepts only when Pi reports its session idle **and** no compaction holds its delivery gate, so an active run, an automatic retry, an automatic compaction and a queued continuation all decline immediately without interrupting the work in progress.
-- **The other declines** — a runtime offering no compaction capability answers `not done: unsupported` and is never asked to compact; a session under the runtime's threshold answers `not done: Nothing to compact (session too small)`; a target that has done nothing since its last compaction answers `not done: Already compacted`; a target the hub cannot find answers `not done: not_found`. Any other failure or cancellation reported by the target's runtime appears after `not done: `.
+**Results you may see:**
+
+- **Failure before sending** — the tool reports the error immediately, and no later notification follows. For example, the requesting terminal may be disconnected or the target absent from its group. A terminal cannot request its own compaction with this tool.
+- **Success** — `compacted`. Compaction finished, but this does not reserve the target: it may be busy again by the next request.
+- **Busy decline** — `not done: busy`. The target must be idle and not reporting `compacting`; an active run, an automatic retry or compaction, or a queued continuation counts as busy. Busy work is not interrupted, and the request is not queued for another attempt.
+- **Other declines or errors** — `not done: unsupported` if the target lacks compaction support, or `not done: not_found` if the target cannot be found when the request is routed. Pi may report a reason such as `Nothing to compact (session too small)` or `Already compacted`; runtime errors and cancellations also appear after `not done: `.
 - **Departure** — `left the link before answering; result unknown`. The target may or may not have compacted.
-- **300-second deadline** — `no confirmation within 300s; the target may still be compacting`. The deadline only observes: nothing aborts the target, and an answer that arrives after it is ignored.
-- **Disconnect** — `/link-disconnect` reports each outstanding request as `link disconnected before an answer; result unknown, the target may still be compacting`. Losing the hub without disconnecting keeps requests outstanding, so an answer that arrives after the reconnect is still reported.
-- Any terminal can request compaction on another **in its group**.
+- **Five-minute deadline** — `no confirmation within 300s; the target may still be compacting`. This ends observation, not the target's compaction; a later answer is ignored.
+- **Disconnect** — `/link-disconnect` in the requesting terminal reports outstanding requests as `link disconnected before an answer; result unknown, the target may still be compacting`.
 
-Outstanding requests live only in the requesting terminal's memory: if it reloads or exits, their outcomes are lost and never reported. A response the target sends while the hub is down or failing over is not replayed, so the deadline reports that request. A response goes to the name the requester had when it asked; after the requester renames, it goes to the old name, and the deadline reports the request.
+There is no remote cancel. **An unknown result is not a confirmed failure.** Losing the hub connection without explicitly disconnecting keeps requests outstanding, so an answer arriving after reconnection can still be reported.
 
-The mechanics behind these outcomes — what an accepted request runs, the delivery gate it raises, what releases that gate after a cancellation, and what aborting the call does — are in [Remote compaction](#remote-compaction).
+If the requesting terminal reloads or exits, it loses tracking of outstanding requests and their outcomes will not be reported. A response sent while the hub is down or failing over is not replayed. Renaming the requester leaves responses addressed to its old name. In those last two cases, a lost response leaves only the deadline notification.
+
+For the tool-result fields and implementation behind these behaviors, see [Remote compaction](#remote-compaction).
 
 ---
 
@@ -679,7 +703,7 @@ Status updates are push-based: each terminal broadcasts changes to the hub, whic
 
 ### Inbox
 
-An arriving `chat` message goes into a local inbox rather than calling `pi.sendMessage()` immediately, so that arrivals close together can be coalesced into a single delivery. The outcome of a `link_compact` this terminal requested takes the same path, as a line without a `From` header.
+An arriving `chat` message goes into a local inbox rather than calling `pi.sendMessage()` immediately, so that arrivals close together can be coalesced into a single delivery. The outcome of a `link_compact` this terminal requested takes the same path: one line per resolved request, `link_compact "<name>" [<id>]: <outcome>`, naming the requested target and its request ID. It counts toward `N` in the `[Link: N message(s) received]` batch but has no `From` header: it is generated by pi-link, not a conversational reply from the target.
 
 The flush pipeline:
 
@@ -699,6 +723,8 @@ Delivery is held while a `manual`-reason compaction holds this terminal's gate, 
 | `COMPACT_TIMEOUT_MS` | 300 000 | Requester deadline, reused as the gate backstop  |
 
 ### Remote compaction
+
+The tool returns the request ID in `details.id` as well as in its sent text. Failures before sending return immediately without a later outcome: `not_connected`, `self_target` (`Cannot compact yourself.`), `not_found` for a target absent from the requester's group list, `aborted` for an already-aborted call, or `not_delivered` if routing could not hand the request on. These tool-result errors are distinct from a later `not done: <reason>` notification.
 
 A `compact_request` that passes the capability and idle checks is served by calling `ctx.compact()` — the same operation as `/compact`. The requester is answered with a `compact_response` carrying its request ID when the runtime reports a result through `onComplete`/`onError`. Each call targets one terminal, independent requests can be outstanding concurrently, and link participants are cooperating peers: nothing here is privileged.
 
