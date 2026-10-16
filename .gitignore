@@ -4,6 +4,7 @@ agent/install/
 agent/mcp-cache.json
 agent/mcp-npx-cache.json
 agent/mcp-onboarding.json
+agent/mcp.json
 agent/models-store.json
 agent/npm/
 agent/sessions/
