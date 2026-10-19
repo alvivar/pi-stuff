@@ -266,31 +266,40 @@ const compactRequest = ({ client, self }, id = "r1") =>
 }
 
 {
-  // 2. Not idle, gates clear -> busy, no compact call.
+  // 2. Not idle, gates clear -> the request waits: no answer, no compact call yet,
+  // and the target is told so. Once Pi is idle, the next check starts it.
   let calls = 0;
-  const hub = await boot({ isIdle: () => false, compact: () => { calls++; } });
+  let idle = false;
+  const hub = await boot({ isIdle: () => idle, compact: () => { calls++; } });
   compactRequest(hub);
   await tick();
-  const [res] = responses(hub.frames);
-  check("B2: Pi not idle -> busy, no compact()", res?.reason === "busy" && calls === 0, `${JSON.stringify(res)} calls=${calls}`);
+  check("B2: Pi not idle -> waits, no answer, no compact()",
+    responses(hub.frames).length === 0 && calls === 0, `${JSON.stringify(responses(hub.frames))} calls=${calls}`);
+  check("B2: the target is told the request is waiting",
+    hub.ctx.notes.at(-1) === '"peer" asked this terminal to compact; waiting until it is idle',
+    JSON.stringify(hub.ctx.notes));
+  idle = true;
+  await waitFor(() => calls === 1, "the waiting request to start once Pi is idle");
+  check("B2: once idle, one compact() call", calls === 1, `calls=${calls}`);
 }
 
 {
-  // 3. Idle but a manual compaction holds the gate -> busy. This raises the real
+  // 3. Idle but a manual compaction holds the gate -> waits. This raises the real
   // gate, including its 300s deadline; the shutdown at the end of the file is what
-  // clears it, and the process exiting on its own is the proof.
+  // clears it and the waiting request's check, and the process exiting on its own
+  // is the proof.
   let calls = 0;
   const hub = await boot({ compact: () => { calls++; } });
   await hub.api.emit("session_before_compact", { reason: "manual" }, hub.ctx);
   compactRequest(hub);
   await tick();
-  const [res] = responses(hub.frames);
-  check("B3: idle + manual gate -> busy, no compact()", res?.reason === "busy" && calls === 0, `${JSON.stringify(res)} calls=${calls}`);
+  check("B3: idle + manual gate -> waits, no answer, no compact()",
+    responses(hub.frames).length === 0 && calls === 0, `${JSON.stringify(responses(hub.frames))} calls=${calls}`);
 }
 
 {
-  // 4/5. Idle and ungated -> exactly one compact(); a second request is busy;
-  // completion answers the first request.
+  // 4/5. Idle and ungated -> exactly one compact(); a second request is refused
+  // with its own reason; completion answers the first request.
   let calls = 0;
   let complete;
   const hub = await boot({
@@ -300,10 +309,12 @@ const compactRequest = ({ client, self }, id = "r1") =>
   compactRequest(hub, "first");
   await tick();
   check("B5: idle + ungated -> one compact() call", calls === 1, `calls=${calls}`);
+  check("B5: the target is told who asked",
+    hub.ctx.notes.at(-1) === '"peer" asked this terminal to compact', JSON.stringify(hub.ctx.notes));
   compactRequest(hub, "second");
   await tick();
   const second = responses(frames).find((r) => r.id === "second");
-  check("B4: request during our own compaction -> busy, no second compact()", second?.reason === "busy" && calls === 1, `${JSON.stringify(second)} calls=${calls}`);
+  check("B4: request during our own compaction -> already_requested, no second compact()", second?.reason === "already_requested" && calls === 1, `${JSON.stringify(second)} calls=${calls}`);
   check("B5: compacting terminal reports compacting", statuses(frames).includes("compacting"), statuses(frames).join(","));
   complete?.({});
   await tick();

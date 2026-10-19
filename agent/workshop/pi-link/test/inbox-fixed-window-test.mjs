@@ -194,6 +194,7 @@ function boot() {
   createExtension(api);
 
   const t = {
+    ctx,
     notes,
     delivered,
     emit: async (event, payload = {}) => {
@@ -464,15 +465,18 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
   // Responses close together share one window with a chat, in arrival order.
   // The three known codes read as text; any other reason passes through, and a
   // response with no reason reads `failed`.
-  const t = await requester(["busy", "old", "small", "gone", "mute"]);
+  const targets = ["busy", "old", "small", "gone", "mute", "taken", "moved"];
+  const t = await requester(targets);
   const ids = {};
-  for (const to of ["busy", "old", "small", "gone", "mute"]) ids[to] = (await request(t, to)).id;
+  for (const to of targets) ids[to] = (await request(t, to)).id;
   respond(t, ids.busy, "busy", false, "busy");
   respond(t, ids.old, "old", false, "unsupported");
   respond(t, ids.small, "small", false, "Nothing to compact (session too small)");
   t.chat("peer", "hello");
   respond(t, ids.gone, "hub", false, "not_found");
   respond(t, ids.mute, "mute", false);
+  respond(t, ids.taken, "taken", false, "already_requested");
+  respond(t, ids.moved, "moved", false, "tree_navigated");
   await advance(FLUSH_DELAY_MS);
   const expected = [
     lineFor("busy", ids.busy, "not done: target busy"),
@@ -481,14 +485,16 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
     'From "peer":\nhello',
     lineFor("gone", ids.gone, "not done: target not found"),
     lineFor("mute", ids.mute, "not done: failed"),
+    lineFor("taken", ids.taken, "not done: target already has a compaction request waiting or running"),
+    lineFor("moved", ids.moved, "not done: target navigated its session tree while the request waited"),
   ];
   check("6c: each outcome names its requested target, never the responder",
     t.delivered.length === 1 &&
-      contents(t)[0] === `[Link: 6 message(s) received]\n\n${expected.join("\n\n")}`,
+      contents(t)[0] === `[Link: 8 message(s) received]\n\n${expected.join("\n\n")}`,
     JSON.stringify(contents(t)));
   check("6c: the mixed batch keeps the chat as the only From block",
-    senders(t.delivered[0]).join(",") === ",,,peer,,", JSON.stringify(senders(t.delivered[0])));
-  check("6c: the five IDs are distinct", new Set(Object.values(ids)).size === 5, JSON.stringify(ids));
+    senders(t.delivered[0]).join(",") === ",,,peer,,,,", JSON.stringify(senders(t.delivered[0])));
+  check("6c: the seven IDs are distinct", new Set(Object.values(ids)).size === 7, JSON.stringify(ids));
 }
 
 {
@@ -510,23 +516,20 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
 }
 
 {
-  // The deadline only observes: five minutes with no answer is reported, and the
-  // answer that comes after it is ignored.
+  // No deadline: a target can wait indefinitely before it starts, so a request
+  // stays tracked until its outcome arrives, twice the old five minutes later here.
   const t = await requester();
   const { id } = await request(t, "peer");
   const dispatched = clockNow;
-  await advance(COMPACT_TIMEOUT_MS - 1);
-  check("6e: nothing is reported one millisecond before the deadline",
-    t.delivered.length === 0 && clockNow - dispatched === COMPACT_TIMEOUT_MS - 1,
-    JSON.stringify(contents(t)));
-  await advance(1 + FLUSH_DELAY_MS);
-  check("6e: at five minutes the deadline is reported, saying the target may still compact",
-    contents(t).join("|") ===
-      `[Link: 1 message(s) received]\n\n${lineFor("peer", id, "no confirmation within 300s; the target may still be compacting")}`,
+  await advance(10 * 60_000);
+  check("6e: ten minutes without an answer report nothing",
+    t.delivered.length === 0 && clockNow - dispatched === 10 * 60_000,
     JSON.stringify(contents(t)));
   respond(t, id, "peer", true);
   await advance(FLUSH_DELAY_MS);
-  check("6e: a response after the deadline is ignored", t.delivered.length === 1,
+  check("6e: the answer that then arrives is reported",
+    contents(t).join("|") ===
+      `[Link: 1 message(s) received]\n\n${lineFor("peer", id, "compacted")}`,
     JSON.stringify(contents(t)));
 }
 
@@ -575,7 +578,7 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
       `[Link: 2 message(s) received]\n\n${lineFor("peer", id, outcome)}\n\n${lineFor("other", otherId, outcome)}`,
     JSON.stringify(contents(t)));
   await advance(COMPACT_TIMEOUT_MS);
-  check("6h: and nothing else follows, not even the deadline", t.delivered.length === 1,
+  check("6h: and nothing else follows", t.delivered.length === 1,
     JSON.stringify(contents(t)));
 }
 
@@ -596,7 +599,7 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
     JSON.stringify(contents(t)));
   const reported = contents(t).join("|");
   await advance(COMPACT_TIMEOUT_MS);
-  check("6h: and neither a reconnect nor the deadline follows",
+  check("6h: and no reconnect or later report follows",
     contents(t).join("|") === reported && t.sockets().length === 1, JSON.stringify(contents(t)));
 }
 
@@ -629,7 +632,9 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
       failed.content[0].text ===
         'Failed to request compact on "peer": connection to the link hub is not open',
     JSON.stringify(failed));
-  await advance(COMPACT_TIMEOUT_MS + FLUSH_DELAY_MS);
+  // A disconnect reports every request still tracked, so nothing here means none is.
+  await t.cmd("link-disconnect");
+  await advance(FLUSH_DELAY_MS);
   check("6i: and leaves nothing tracked to report later", t.delivered.length === 1,
     JSON.stringify(contents(t)));
 }
@@ -656,6 +661,144 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
   await advance(FLUSH_DELAY_MS * 10);
   check("7: nothing is delivered after shutdown", t.delivered.length === 0,
     JSON.stringify(t.delivered));
+}
+
+// ── 8. A target holds one remote request until it is free ──────────────────
+
+// The target's side of link_compact: an established client welcomed as "me", whose
+// compact() calls are recorded and finished by the test, fed requests from "peer".
+const COMPACT_WAIT_CHECK_MS = 500;
+
+async function target() {
+  const t = await requester();
+  t.compactCalls = [];
+  t.ctx.compact = (options) => t.compactCalls.push(options);
+  return t;
+}
+const ask = (t, id, instructions) =>
+  t.receive({ type: "compact_request", id, from: "peer", to: "me", instructions });
+const answers = (t) =>
+  t.socket.sent.filter((f) => f.type === "compact_response").map((f) => `${f.id}:${f.ok}:${f.reason}`);
+
+{
+  // Busy for ten minutes: the request waits without a deadline and without holding
+  // messages, then starts at the first check that finds Pi idle.
+  const t = await target();
+  let idle = false;
+  t.ctx.isIdle = () => idle;
+  ask(t, "r1", "keep decisions");
+  const asked = clockNow;
+  check("8a: a busy target neither compacts nor answers on arrival",
+    t.compactCalls.length === 0 && answers(t).length === 0, JSON.stringify(answers(t)));
+  check("8a: the target is told the request waits, not that compaction started",
+    t.notes.at(-1) === '"peer" asked this terminal to compact; waiting until it is idle',
+    JSON.stringify(t.notes));
+  check("8a: waiting raises no gate", gateStatus(t) !== "compacting", gateStatus(t));
+
+  t.chat("peer", "while waiting");
+  await advance(FLUSH_DELAY_MS);
+  check("8a: messages are delivered while the request waits",
+    t.delivered.length === 1 && bodies(t.delivered[0]).join(",") === "while waiting",
+    JSON.stringify(contents(t)));
+
+  await advance(10 * 60_000 - FLUSH_DELAY_MS);
+  check("8a: ten busy minutes neither expire nor start the request",
+    t.compactCalls.length === 0 && answers(t).length === 0 && clockNow - asked === 10 * 60_000,
+    JSON.stringify(answers(t)));
+
+  idle = true;
+  await advance(COMPACT_WAIT_CHECK_MS - 1);
+  check("8a: idle is not acted on before the next check", t.compactCalls.length === 0);
+  await advance(1);
+  check("8a: the next check starts one compaction with the request's instructions",
+    t.compactCalls.length === 1 && t.compactCalls[0].customInstructions === "keep decisions",
+    JSON.stringify(t.compactCalls));
+  check("8a: starting raises the gate", gateStatus(t) === "compacting", gateStatus(t));
+
+  t.chat("peer", "while compacting");
+  ask(t, "r2", "other instructions");
+  await advance(FLUSH_DELAY_MS * 3);
+  check("8a: messages are held while it runs", t.delivered.length === 1, JSON.stringify(contents(t)));
+  check("8a: a second request is refused with its own reason, not queued",
+    answers(t).join("|") === "r2:false:already_requested" && t.compactCalls.length === 1,
+    JSON.stringify(answers(t)));
+
+  t.compactCalls[0]?.onComplete({});
+  t.compactCalls[0]?.onComplete({});
+  t.compactCalls[0]?.onError(new Error("late"));
+  await advance(FLUSH_DELAY_MS);
+  check("8a: completion answers the request once, however often Pi calls back",
+    answers(t).join("|") === "r2:false:already_requested|r1:true:undefined",
+    JSON.stringify(answers(t)));
+  check("8a: and releases the held message",
+    t.delivered.length === 2 && bodies(t.delivered[1]).join(",") === "while compacting",
+    JSON.stringify(contents(t)));
+  await advance(COMPACT_WAIT_CHECK_MS * 4);
+  check("8a: nothing starts again afterwards", t.compactCalls.length === 1);
+}
+
+{
+  // A human /compact holds the gate. Its success event fires before Pi clears its
+  // own state, so the request is picked up by a later check, not by the event.
+  const t = await target();
+  await t.emit("session_before_compact", { reason: "manual" });
+  ask(t, "r1");
+  ask(t, "r2");
+  await advance(COMPACT_WAIT_CHECK_MS * 3);
+  check("8b: a request waits behind a manual compaction; another is refused meanwhile",
+    t.compactCalls.length === 0 && answers(t).join("|") === "r2:false:already_requested",
+    JSON.stringify(answers(t)));
+  await t.emit("session_compact", { reason: "manual" });
+  await advance(COMPACT_WAIT_CHECK_MS);
+  check("8b: the manual compaction's end is picked up within one check",
+    t.compactCalls.length === 1, JSON.stringify(t.compactCalls));
+
+  t.compactCalls[0]?.onError(new Error("Already compacted"));
+  await advance(COMPACT_WAIT_CHECK_MS * 4);
+  check("8b: a failure is answered once and not retried",
+    answers(t).join("|") === "r2:false:already_requested|r1:false:Already compacted" &&
+      t.compactCalls.length === 1,
+    JSON.stringify(answers(t)));
+}
+
+{
+  // A completed navigation ends a waiting request; its check must not fire later
+  // and serve, or end, the request that takes the slot next.
+  const t = await target();
+  let idle = false;
+  t.ctx.isIdle = () => idle;
+  ask(t, "old", "old instructions");
+  await advance(COMPACT_WAIT_CHECK_MS + 100);
+  await t.emit("session_tree", { newLeafId: "b", oldLeafId: "a" });
+  check("8c: a completed navigation answers the waiting request",
+    answers(t).join("|") === "old:false:tree_navigated", JSON.stringify(answers(t)));
+  ask(t, "new", "new instructions");
+  idle = true;
+  await advance(COMPACT_WAIT_CHECK_MS);
+  check("8c: the next request is the only one served",
+    t.compactCalls.length === 1 && t.compactCalls[0].customInstructions === "new instructions",
+    JSON.stringify(t.compactCalls));
+  await t.emit("session_tree", { newLeafId: "c", oldLeafId: "b" });
+  t.compactCalls[0]?.onComplete({});
+  check("8c: navigation leaves a running request to finish and answer",
+    answers(t).join("|") === "old:false:tree_navigated|new:true:undefined",
+    JSON.stringify(answers(t)));
+}
+
+{
+  // Disconnect and teardown drop a waiting request: it never starts afterwards.
+  for (const end of ["link-disconnect", "session_shutdown"]) {
+    const t = await target();
+    let idle = false;
+    t.ctx.isIdle = () => idle;
+    ask(t, "r1");
+    if (end === "link-disconnect") await t.cmd("link-disconnect");
+    else await t.emit("session_shutdown", { reason: "quit" });
+    idle = true;
+    await advance(COMPACT_WAIT_CHECK_MS * 4);
+    check(`8d: ${end} drops a waiting request`, t.compactCalls.length === 0,
+      JSON.stringify(t.compactCalls));
+  }
 }
 
 // ── Teardown: every instance releases its timers and transports ─────────────
