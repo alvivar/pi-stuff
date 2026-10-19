@@ -144,6 +144,23 @@ function piVersionSupported(version: string): boolean {
   return true; // exactly the floor
 }
 
+/**
+ * The reason a `compact_response` gives, as the requester shows it. The wire keeps
+ * the codes; anything else, such as a runtime's own message, is shown as sent.
+ */
+function compactReasonText(reason: string | undefined): string {
+  switch (reason) {
+    case "busy":
+      return "target busy";
+    case "not_found":
+      return "target not found";
+    case "unsupported":
+      return "compaction unavailable on target";
+    default:
+      return reason ?? "failed";
+  }
+}
+
 // keyText is empty when app.tools.expand has no binding, and the native hint would then
 // read " to expand" with no key in it, naming nothing the reader can press.
 function expansionHint(dim: (text: string) => string): string {
@@ -921,7 +938,7 @@ export default function (pi: ExtensionAPI) {
       case "compact_response":
         reportCompact(
           msg.id,
-          msg.ok ? "compacted" : `not done: ${msg.reason ?? "failed"}`,
+          msg.ok ? "compacted" : `not done: ${compactReasonText(msg.reason)}`,
         );
         break;
 

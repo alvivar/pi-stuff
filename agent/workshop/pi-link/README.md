@@ -237,8 +237,8 @@ The tool's parameters are:
 
 - **Failure before sending** — the tool reports the error immediately, and no later notification follows. For example, the requesting terminal may be disconnected or the target absent from its group. A terminal cannot request its own compaction with this tool.
 - **Success** — `compacted`. Compaction finished, but this does not reserve the target: it may be busy again by the next request.
-- **Busy decline** — `not done: busy`. The target must be idle and not reporting `compacting`; an active run, an automatic retry or compaction, or a queued continuation counts as busy. Busy work is not interrupted, and the request is not queued for another attempt.
-- **Other declines or errors** — `not done: unsupported` if the target lacks compaction support, or `not done: not_found` if the target cannot be found when the request is routed. Pi may report a reason such as `Nothing to compact (session too small)` or `Already compacted`; runtime errors and cancellations also appear after `not done: `.
+- **Busy decline** — `not done: target busy`. The target must be idle and not reporting `compacting`; an active run, an automatic retry or compaction, or a queued continuation counts as busy. Busy work is not interrupted, and the request is not queued for another attempt.
+- **Other declines or errors** — `not done: compaction unavailable on target` if the target has no compaction available when the request arrives, or `not done: target not found` if the target cannot be found when the request is routed. The wire still carries the codes `busy`, `unsupported` and `not_found`; the requester shows them as this text. Pi may report a reason such as `Nothing to compact (session too small)` or `Already compacted`; runtime errors and cancellations also appear after `not done: `.
 - **Departure** — `left the link before answering; result unknown`. The target may or may not have compacted.
 - **Five-minute deadline** — `no confirmation within 300s; the target may still be compacting`. This ends observation, not the target's compaction; a later answer is ignored.
 - **Disconnect** — `/link-disconnect` in the requesting terminal reports outstanding requests as `link disconnected before an answer; result unknown, the target may still be compacting`.
@@ -480,7 +480,7 @@ If another process occupies port 9900, the terminal can't become the hub. It tri
 
 ### `link_compact` reports a busy target
 
-A `link_compact` request does not interrupt work the target is still doing, so its notification reports `not done: busy` while that terminal is unsettled — see [`link_compact`](#link_compact) for the full list of what counts. Try again once `/link` or `link_list` reports the target idle, keeping in mind that idle is what was true a moment ago, not a reservation: the target can start working again before your request lands. `link_send` is different — it enters or steers the target's reasoning instead of declining just because it is busy.
+A `link_compact` request does not interrupt work the target is still doing, so its notification reports `not done: target busy` while that terminal is unsettled — see [`link_compact`](#link_compact) for the full list of what counts. Try again once `/link` or `link_list` reports the target idle, keeping in mind that idle is what was true a moment ago, not a reservation: the target can start working again before your request lands. `link_send` is different — it enters or steers the target's reasoning instead of declining just because it is busy.
 
 ### I sent a message but got no reply
 

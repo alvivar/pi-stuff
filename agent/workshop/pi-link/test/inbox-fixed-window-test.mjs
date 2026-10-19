@@ -462,29 +462,33 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
 {
   // Declines and failures, including the hub's not_found, which comes from the hub.
   // Responses close together share one window with a chat, in arrival order.
-  const t = await requester(["busy", "old", "small", "gone"]);
+  // The three known codes read as text; any other reason passes through, and a
+  // response with no reason reads `failed`.
+  const t = await requester(["busy", "old", "small", "gone", "mute"]);
   const ids = {};
-  for (const to of ["busy", "old", "small", "gone"]) ids[to] = (await request(t, to)).id;
+  for (const to of ["busy", "old", "small", "gone", "mute"]) ids[to] = (await request(t, to)).id;
   respond(t, ids.busy, "busy", false, "busy");
   respond(t, ids.old, "old", false, "unsupported");
   respond(t, ids.small, "small", false, "Nothing to compact (session too small)");
   t.chat("peer", "hello");
   respond(t, ids.gone, "hub", false, "not_found");
+  respond(t, ids.mute, "mute", false);
   await advance(FLUSH_DELAY_MS);
   const expected = [
-    lineFor("busy", ids.busy, "not done: busy"),
-    lineFor("old", ids.old, "not done: unsupported"),
+    lineFor("busy", ids.busy, "not done: target busy"),
+    lineFor("old", ids.old, "not done: compaction unavailable on target"),
     lineFor("small", ids.small, "not done: Nothing to compact (session too small)"),
     'From "peer":\nhello',
-    lineFor("gone", ids.gone, "not done: not_found"),
+    lineFor("gone", ids.gone, "not done: target not found"),
+    lineFor("mute", ids.mute, "not done: failed"),
   ];
   check("6c: each outcome names its requested target, never the responder",
     t.delivered.length === 1 &&
-      contents(t)[0] === `[Link: 5 message(s) received]\n\n${expected.join("\n\n")}`,
+      contents(t)[0] === `[Link: 6 message(s) received]\n\n${expected.join("\n\n")}`,
     JSON.stringify(contents(t)));
   check("6c: the mixed batch keeps the chat as the only From block",
-    senders(t.delivered[0]).join(",") === ",,,peer,", JSON.stringify(senders(t.delivered[0])));
-  check("6c: the four IDs are distinct", new Set(Object.values(ids)).size === 4, JSON.stringify(ids));
+    senders(t.delivered[0]).join(",") === ",,,peer,,", JSON.stringify(senders(t.delivered[0])));
+  check("6c: the five IDs are distinct", new Set(Object.values(ids)).size === 5, JSON.stringify(ids));
 }
 
 {
