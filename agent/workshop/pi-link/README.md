@@ -282,7 +282,7 @@ For the tool-result fields and implementation behind these behaviors, see [Remot
 ✓ Disconnected from the link; automatic reconnect disabled
 
 > /link-connect
-✓ Joined link as "my-session" (3 online)
+✓ Joined the link as "my-session" (3 online)
 ```
 
 With no argument, `/link-name` adopts the Pi session name. `/link-connect` joins an existing hub if one is running; otherwise it starts the hub.

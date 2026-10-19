@@ -410,7 +410,7 @@ async function readName(t) {
   await tick();
   check("3: late open sends no register", registers(socket).length === 0, JSON.stringify(socket.sent));
   check("3: late callbacks leave the role alone", (await t.role()) === "disconnected");
-  check("3: stale welcome is not acknowledged", noteCount(t, "Joined link") === 0, JSON.stringify(t.notes));
+  check("3: stale welcome is not acknowledged", noteCount(t, "Joined the link") === 0, JSON.stringify(t.notes));
   check("3: stale welcome does not rename the terminal",
     (await readName(t)) === nameBefore, `${nameBefore} -> ${await readName(t)}`);
   check("3: no reconnect was scheduled", t.sockets().length === 1 && t.servers().length === 0,
@@ -655,7 +655,7 @@ async function readName(t) {
   })));
   await tick();
   check("10a: welcome is accepted on the established socket",
-    noteCount(t, 'Joined link as "opus"') === 1, JSON.stringify(t.notes));
+    noteCount(t, 'Joined the link as "opus"') === 1, JSON.stringify(t.notes));
   socket.sent.length = 0;
   await t.emit("agent_start");
   await tick();

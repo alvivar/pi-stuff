@@ -218,14 +218,14 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.registerFlag("link", {
-    description: "Connect to link on startup",
+    description: "Connect to the link on startup",
     type: "boolean",
     default: false,
   });
 
   pi.registerFlag("link-name", {
     description:
-      "Set the pi-link terminal name on startup (link identity only; does not affect session)",
+      "Set the link name on startup (link identity only; does not affect session)",
     type: "string",
   });
 
@@ -827,7 +827,7 @@ export default function (pi: ExtensionAPI) {
         }
         updateStatus();
         notify(
-          `Joined link as "${terminalName}" (${visibleTerminals().length} online)`,
+          `Joined the link as "${terminalName}" (${visibleTerminals().length} online)`,
           "info",
         );
         pushStatus(true);
@@ -1529,7 +1529,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function notConnectedResult() {
-    return textResult("Not connected to link", { error: "not_connected" });
+    return textResult("Not connected to the link", { error: "not_connected" });
   }
 
   // Collapsed one-line preview for the two outgoing tools. Whitespace is normalized so a
