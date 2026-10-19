@@ -1789,7 +1789,8 @@ export default function (pi: ExtensionAPI) {
 
       let text = theme.fg("toolTitle", theme.bold("link "));
       text += theme.fg("muted", `(${details.role}) `);
-      text += theme.fg("accent", `${details.terminals.length} terminal(s)`);
+      const count = details.terminals.length;
+      text += theme.fg("accent", `${count} terminal${count !== 1 ? "s" : ""}`);
       for (const name of details.terminals) {
         const isSelf = name === details.self;
         const status = details.statuses?.[name] ?? "";
@@ -1836,7 +1837,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("link-name", {
-    description: "Change link name. No arg = use session name",
+    description: "Change link name (without an argument, use the session name)",
     handler: async (args, _ctx) => {
       let newName = normalizeName(args) ?? "";
       if (!newName) {

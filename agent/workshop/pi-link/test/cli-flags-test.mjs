@@ -266,7 +266,7 @@ runCase("H5b: launcher starts a new session for a foreign-only name", () => {
     r.record !== null &&
     JSON.stringify(r.record.argv) === JSON.stringify(["--link"]) &&
     r.record.piLinkName === "elsewhere" &&
-    output.includes('No "elsewhere" found in this cwd. ' + GLOBAL_ADVICE) &&
+    output.includes('No session named "elsewhere" found in this cwd. ' + GLOBAL_ADVICE) &&
     output.includes("Starting new session.") &&
     !claimsForeignMatch(output);
   return [

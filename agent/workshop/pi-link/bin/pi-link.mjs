@@ -743,7 +743,7 @@ async function runLauncher(state) {
     piArgs.push("--session", matches[0].path);
   } else {
     if (!state.global) {
-      console.error(`No "${name}" found in this cwd. Use --global to search other cwds.`);
+      console.error(`No session named "${name}" found in this cwd. Use --global to search other cwds.`);
     }
     console.error("Starting new session.");
   }
