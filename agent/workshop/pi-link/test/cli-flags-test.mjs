@@ -535,6 +535,10 @@ const deadHub = await startStubHub("ok", STATUS_BODY);
 await deadHub.stop();
 
 const atPort = (port) => ({ PI_LINK_PORT: String(port) });
+// The two --status failures, as printed for a port.
+const noHubText = (port) => `No link hub answered on :${port}.`;
+const unexpectedText = (port) =>
+  `Unexpected response from :${port}/status; not a compatible pi-link hub. If it is one, update pi-link and restart terminals.`;
 
 runCase("J1: --status --json prints the hub's bytes verbatim", () => {
   const r = run(["--status", "--json"], atPort(okHub.port));
@@ -596,11 +600,11 @@ runCase("J2c: payload order is preserved, hub first", () => {
   return [ok, JSON.stringify(r.stdout)];
 });
 
-expectExit("J3: no hub listening exits 2", ["--status"], 2, "No link hub running", atPort(deadHub.port));
-expectExit("J4: an old hub answering 426 exits 1", ["--status"], 1, "does not support /status", atPort(oldHub.port));
-expectExit("J4b: a 200 that is not JSON exits 1", ["--status"], 1, "does not support /status", atPort(htmlHub.port));
-expectExit("J4c: valid JSON of the wrong shape exits 1", ["--status"], 1, "does not support /status", atPort(shapeHub.port));
-expectExit("J4d: --json does not bypass the unsupported check", ["--status", "--json"], 1, "does not support /status", atPort(oldHub.port));
+expectExit("J3: no hub listening exits 2", ["--status"], 2, noHubText(deadHub.port), atPort(deadHub.port));
+expectExit("J4: an old hub answering 426 exits 1", ["--status"], 1, unexpectedText(oldHub.port), atPort(oldHub.port));
+expectExit("J4b: a 200 that is not JSON exits 1", ["--status"], 1, unexpectedText(htmlHub.port), atPort(htmlHub.port));
+expectExit("J4c: valid JSON of the wrong shape exits 1", ["--status"], 1, unexpectedText(shapeHub.port), atPort(shapeHub.port));
+expectExit("J4d: --json does not bypass the unsupported check", ["--status", "--json"], 1, unexpectedText(oldHub.port), atPort(oldHub.port));
 expectExit("J5: --status foo rejects arguments", ["--status", "foo"], 1, "does not accept arguments");
 expectExit("J6: --status --list cannot combine", ["--status", "--list"], 1, "cannot combine");
 expectExit("J6b: --list --status cannot combine", ["--list", "--status"], 1, "cannot combine");
@@ -618,7 +622,7 @@ runCase("J8: the exit-2 message names the effective port", () => {
 
 runCase("J8b: an unusable PI_LINK_PORT is reported, not validated", () => {
   const r = run(["--status"], { PI_LINK_PORT: "not-a-port" });
-  const ok = r.code === 2 && r.stderr.includes("No link hub running on :not-a-port.");
+  const ok = r.code === 2 && r.stderr.includes(noHubText("not-a-port"));
   return [ok, `exit ${r.code}, stderr=${JSON.stringify(r.stderr)}`];
 });
 
@@ -633,14 +637,14 @@ runCase("J10: 200 headers then a stalled body exits 2", () => {
   const r = run(["--status"], atPort(stallHub.port));
   const ok =
     r.code === 2 &&
-    r.stderr.includes(`No link hub running on :${stallHub.port}.`) &&
-    !r.stderr.includes("does not support");
+    r.stderr.includes(noHubText(stallHub.port)) &&
+    !r.stderr.includes(unexpectedText(stallHub.port));
   return [ok, `exit ${r.code}, stderr=${JSON.stringify(r.stderr)}`];
 });
 
 runCase("J10b: a stalled body exits 2 under --json too", () => {
   const r = run(["--status", "--json"], atPort(stallHub.port));
-  const ok = r.code === 2 && r.stderr.includes("No link hub running") && r.stdout === "";
+  const ok = r.code === 2 && r.stderr.includes(noHubText(stallHub.port)) && r.stdout === "";
   return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}, stderr=${JSON.stringify(r.stderr)}`];
 });
 
@@ -654,7 +658,7 @@ for (const [description, payload] of Object.entries(MALFORMED)) {
       const combined = r.stdout + r.stderr;
       const ok =
         r.code === 1 &&
-        combined.includes("does not support /status") &&
+        combined.includes(unexpectedText(hub.port)) &&
         // The whole point: a wrong server must not surface as a crash.
         !/TypeError|ReferenceError|\n\s+at /.test(combined) &&
         r.stdout === "";
@@ -712,7 +716,7 @@ for (const [description, payload] of Object.entries(MALFORMED)) {
       r.code === 0 &&
       r.stdout.includes("quiescing (1s)") &&
       r.stdout.includes("tool:some_new_tool (1m)") &&
-      !r.stdout.includes("does not support");
+      !r.stderr.includes(unexpectedText(futureHub.port));
     return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}`];
   });
 

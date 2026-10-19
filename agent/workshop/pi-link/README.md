@@ -455,8 +455,8 @@ Everything above is what the hub sends. The CLI validates only the fields its ta
 | Code | Meaning | Message |
 | --- | --- | --- |
 | `0` | Something answered with a printable payload | — |
-| `2` | No hub answered | `No link hub running on :9900.` |
-| `1` | Usage error, or an answer the table cannot print | `Link hub does not support /status — update pi-link and restart terminals.` |
+| `2` | No hub answered | `No link hub answered on :9900.` |
+| `1` | Usage error, or an answer the table cannot print | `Unexpected response from :9900/status; not a compatible pi-link hub. If it is one, update pi-link and restart terminals.` |
 
 The two failure messages are deliberately distinct, so a script can tell *no usable answer* from *an answer this CLI cannot read* without parsing anything else. Exit `2` covers both nothing listening and a listener that accepts the request but does not answer within two seconds — every timeout is exit `2`. Exit `1` covers a listener that responds with something the table cannot read — for example a pi-link 0.3.0 hub, which answers plain HTTP with `426 Upgrade Required`, so an out-of-date fleet lands here deterministically rather than looking like an outage.
 
@@ -488,7 +488,7 @@ A successful send is not a confirmation. On a client it means the message was ha
 
 ### `pi-link --status` reports no hub, or an unsupported one
 
-The two messages mean different things. `No link hub running on :9900.` (exit `2`) means nothing answered — either the link is genuinely down, or you caught it during the 2–5 second window while a client promotes itself to hub, so poll again before believing it. `Link hub does not support /status — update pi-link and restart terminals.` (exit `1`) means something answered but the response did not pass the CLI's checks — for example, a pi-link 0.3.0 hub, which predates the endpoint. Updating is not enough on its own: the running terminals keep the old hub alive until they restart. See [`--status`: who is connected right now](#--status-who-is-connected-right-now).
+The two messages mean different things. `No link hub answered on :9900.` (exit `2`) means the query received no complete answer, not that no hub is running. Check the effective port and retry: the link may be down, you may have caught the 2–5 second window while a client promotes itself to hub, or a listener may have stalled. `Unexpected response from :9900/status; not a compatible pi-link hub. If it is one, update pi-link and restart terminals.` (exit `1`) means something answered but the response did not pass the CLI's checks — for example, a pi-link 0.3.0 hub, which predates the endpoint. Updating is not enough on its own: the running terminals keep the old hub alive until they restart. See [`--status`: who is connected right now](#--status-who-is-connected-right-now).
 
 ### Terminals don't see each other
 
