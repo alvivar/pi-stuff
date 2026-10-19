@@ -136,6 +136,15 @@
         ]
       },
       {
+        "name": "rigel",
+        "icon": "star-half",
+        "color": "terminal.ansiBrightBlue",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link rigel@pi-dock"
+        ]
+      },
+      {
         "name": "implementer",
         "icon": "tools",
         "color": "terminal.ansiBlue",
@@ -151,15 +160,6 @@
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link reviewer@pi-dock"
-        ]
-      },
-      {
-        "name": "explorer",
-        "icon": "telescope",
-        "color": "terminal.ansiBrightGreen",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link explorer@pi-dock"
         ]
       },
       {
