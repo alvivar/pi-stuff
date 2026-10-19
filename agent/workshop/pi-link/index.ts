@@ -899,7 +899,7 @@ export default function (pi: ExtensionAPI) {
         };
         compactRunning = true;
         syncCompactionStatus();
-        notify(`"${from}" requested compact`, "info");
+        notify(`"${from}" asked this terminal to compact`, "info");
         // compact() aborts the current turn first, so the idle guard above
         // keeps us from interrupting active work. Pi reports the compaction's
         // outcome through these callbacks once compact() settles; finish() clears
@@ -1183,7 +1183,7 @@ export default function (pi: ExtensionAPI) {
         updateStatus();
 
         if (!manuallyDisconnected) {
-          notify("Disconnected from link hub", "warning");
+          notify("Disconnected from the link hub; reconnecting...", "warning");
           scheduleReconnect();
         }
       });
@@ -1600,7 +1600,10 @@ export default function (pi: ExtensionAPI) {
 
       const target = `"${params.to}"`;
       if (!delivered) {
-        return textResult(`Failed to send to ${target}`, {
+        // The hub found no reachable target; a client's hub connection is not open.
+        const reason =
+          role === "hub" ? "target not found" : "connection to the link hub is not open";
+        return textResult(`Failed to send to ${target}: ${reason}`, {
           to: params.to,
           error: "not_delivered",
         });
@@ -1697,10 +1700,10 @@ export default function (pi: ExtensionAPI) {
       // Still tracked means it was never handed on. No longer tracked means it was
       // answered in this stack, and that outcome is already in the inbox.
       if (!delivered && cleanupPendingCompact(requestId)) {
-        return textResult(`Failed to request compact on "${params.to}"`, {
-          to: params.to,
-          error: "not_delivered",
-        });
+        return textResult(
+          `Failed to request compact on "${params.to}": connection to the link hub is not open`,
+          { to: params.to, error: "not_delivered" },
+        );
       }
       return textResult(
         `Compact request sent to "${params.to}" [${requestId}]; the result will arrive as a link notification.`,
@@ -1928,7 +1931,9 @@ export default function (pi: ExtensionAPI) {
       const wasConnected = role !== "disconnected";
       disconnect();
       _ctx.ui.notify(
-        wasConnected ? "Disconnected from link" : "Link disconnected",
+        wasConnected
+          ? "Disconnected from the link; automatic reconnect disabled"
+          : "Already disconnected; automatic reconnect disabled",
         "info",
       );
     },

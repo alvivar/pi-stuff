@@ -381,7 +381,8 @@ async function readName(t) {
   check("2: persisted intent recorded", JSON.stringify(t.entries.at(-1)) === JSON.stringify({ customType: "link-active", data: { active: false } }),
     JSON.stringify(t.entries));
   check("2: notification is the disconnected-role wording",
-    noteCount(t, "Link disconnected") === 1 && noteCount(t, "Disconnected from link hub") === 0,
+    noteCount(t, "Already disconnected; automatic reconnect disabled") === 1 &&
+      noteCount(t, "Disconnected from the link hub; reconnecting...") === 0,
     JSON.stringify(t.notes));
 }
 
@@ -414,7 +415,7 @@ async function readName(t) {
     (await readName(t)) === nameBefore, `${nameBefore} -> ${await readName(t)}`);
   check("3: no reconnect was scheduled", t.sockets().length === 1 && t.servers().length === 0,
     `sockets=${t.sockets().length} servers=${t.servers().length}`);
-  check("3: no hub-disconnect warning was published", noteCount(t, "Disconnected from link hub") === 0,
+  check("3: no hub-disconnect warning was published", noteCount(t, "Disconnected from the link hub; reconnecting...") === 0,
     JSON.stringify(t.notes));
 
   // Membership is only observable once connected, so reconnect and look: a stale
@@ -518,7 +519,7 @@ async function readName(t) {
   await new Promise((r) => setTimeout(r, 300));
   check("6: stale message never reaches the model", t.delivered.length === 0, JSON.stringify(t.delivered));
   check("6: stale close leaves the new client established", (await t.role()) === "client");
-  check("6: stale close publishes no warning", noteCount(t, "Disconnected from link hub") === 0,
+  check("6: stale close publishes no warning", noteCount(t, "Disconnected from the link hub; reconnecting...") === 0,
     JSON.stringify(t.notes));
   check("6: stale close schedules no reconnect", t.sockets().length === 2,
     `sockets=${t.sockets().length}`);
@@ -665,7 +666,7 @@ async function readName(t) {
   peerClose(socket);
   await tick();
   check("10a: current close warns exactly once",
-    noteCount(t, "Disconnected from link hub") === 1, JSON.stringify(t.notes));
+    noteCount(t, "Disconnected from the link hub; reconnecting...") === 1, JSON.stringify(t.notes));
   await until(() => t.sockets().length === 2, "exactly one reconnect", RECONNECT_CEILING_MS);
   await new Promise((r) => setTimeout(r, 200));
   check("10a: current close schedules exactly one reconnect",
@@ -708,7 +709,8 @@ async function readName(t) {
   await t.cmd("link-disconnect");
   await tick();
   check("10c: established disconnect uses the connected wording",
-    noteCount(t, "Disconnected from link") === 1 && noteCount(t, "Link disconnected") === 0,
+    noteCount(t, "Disconnected from the link; automatic reconnect disabled") === 1 &&
+      noteCount(t, "Already disconnected; automatic reconnect disabled") === 0,
     JSON.stringify(t.notes));
   check("10c: established disconnect persists intent and closes the hub",
     JSON.stringify(t.entries.at(-1)) === JSON.stringify({ customType: "link-active", data: { active: false } }) &&
@@ -1057,11 +1059,11 @@ async function bootClientNamed(name, terminals, extra = {}) {
       refused.reason === "not_found" && refused.to === "a@g1",
     JSON.stringify(foreign.sent));
   check("12: the refused compact_request starts no compaction on the hub",
-    noteCount(t, "requested compact") === 0, JSON.stringify(t.notes));
+    noteCount(t, "asked this terminal to compact") === 0, JSON.stringify(t.notes));
   peer.receive({ type: "compact_request", id: "req-y", from: "c@g2", to: "h@g2" });
   await tick();
   check("12: a same-group compact_request is admitted and answers nothing yet",
-    noteCount(t, "requested compact") === 1 &&
+    noteCount(t, "asked this terminal to compact") === 1 &&
       peer.sent.every((f) => f.type !== "compact_response"),
     `${JSON.stringify(t.notes)} ${JSON.stringify(peer.sent)}`);
 }

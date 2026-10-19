@@ -279,7 +279,7 @@ For the tool-result fields and implementation behind these behaviors, see [Remot
 ✓ Renamed to "my-session"
 
 > /link-disconnect
-✓ Disconnected from link
+✓ Disconnected from the link; automatic reconnect disabled
 
 > /link-connect
 ✓ Joined link as "my-session" (3 online)

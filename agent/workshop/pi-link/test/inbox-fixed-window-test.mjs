@@ -621,7 +621,9 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
   const failed = await t.tool("link_compact", { to: "peer" });
   t.socket.readyState = 1;
   check("6i: a request that cannot be sent fails in the result",
-    failed.details.error === "not_delivered" && failed.details.id === undefined,
+    failed.details.error === "not_delivered" && failed.details.id === undefined &&
+      failed.content[0].text ===
+        'Failed to request compact on "peer": connection to the link hub is not open',
     JSON.stringify(failed));
   await advance(COMPACT_TIMEOUT_MS + FLUSH_DELAY_MS);
   check("6i: and leaves nothing tracked to report later", t.delivered.length === 1,

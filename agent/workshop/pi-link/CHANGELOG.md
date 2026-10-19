@@ -19,6 +19,8 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
   A requester is no longer kept busy for up to five minutes, and can have several compactions outstanding at once. Failures that need no answer still return immediately in the result and produce no notification: not connected, self target, a target not in your group's list, an already-aborted call, or a request that could not be sent. Aborting after the request is sent no longer ends anything, since there is no remote cancel. The wire protocol is unchanged. Outstanding requests live only in the requester's memory: a reload or exit loses their outcomes, a response sent while the hub is down is not replayed, and a response after the requester renames goes to its old name; in those two cases, the unreplayed response and the rename, the deadline reports the request.
 
+- **Clearer link messages.** Losing the hub warns `Disconnected from the link hub; reconnecting...`, since a reconnect follows. `/link-disconnect` says `Disconnected from the link; automatic reconnect disabled`, or `Already disconnected; automatic reconnect disabled` when nothing was connected. A `link_send` that cannot be handed on now says why: `target not found` on the hub, or `connection to the link hub is not open` on a client, as in `Failed to send to "<name>": target not found`. A `link_compact` request that cannot be sent says `Failed to request compact on "<name>": connection to the link hub is not open`. The target of a remote compaction is notified `"<name>" asked this terminal to compact`. The `not_delivered` error code is unchanged.
+
 ---
 
 ## 0.5.2 — 2026-09-29
