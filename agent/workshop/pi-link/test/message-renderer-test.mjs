@@ -210,7 +210,7 @@ check("renderer: the extension registers a renderer for the link type", typeof r
   const long = lines(30);
   const rows = render(long, { expanded: true });
   const expected = new Text(
-    `{accent}⚡ [link] ` + `{text}${long}`,
+    `{accent}⚡ ` + `{text}${long}`,
     0,
     0,
   ).render(40);
@@ -222,11 +222,12 @@ check("renderer: the extension registers a renderer for the link type", typeof r
 }
 
 {
-  // A batched delivery is one message whose content carries several blocks.
-  const batch = `\n\nFrom "a":\nfirst\n\nFrom "b":\nsecond`;
-  const rows = render(batch, { expanded: true });
-  const expected = new Text(`{accent}⚡ [link] ` + `{text}${batch}`, 0, 0).render(40);
-  check("1: expanded batched delivery is unchanged",
+  // A batched delivery is one message whose content carries several blocks. Its
+  // header already says where it came from, so no `[link]` label precedes it.
+  const batch = `[Link: 2 message(s) received]\n\nFrom "a":\nfirst\n\nFrom "b":\nsecond`;
+  const rows = render(batch, { expanded: true, details: { batched: true, count: 2 } });
+  const expected = new Text(`{accent}⚡ ` + `{text}${batch}`, 0, 0).render(40);
+  check("1: an expanded batch opens with its header, not a [link] label",
     JSON.stringify(rows) === JSON.stringify(expected));
 }
 
@@ -334,14 +335,14 @@ check("renderer: the extension registers a renderer for the link type", typeof r
 
 {
   const rows = render("hello");
-  check("6: a message with no details falls back to the link label",
-    rows.join("").includes("[link]"), rows.join("|"));
+  check("6: a message with no details has no sender label",
+    rows[0].startsWith(`{accent}⚡ {text}hello`), rows.join("|"));
 }
 
 {
   const rows = render("hello", { details: {} });
-  check("6: details without a from still falls back to the link label",
-    rows.join("").includes("[link]"), rows.join("|"));
+  check("6: details without a from have no sender label",
+    rows[0].startsWith(`{accent}⚡ {text}hello`), rows.join("|"));
 }
 
 {
@@ -402,10 +403,10 @@ check("renderer: the extension registers a renderer for the link type", typeof r
 
   // A narrower child wraps sooner, so the hidden count must follow the pad. lines(30) is
   // useless here — its lines are short enough to occupy one row at either width.
-  // Fixture: 10 logical lines of 38 characters. The first also carries the 23-character
-  // attribution prefix (`{accent}` 8 + `⚡ [link] ` 9 + `{text}` 6), so it is 61 long.
-  //   child width 40 (pad 0): ceil(61/40)=2, plus 9 x ceil(38/40)=1  → 11 rows → 11-6 =  5
-  //   child width 36 (pad 2): ceil(61/36)=2, plus 9 x ceil(38/36)=2  → 20 rows → 20-6 = 14
+  // Fixture: 10 logical lines of 38 characters. The first also carries the 16-character
+  // prefix (`{accent}` 8 + `⚡ ` 2 + `{text}` 6), so it is 54 long.
+  //   child width 40 (pad 0): ceil(54/40)=2, plus 9 x ceil(38/40)=1  → 11 rows → 11-6 =  5
+  //   child width 36 (pad 2): ceil(54/36)=2, plus 9 x ceil(38/36)=2  → 20 rows → 20-6 = 14
   // Counting at the panel width rather than the child width would report 5 for both.
   const wrapping = Array.from({ length: 10 }, () => "x".repeat(38)).join("\n");
   const hiddenNoPad = hidden(unframe(component(wrapping, { outputPad: 0 }).render(40), 0));

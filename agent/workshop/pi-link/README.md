@@ -738,7 +738,7 @@ Those 300 seconds are two independent timers, not one synchronized deadline: the
 
 ### Rendering
 
-Delivered link batches render with a styled `⚡ [link]` prefix using the theme's accent color; sender attribution lives in the `From "name":` blocks inside the message body, not in the prefix, and a `link_compact` outcome line has no sender. The link status text in Pi's footer uses `theme.fg("dim", ...)` to match Pi's standard footer styling.
+Delivered link batches render with a styled `⚡` prefix using the theme's accent color, followed by the batch's own `[Link: N message(s) received]` header; a message restored from an older session that carries a sender keeps it as `⚡ [<sender>]`. In batches, sender attribution lives in the `From "name":` blocks inside the message body, not in the prefix, and a `link_compact` outcome line has no sender. The link status text in Pi's footer uses `theme.fg("dim", ...)` to match Pi's standard footer styling.
 
 Deliveries sit in the same background panel Pi draws around extension messages by default, indented by your configured output padding, so link messages line up with the rest of the transcript instead of standing outside it.
 

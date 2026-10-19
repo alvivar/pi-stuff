@@ -1976,10 +1976,11 @@ export default function (pi: ExtensionAPI) {
   // ── Message renderer ─────────────────────────────────────────────────────
 
   pi.registerMessageRenderer("link", (message, options, theme) => {
-    const from =
-      (message.details as Record<string, unknown> | undefined)?.from ?? "link";
+    // Only messages restored from older sessions carry a sender in details.from. A
+    // current batch has none: its content already opens with `[Link: ...]`.
+    const from = (message.details as Record<string, unknown> | undefined)?.from;
     const text =
-      theme.fg("accent", `⚡ [${from}] `) +
+      theme.fg("accent", from === undefined ? "⚡ " : `⚡ [${from}] `) +
       theme.fg("text", String(message.content));
     const content = new Text(text, 0, 0);
     // The same panel Pi draws around extension messages by default: returning our own
