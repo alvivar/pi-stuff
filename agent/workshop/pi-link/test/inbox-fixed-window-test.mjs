@@ -463,7 +463,7 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
 {
   // Declines and failures, including the hub's not_found, which comes from the hub.
   // Responses close together share one window with a chat, in arrival order.
-  // The three known codes read as text; any other reason passes through, and a
+  // Known wire codes read as text; any other reason passes through, and a
   // response with no reason reads `failed`.
   const targets = ["busy", "old", "small", "gone", "mute", "taken", "moved"];
   const t = await requester(targets);

@@ -1549,8 +1549,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_tree", async () => {
     // A completed navigation moved the session off the branch a waiting request
-    // was made for. Pi refuses to navigate during a compaction, so a running request
-    // cannot be affected.
+    // was made for. Only a waiting request is ended; a running one is left to
+    // finish and answer.
     const waiting = dropWaitingRemoteCompact();
     if (waiting) answerCompact(waiting, false, "tree_navigated");
     pushStatus(true); // context usage belongs to the active branch
