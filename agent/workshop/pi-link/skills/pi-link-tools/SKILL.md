@@ -5,7 +5,7 @@ description: "How to work with other Pi terminals over pi-link: link_list, link_
 
 # Pi-Link Tools
 
-pi-link connects Pi terminals on this machine. Each terminal has its own conversation, tools and access; messages do not share conversation history or tool access automatically. `link_list` shows who is connected, `link_send` delivers a message to one terminal, and `link_compact` asks one to compact its context; both target one other terminal, never yourself. The tools cannot connect or rename a terminal: that is done locally with `/link-connect` and `/link-name`, so if a tool reports not connected, tell the user.
+pi-link connects Pi terminals on this machine. Each terminal has its own conversation, tools and access; messages do not share conversation history or tool access automatically. `link_list` shows who is connected, `link_send` delivers a message to one terminal, and `link_compact` asks one to compact its context; both target one other terminal, never yourself. The tools cannot connect or rename a terminal: that is done locally with `/link-connect` and `/link-name`.
 
 ## Who is there: `link_list`
 
@@ -16,24 +16,23 @@ pi-link connects Pi terminals on this machine. Each terminal has its own convers
 ## Sending: `link_send`
 
 - Required string arguments: `to` is the exact name from `link_list`; `message` is the text. A name not in your list is rejected, not queued. The message is delivered into the other terminal's reasoning: it starts a turn if the terminal is idle, or steers the running one at its next safe boundary, after its current tool calls finish.
-- The receiver gets only your message. Include the context it needs, explicit paths or the intended cwd — naming a path does not change its cwd — and who should receive the result. For work requests, include the intended result and any limits on edits or commits.
-- A successful send means the message was handed to the link, not that it arrived or was read; a later failure may be shown only to the human, and a message lost in transit is not replayed. Ask for a reply when you need confirmation, and label concurrent exchanges when needed.
+- The receiver gets only your message. Naming a path does not change its cwd.
+- A successful send means the message was handed to the link, not that it arrived or was read; a later failure may be shown only to the human, and a message lost in transit is not replayed.
 
 ## Receiving, replying and waiting
 
-- Received batches start with `[Link: N message(s) received]`; each chat has its own `From "<name>":` block, in arrival order. A batch may mix senders and compaction outcomes. Keep each request and its reply destination distinct, and track which requested results are still outstanding: a batch or an idle roster does not mean all have arrived.
-- Your ordinary reply stays in your own conversation. Send results with `link_send` to the requester or the designated recipient. For ordinary messages, pi-link generates no reply, receipt, request ID or reply timeout.
-- Replies and outcomes arrive through the same delivery path, so if all that remains is waiting, end your turn; sleeping or polling `link_list` can delay delivery until your tool calls finish. Continue useful work if you have it. Silence does not tell you whether a message was received or acted on.
-- Do not send a courtesy reply to an FYI or acknowledgment unless a reply is needed: each delivered message starts or steers work.
+- Received batches start with `[Link: N message(s) received]`; each chat has its own `From "<name>":` block, in arrival order. A batch may mix senders and compaction outcomes. A batch or an idle roster does not mean all requested results have arrived.
+- Your ordinary reply stays in your own conversation; a reply to another terminal is itself a `link_send` message to it. For ordinary messages, pi-link generates no reply, receipt, request ID or reply timeout.
+- Replies and outcomes arrive through the same delivery path. Receiving them does not require keeping a run alive; sleeping or polling `link_list` can delay delivery until your tool calls finish. Silence does not tell you whether a message was received or acted on.
 
 ## Remote compaction: `link_compact`
 
-- `to` is a required string naming the target; `instructions` is optional text saying what the summary should preserve. Compaction summarizes the target's older conversation to make room in its context window; use the context usage reported by `link_list` to inform when to request it. It is not a task and starts no work turn, and `instructions` do not guarantee what survives. Have details that matter reported or written down first: a task sent just before is not guaranteed to be processed before the compaction.
-- The call returns as soon as the request is sent, with a request ID; sent confirms neither acceptance nor completion, and a failure before sending produces no outcome. The target waits, with no deadline, until Pi reports it idle and it no longer reports `compacting`, then compacts; you need not check for idle first. Idle is observed, not reserved: work that starts as compaction begins can still be interrupted. Older targets may decline busy requests instead of waiting.
+- `to` is a required string naming the target; `instructions` is optional text saying what the summary should preserve. Compaction summarizes the target's older conversation to make room in its context window. It is not a task and starts no work turn, and `instructions` do not guarantee what survives. A task sent just before is not guaranteed to be processed before the compaction.
+- The call returns as soon as the request is sent, with a request ID; sent confirms neither acceptance nor completion, and a failure before sending produces no outcome. The target waits, with no deadline, until Pi reports it idle and it no longer reports `compacting`, then compacts. Idle is observed, not reserved: work that starts as compaction begins can still be interrupted. Older targets may decline busy requests instead of waiting.
 - A target holds one request at a time, waiting or running, from any requester; another is declined, not queued. You can have requests outstanding to several targets.
-- Each request produces at most one outcome, generated automatically and delivered to your inbox as one line, `link_compact "<target>" [<id>]: <outcome>`, with no `From` header; match the target and ID to your sent request. `compacted` confirms success; `not done: <reason>` reports a decline or failure, not retried; a notice saying `result unknown` ends tracking without confirmation and does not prove compaction failed.
+- Each request produces at most one outcome, generated automatically and delivered to your inbox as one line, `link_compact "<target>" [<id>]: <outcome>`, with no `From` header. The target name and ID identify the request associated with the outcome. `compacted` confirms success; `not done: <reason>` reports a decline or failure, not retried; a notice saying `result unknown` ends tracking without confirmation and does not prove compaction failed.
 - There is no remote cancel: leaving does not undo a request the target holds. Reloading or exiting loses tracking of pending outcomes, renaming can lose responses, and a lost response is not replayed and can leave a request unanswered indefinitely; `link_list` cannot recover it.
 
 ## Shared files
 
-- Terminals may share files and pi-link does not lock them: agree who edits before concurrent changes.
+- Terminals may share files and pi-link does not lock them.
