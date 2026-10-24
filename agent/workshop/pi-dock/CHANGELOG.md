@@ -3,8 +3,9 @@
 All notable changes to pi-dock are documented here.
 
 This changelog is reconstructed from the git history from `2026-07-03` (first pi-dock commit)
-through the present. pi-dock has never been published to npm: a version here names a state of
-this checkout, dated by the day it was completed.
+through the present. A version here names a state of this checkout, dated by the day it was
+completed. None of the versions documented here before 0.4.0 was published to npm; the 0.0.1
+there only reserved the name.
 
 Each entry ends with the commit that made the change. Entries under Unreleased get it when
 their version is cut, so a new entry may not have one yet.

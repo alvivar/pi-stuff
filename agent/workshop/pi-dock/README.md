@@ -48,8 +48,9 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 
 ## Install
 
-pi-dock is a Pi package that contains only the pi-dock skill (no extensions) and the CLI. It is
-not on npm yet; once it is published, this is all Pi's AI agents need:
+pi-dock is a Pi package that contains only the pi-dock skill (no extensions) and the CLI. With
+pi-dock 0.4.0 or later on npm, this is all Pi's AI agents need (if npm still offers only
+0.0.1, a placeholder for the name, install from a checkout as described below):
 
 ```bash
 pi install npm:pi-dock   # the skill, plus the CLI it runs
@@ -66,7 +67,14 @@ npm i -g pi-dock           # optional
 npm uninstall -g pi-dock   # undo
 ```
 
-Until then, and for development, install it from a checkout of this directory:
+`npm audit` flags undici (GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472, GHSA-xjj6-f33q-929c; fixed
+in 8.12.2) through the Pi SDK, which pins undici 8.10.2. pi-dock can't override it for you:
+npm ignores `overrides` in an installed package, and `npm audit fix --force` would downgrade
+the SDK to 0.75.3. Exploiting them takes a malicious HTTP or SSE response on an affected
+undici API path; Pi 1.4.0 pins the same vulnerable undici version. The warning goes away once
+pi-dock moves to an SDK that ships a fixed undici.
+
+For development, install it from a checkout of this directory:
 
 ```bash
 cd path/to/pi-dock
@@ -369,7 +377,7 @@ and not a Windows device name such as `con` or `nul`.
 
 ## Status and limitations
 
-- **Version 0.4.0**, unpublished.
+- **Version 0.4.0.**
 - **Windows** is verified: the regression suite on every change, and the paid end-to-end smoke
   test against a real model. **Unix** (sockets, signals) has been inspected but not run.
 - **Lockfile:** `package-lock.json` reproduces this checkout's dependencies. It does not pin the
