@@ -1,41 +1,60 @@
 # pi-dock — backlog
 
-Everything not yet built or decided. Contracts live in `DESIGN.md`; shipped work lives in
-`CHANGELOG.md`. Delete an item when it ships. Updated 2026-10-06, after the 0.3.0 code review
-(polaris and vega), its fixes, and two paid compaction experiments.
+What is not built or decided yet. Contracts live in `DESIGN.md`, shipped work in
+`CHANGELOG.md`. Delete an item when it ships.
 
-## Backlog, in priority order
+## To do, in priority order
 
-1. [ ] **Unix runtime test** — Unix paths (socket, signals, stale-socket probe) are inspected
-       only. Run the regression, and the smoke with authorization, on the owner's Linux
-       server. Then decide:
+1. [ ] **Unix runtime test** — the Unix paths (socket, signals, stale-socket probe) were never
+       run. Run the regression, and the smoke with authorization, on the owner's Linux server.
+       Until then, the README should say pi-dock is tested only on Windows. Then decide:
        - **Stale-socket race:** after `EADDRINUSE`, `recoverUnixListen` probes the socket,
          unlinks it if nobody answers and listens again; another runner can take it between
-         the probe and the unlink. Deleting the socket before `listen` is also a race (vega).
-         Any fix must prove that two runners exclude each other.
-       - **Probe failure:** since `fee5903` a failed probe logs `failed` instead of exiting
-         silently. Verified only with a simulated platform.
-       Windows is unaffected; on Unix two simultaneous wakes over an orphaned socket could
-       leave two runners.
-2. [ ] **Extension-registered providers** in `models` and spawn/set preflight — both use a
+         the probe and the unlink, so two wakes over an orphaned socket could leave two
+         runners. Deleting the socket before `listen` races too. A fix must prove that two
+         runners exclude each other.
+       - **Probe failure:** a failed probe logs `failed`; verified only on a simulated
+         platform.
+       - **Simpler listen errors:** `pipe.mjs` and the runner coordinate through marks on
+         error objects (`piDockRetrying`, `piDockFatal`) and listener order. An async `serve`
+         that resolves listening or rejects with a plain error would remove both marks. It does
+         not fix the race by itself.
+2. [ ] **`set` racing `start` is unsupported: say so** — `set` checks that the agent is off,
+       then rewrites the manifest; a `start` in between runs the old config until the next
+       restart (nothing is lost). Recommended: state in README and skill that `stop` → `set`
+       → `start` must not overlap; a lock is not justified.
+3. [ ] **Comment the `abort()` catch** — `shutdown` does `session.abort().catch(() => {})`. If
+       `abort()` ever rejected, the log would say `stopped` untruthfully; whether it can is not
+       established. Recommended: a comment stating the assumption; log `failed` only if it is
+       ever seen.
+4. [ ] **Extension-registered providers** in `models` and spawn/set preflight — both use a
        bare `ModelRuntime`, so providers registered by extensions are not visible and
-       spawn/set can reject a valid model. Only matters for setups with extension providers.
-3. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
-       Low: `logs` (`spawned` pid) and `show` are enough to tell restarts apart.
+       spawn/set can reject a valid model. Only matters with extension providers.
+5. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
+       `logs` and `show` already tell restarts apart.
+6. [ ] **Narrow two catches** (low) — `handshake` treats any manifest read error (corrupt,
+       `EACCES`) as "not there yet" for 20 s; catch only `ENOENT`. `agentState` falls back to
+       the log's state on any non-timeout error, even one that doesn't prove the agent is off.
 
-## Release — only if pi-dock is going to be used by others
+## Release
 
-4. [ ] **Publish** — `package.json` is ready (description, MIT license, `files`, `engines`; no
-       `repository`, the owner handles the public repo). Left: cut a version with the
-       Unreleased changes (0.3.0 is `4f2e414`, no tag, not pushed); the owner publishes by hand.
+7. [ ] **Publish** — the owner publishes by hand.
+
+## Decide later
+
+- **SDK upgrades:** the SDK is pinned to exactly `1.4.0`. When to move to a newer Pi, and
+  whether each upgrade needs a paid smoke.
 
 ## Ideas — need design before building
 
 - `fork`.
-- **Summary retention test** (paid): both compaction experiments recalled facts that sat in
-  the kept tail, not in the summarized prefix. To test the summary itself, plant a fact only in
-  the prefix and ask a question that doesn't hint at it. Auto-compaction, failures and repeated
-  compactions with a real model are also unobserved.
+- **Summary retention test** (paid): compaction experiments only recalled facts from the kept
+  tail. Plant a fact only in the summarized prefix and ask a question that doesn't hint at it.
+- **Readability nits**, not defects: the pipe server accepts several lines per connection
+  though the client sends one; single-use `thinkingOption`; an unparenthesized nested ternary
+  for the runner's state; `confirmPipeAbsent` checks `ETIMEDOUT` instead of `isTimeout()`;
+  `handshake`'s unused `timeoutMs` parameter; `sendCommand`'s XOR for "file or words";
+  `setCommand` lists the manifest fields one by one.
 
 ## Accepted limits — revisit only on a concrete case
 
@@ -45,13 +64,15 @@ Everything not yet built or decided. Contracts live in `DESIGN.md`; shipped work
 | A `spawn` racing a stopped agent of the same name can leave an extra `spawned`; `ls` shows `failed` until the next wake. | No damage; the next wake fixes it; very rare race. | Seen in real use. |
 | While a runner starts, `start`/`stop`/`wait` wait up to 3 s, then say `not responding`; `ls`/`show` show `not-responding`. | True: it doesn't answer yet. Before, a second runner was launched. | A normal boot takes over 3 s. |
 | A failed log write from session events (`turn`, `text`, `external`) or `onError` throws inside the SDK; in tests it ended in `fail()`. | The observed outcome is already explicit. | A log failure that does not end in `failed`. |
-| Extension errors after shutdown begins are not logged. | Keeps `stopped`/`failed` the last event. | Shutdown errors need diagnosing. |
+| Extension errors after shutdown begins are not logged, including `session_shutdown` handler errors. | Keeps `stopped`/`failed` the last event. | Shutdown errors need diagnosing. |
+| A `session_shutdown` handler that hangs keeps the agent from exiting; `stop` reports `did not exit within 5s`. | Pi waits for it the same way on quit; the failure is visible. | A real extension hangs there. |
+| A create that fails (e.g. no model) logs `failed` but not the extension load errors. | Load errors are logged for agents that boot. | They are needed to diagnose a failed create. |
 | `textFromMessage` trusts that `turn_end` carries an assistant message. | Guaranteed by the SDK 1.4.0 emitters, not by its public types. | The SDK is upgraded. |
 | A pipe request relies on `'close'` (no `'end'` handler). | Correct with our runner, the only peer. | Another process talks on the pipe. |
 | A non-JSON pipe reply is reported with Node's raw error, which shows its first 10 characters. | The pipe belongs to our own runner. | Sensitive data crosses the pipe. |
 | The smoke checks the requested thinking level in the manifest, not the level the model applies. | For `gpt-6-luna`, `high` is not clamped. | The smoke runs on another model or level. |
 | With the real theme, `theme.fg` returns ANSI-colored text, which nothing in a runner shows. | Only the UI and theme changed. | An extension writes theme output somewhere that is read. |
-| A split-turn compaction summarizes only the prefix; the summary can say work is "not done yet" while the kept messages show it finished. Not tied to a low `keepRecentTokens`. luna read it correctly twice. | SDK design; rewriting summaries in pi-dock isn't justified. | An agent redoes work or resends messages after compacting. |
+| A split-turn compaction summarizes only the prefix; the summary can say work is "not done yet" while the kept messages show it finished. | SDK design; rewriting summaries in pi-dock isn't justified. | An agent redoes work or resends messages after compacting. |
 
 ## Not needed
 
