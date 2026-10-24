@@ -22,7 +22,8 @@
 // Requires Node 22.18+ or 24+ (module.registerHooks and TypeScript type stripping).
 
 import { registerHooks } from "node:module";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -611,14 +612,34 @@ for (const { tool, key, title, partialBody } of OUTGOING) {
 // This block checks the generic pi-tui behavior both seams are built on — real wrapping,
 // padding and invalidation — against the genuine installed components. It does NOT
 // exercise the production outgoing renderCall seam; block 8 does that.
+//
+// The pi-tui used is the managed install's active release, the one
+// `current-version` names, or else a global npm install of Pi. The managed root
+// is PI_MANAGED_INSTALL_ROOT, which Pi sets for its own processes, or else
+// <agent dir>/install, the default an installer uses. With neither, the block is
+// skipped, and the final summary says so.
 
-const REAL_TUI = join(
-  process.env.APPDATA ?? "",
-  "npm", "node_modules", "@earendil-works", "pi-coding-agent",
-  "node_modules", "@earendil-works", "pi-tui", "dist", "index.js",
-);
+function findInstalledTui() {
+  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+  const managedRoot = process.env.PI_MANAGED_INSTALL_ROOT || join(agentDir, "install");
+  const currentVersion = join(managedRoot, "current-version");
+  const candidates = [];
+  if (existsSync(currentVersion)) {
+    const version = readFileSync(currentVersion, "utf8").trim();
+    candidates.push(join(managedRoot, "releases", version,
+      "node_modules", "@earendil-works", "pi-tui", "dist", "index.js"));
+  }
+  candidates.push(join(
+    process.env.APPDATA ?? "",
+    "npm", "node_modules", "@earendil-works", "pi-coding-agent",
+    "node_modules", "@earendil-works", "pi-tui", "dist", "index.js",
+  ));
+  return candidates.find((path) => existsSync(path));
+}
 
-if (existsSync(REAL_TUI)) {
+const REAL_TUI = findInstalledTui();
+
+if (REAL_TUI) {
   const { Text: RealText, Box: RealBox } = await import(pathToFileURL(REAL_TUI).href);
   // Rebuild the seam over the real Text: same shape as the renderer's own call.
   const build = (text) => new RealText(text, 0, 0);
@@ -662,7 +683,7 @@ if (existsSync(REAL_TUI)) {
   box2.addChild(invalidatable);
   box2.invalidate();
   check("9: real Box delegates invalidate to its child", childInvalidated);
-  console.log("\n  (block 9 ran against the installed pi-tui)");
+  console.log(`\n  (block 9 ran against ${REAL_TUI})`);
 } else {
   console.log("\n  (block 9 SKIPPED: installed pi-tui not found — stub-only evidence)");
 }
@@ -774,5 +795,7 @@ for (const { tool, key, title } of OUTGOING) {
 
 console.log(`\n\nPassed: ${pass}`);
 console.log(`Failed: ${fail}`);
+if (!REAL_TUI)
+  console.log("Skipped: block 9 — no installed pi-tui found, so its real-component checks did not run");
 for (const f of failures) console.log("  - " + f);
 process.exitCode = fail === 0 ? 0 : 1;
