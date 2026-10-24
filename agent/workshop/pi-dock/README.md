@@ -369,7 +369,7 @@ and not a Windows device name such as `con` or `nul`.
 
 ## Status and limitations
 
-- **Version 0.3.0**, unpublished.
+- **Version 0.4.0**, unpublished.
 - **Windows** is verified: the regression suite on every change, and the paid end-to-end smoke
   test against a real model. **Unix** (sockets, signals) has been inspected but not run.
 - **Lockfile:** `package-lock.json` reproduces this checkout's dependencies. It does not pin the

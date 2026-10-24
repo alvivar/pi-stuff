@@ -11,7 +11,7 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.4.0 — 2026-10-24
 
 ### Breaking changes
 
@@ -22,14 +22,14 @@ their version is cut, so a new entry may not have one yet.
   `set --model` changes it, and `before_agent_start` now also fires for runs extensions start.
   It also fixes `pi-dock compact <name> <instructions>` when compaction cuts inside a turn:
   the instructions now also guide the summary of that turn's start, which ignored them and,
-  with no earlier history, left them unused.
+  with no earlier history, left them unused. (`194d6fb`)
 
 ### Added
 
 - **MIT license and npm package metadata.** pi-dock is licensed under MIT (`LICENSE`).
   `package.json` gains a description, the author, the license, `engines` (Node 22.19 or later,
   as the Pi SDK requires) and a `files` list, so the package ships only `bin`, `src`, the
-  skill, the README, the changelog and the license.
+  skill, the README, the changelog and the license. (`5e42799`)
 
 ### Changed
 
@@ -37,7 +37,7 @@ their version is cut, so a new entry may not have one yet.
   putting its commands on PATH, yet the skill told agents to run `pi-dock`, so they also
   needed a global install. When `pi-dock` is not on PATH, the skill now has them run the
   package's `bin/pi-dock.mjs` with Node. The README installs pi-dock with `pi install`, with
-  `npm i -g pi-dock` as an option for a `pi-dock` command on PATH.
+  `npm i -g pi-dock` as an option for a `pi-dock` command on PATH. (`748f634`)
 
 ### Fixed
 
@@ -45,19 +45,19 @@ their version is cut, so a new entry may not have one yet.
   only after the first message, so an agent stopped before any has none. Waking it from another
   directory gave its session that directory: the session file recorded it, and resuming the
   session in Pi opened there, while the agent's tools and extensions used the agent's cwd. The
-  session now always takes the agent's cwd.
+  session now always takes the agent's cwd. (`507cbd8`)
 
 - **Extensions that fail to load are logged.** An extension whose import or setup threw was
   left out without a trace, while `spawn` and `start` succeeded. Each one now logs
   `extension_error` with `on: load`, its path as `extension` and Pi's message as `reason`
-  (e.g. `Failed to load extension: …`); the agent goes on without it.
+  (e.g. `Failed to load extension: …`); the agent goes on without it. (`ec2f95f`)
 
 - **Extensions get `session_shutdown` when an agent stops.** Runners disposed the session
   without it, so extensions skipped their cleanup (pi-link, for one, registers a handler). As
   Pi does on quit, the runner now emits it with reason `quit` after aborting any run, also when
   it fails after extension binding has completed, and waits for the handlers without a limit:
   a handler that hangs makes `stop` report `did not exit within 5s`. Handler errors at this
-  point are not logged, so `stopped` or `failed` stays the last event.
+  point are not logged, so `stopped` or `failed` stays the last event. (`fa60cd6`)
 
 ---
 
