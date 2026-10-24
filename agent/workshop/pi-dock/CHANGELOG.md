@@ -24,6 +24,14 @@ their version is cut, so a new entry may not have one yet.
   the instructions now also guide the summary of that turn's start, which ignored them and,
   with no earlier history, left them unused.
 
+### Changed
+
+- **`pi install npm:pi-dock` is enough for Pi's AI agents.** Pi installs a package without
+  putting its commands on PATH, yet the skill told agents to run `pi-dock`, so they also
+  needed a global install. When `pi-dock` is not on PATH, the skill now has them run the
+  package's `bin/pi-dock.mjs` with Node. The README installs pi-dock with `pi install`, with
+  `npm i -g pi-dock` as an option for a `pi-dock` command on PATH.
+
 ### Fixed
 
 - **A woken agent keeps its cwd even before its first message.** Pi writes the session file

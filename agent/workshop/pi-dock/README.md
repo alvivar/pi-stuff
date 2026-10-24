@@ -44,29 +44,40 @@ Each agent is one detached process hosting one Pi session, identified by a name 
   Pi SDK (`@earendil-works/pi-coding-agent` 1.4.0) but uses your Pi agent directory
   (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`) for credentials, settings, models and extensions.
   `pi-dock models` lists only the models whose credentials are configured.
-- The `pi` command is needed only to set up credentials and to install the skill (below).
+- The `pi` command is needed to set up credentials and to install pi-dock for Pi (below).
 
 ## Install
 
-pi-dock is not on npm. Install it from a checkout of this directory:
+pi-dock is a Pi package that contains only the pi-dock skill (no extensions) and the CLI. It is
+not on npm yet; once it is published, this is all Pi's AI agents need:
+
+```bash
+pi install npm:pi-dock   # the skill, plus the CLI it runs
+pi remove npm:pi-dock    # undo
+```
+
+Pi installs the package and its dependencies under `~/.pi/agent/npm` but does not put the
+`pi-dock` command on PATH, so the skill tells the agent to run the package's `bin/pi-dock.mjs`
+with Node. For a `pi-dock` command on PATH, for you, your scripts and the recipes below, also
+install it globally:
+
+```bash
+npm i -g pi-dock           # optional
+npm uninstall -g pi-dock   # undo
+```
+
+Until then, and for development, install it from a checkout of this directory:
 
 ```bash
 cd path/to/pi-dock
 npm ci             # dependencies, exactly as locked
 npm install -g .   # puts the pi-dock command on PATH
 pi-dock --help
+pi install .       # Pi loads the local package in place; nothing is copied
 ```
 
 `npm install -g .` links the global command to the checkout, so keep the checkout and its
-`node_modules` in place. Remove the command with `npm uninstall -g pi-dock`.
-
-pi-dock is also a Pi package that contains only the pi-dock skill (no extensions). To make Pi
-agents aware of it:
-
-```bash
-pi install path/to/pi-dock   # Pi loads the local package in place; nothing is copied
-pi remove path/to/pi-dock    # undo
-```
+`node_modules` in place. Undo with `npm uninstall -g pi-dock` and `pi remove path/to/pi-dock`.
 
 ## Quick start
 

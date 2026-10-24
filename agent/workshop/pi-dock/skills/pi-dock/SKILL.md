@@ -11,6 +11,10 @@ session memory. Use it when work should outlive your own process, run in paralle
 keep its memory across several prompts. For a single prompt you will wait on anyway, plain `pi -p`
 is simpler.
 
+Commands here are written as `pi-dock …`. If `pi-dock` is not on your PATH (Pi installs
+packages without putting their commands there), run the package's `bin/pi-dock.mjs` with Node
+and the same arguments instead: `node "<this skill's directory>/../../bin/pi-dock.mjs" …`.
+
 Every command exits 0 on success and 1 on error, with the reason on stderr. Arguments are strict:
 unknown options and extra arguments fail with the command's usage line, except `compact`, which
 takes all remaining arguments (even `--help`) as instructions. Run `pi-dock --help` for the usage
