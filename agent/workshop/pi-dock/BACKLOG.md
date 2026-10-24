@@ -6,14 +6,7 @@ Everything not yet built or decided. Contracts live in `DESIGN.md`; shipped work
 
 ## Backlog, in priority order
 
-1. [ ] **Report the split-turn compaction bug to the SDK** — owner action. The issue is
-       drafted in `docs/sdk-issue-compaction-instructions.md` for
-       https://github.com/earendil-works/pi (`packages/coding-agent`): when compaction cuts
-       inside a turn, custom instructions never reach the turn-prefix summary, and with no
-       earlier history they reach no model call at all. Seen in a real run (the summary began
-       "No prior history."). Nothing to change in pi-dock; a fixed SDK is just a dependency
-       bump.
-2. [ ] **Unix runtime test** — Unix paths (socket, signals, stale-socket probe) are inspected
+1. [ ] **Unix runtime test** — Unix paths (socket, signals, stale-socket probe) are inspected
        only. Run the regression, and the smoke with authorization, on the owner's Linux
        server. Then decide:
        - **Stale-socket race:** after `EADDRINUSE`, `recoverUnixListen` probes the socket,
@@ -24,15 +17,15 @@ Everything not yet built or decided. Contracts live in `DESIGN.md`; shipped work
          silently. Verified only with a simulated platform.
        Windows is unaffected; on Unix two simultaneous wakes over an orphaned socket could
        leave two runners.
-3. [ ] **Extension-registered providers** in `models` and spawn/set preflight — both use a
+2. [ ] **Extension-registered providers** in `models` and spawn/set preflight — both use a
        bare `ModelRuntime`, so providers registered by extensions are not visible and
        spawn/set can reject a valid model. Only matters for setups with extension providers.
-4. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
+3. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
        Low: `logs` (`spawned` pid) and `show` are enough to tell restarts apart.
 
 ## Release — only if pi-dock is going to be used by others
 
-5. [ ] **Publish 0.3.0** — cut locally in `4f2e414` (no tag, not pushed). The owner publishes
+4. [ ] **Publish 0.3.0** — cut locally in `4f2e414` (no tag, not pushed). The owner publishes
        by hand. `package.json` has no `description`.
 
 ## Ideas — need design before building
@@ -52,13 +45,12 @@ Everything not yet built or decided. Contracts live in `DESIGN.md`; shipped work
 | While a runner starts, `start`/`stop`/`wait` wait up to 3 s, then say `not responding`; `ls`/`show` show `not-responding`. | True: it doesn't answer yet. Before, a second runner was launched. | A normal boot takes over 3 s. |
 | A failed log write from session events (`turn`, `text`, `external`) or `onError` throws inside the SDK; in tests it ended in `fail()`. | The observed outcome is already explicit. | A log failure that does not end in `failed`. |
 | Extension errors after shutdown begins are not logged. | Keeps `stopped`/`failed` the last event. | Shutdown errors need diagnosing. |
-| `textFromMessage` trusts that `turn_end` carries an assistant message. | Guaranteed by the SDK 0.99.2 emitters, not by its public types. | The SDK is upgraded. |
+| `textFromMessage` trusts that `turn_end` carries an assistant message. | Guaranteed by the SDK 1.4.0 emitters, not by its public types. | The SDK is upgraded. |
 | A pipe request relies on `'close'` (no `'end'` handler). | Correct with our runner, the only peer. | Another process talks on the pipe. |
 | A non-JSON pipe reply is reported with Node's raw error, which shows its first 10 characters. | The pipe belongs to our own runner. | Sensitive data crosses the pipe. |
 | The smoke checks the requested thinking level in the manifest, not the level the model applies. | For `gpt-6-luna`, `high` is not clamped. | The smoke runs on another model or level. |
 | With the real theme, `theme.fg` returns ANSI-colored text, which nothing in a runner shows. | Only the UI and theme changed. | An extension writes theme output somewhere that is read. |
 | A split-turn compaction summarizes only the prefix; the summary can say work is "not done yet" while the kept messages show it finished. Not tied to a low `keepRecentTokens`. luna read it correctly twice. | SDK design; rewriting summaries in pi-dock isn't justified. | An agent redoes work or resends messages after compacting. |
-| Compaction instructions are dropped for split turns (item 1). | SDK bug; reported upstream, not patched here. | Instructions must guide the turn prefix. |
 
 ## Not needed
 

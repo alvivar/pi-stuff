@@ -154,7 +154,9 @@ generates the help's usage section.
     `pi: {skills: ["./skills"]}`, so Pi loads only the skill and never treats `bin/` or
     `src/` as extensions. The SDK stays in `dependencies`: the runner is a separate Node
     process that imports it, and Pi's peer-dependency rule (and its warning) applies only to
-    extension code loaded into Pi itself. No `files` field: the whole package ships.
+    extension code loaded into Pi itself. It is pinned exactly (`1.4.0`, no caret): Pi ships
+    breaking changes in minor versions, so agents run the Pi they were tested with. No `files`
+    field: the whole package ships.
 21. **External messages.** The runner logs `external {id?, type}` whenever a custom message
     enters the session context, from two public session events: `message_start` with
     `role:"custom"` (type = `customType`; `sendMessage` while idle or steered, context-only

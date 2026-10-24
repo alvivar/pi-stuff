@@ -13,6 +13,17 @@ their version is cut, so a new entry may not have one yet.
 
 ## Unreleased
 
+### Breaking changes
+
+- **Agents run Pi SDK 1.4.0.** The dependency moves from `^0.99.2` to exactly `1.4.0`, since
+  Pi ships breaking changes in minor versions. Agents, their extensions and their model names
+  get Pi 1.x's changes, breaking ones included: for example the `azure-openai-responses`
+  provider is now `azure`, so an agent whose manifest names the old one fails to wake until
+  `set --model` changes it, and `before_agent_start` now also fires for runs extensions start.
+  It also fixes `pi-dock compact <name> <instructions>` when compaction cuts inside a turn:
+  the instructions now also guide the summary of that turn's start, which ignored them and,
+  with no earlier history, left them unused.
+
 ### Fixed
 
 - **A woken agent keeps its cwd even before its first message.** Pi writes the session file
