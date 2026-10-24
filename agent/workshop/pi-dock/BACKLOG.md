@@ -25,8 +25,9 @@ Everything not yet built or decided. Contracts live in `DESIGN.md`; shipped work
 
 ## Release — only if pi-dock is going to be used by others
 
-4. [ ] **Publish 0.3.0** — cut locally in `4f2e414` (no tag, not pushed). The owner publishes
-       by hand. `package.json` has no `description`.
+4. [ ] **Publish** — `package.json` is ready (description, MIT license, `files`, `engines`; no
+       `repository`, the owner handles the public repo). Left: cut a version with the
+       Unreleased changes (0.3.0 is `4f2e414`, no tag, not pushed); the owner publishes by hand.
 
 ## Ideas — need design before building
 

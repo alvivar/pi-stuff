@@ -24,6 +24,13 @@ their version is cut, so a new entry may not have one yet.
   the instructions now also guide the summary of that turn's start, which ignored them and,
   with no earlier history, left them unused.
 
+### Added
+
+- **MIT license and npm package metadata.** pi-dock is licensed under MIT (`LICENSE`).
+  `package.json` gains a description, the author, the license, `engines` (Node 22.19 or later,
+  as the Pi SDK requires) and a `files` list, so the package ships only `bin`, `src`, the
+  skill, the README, the changelog and the license.
+
 ### Changed
 
 - **`pi install npm:pi-dock` is enough for Pi's AI agents.** Pi installs a package without
