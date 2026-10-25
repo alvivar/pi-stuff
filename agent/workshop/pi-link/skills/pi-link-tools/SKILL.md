@@ -22,8 +22,8 @@ pi-link connects Pi terminals on this machine. Each terminal has its own convers
 ## Receiving, replying and waiting
 
 - Received batches start with `[Link: N message(s) received]`; each chat has its own `From "<name>":` block, in arrival order. A batch may mix senders and compaction outcomes. A batch or an idle roster does not mean all requested results have arrived.
-- Your ordinary reply stays in your own conversation; a reply to another terminal is itself a `link_send` message to it. For ordinary messages, pi-link generates no reply, receipt, request ID or reply timeout.
-- Replies and outcomes arrive through the same delivery path. Receiving them does not require keeping a run alive; sleeping or polling `link_list` can delay delivery until your tool calls finish. Silence does not tell you whether a message was received or acted on.
+- A received link chat is from the terminal named in its `From` block, not a direct prompt from your local user, whether it started a turn while you were idle or steered your current run. A reply to it is a `link_send` to that terminal; your ordinary reply stays in your own conversation and is not sent back. For ordinary messages, pi-link generates no reply, receipt, request ID or reply timeout.
+- Replies and outcomes arrive through the same delivery path and start a turn if you are idle, so you can end your turn while waiting for them. `link_list` reports terminal status, not replies or outcomes. Neither polling nor sleeping is needed to receive them; both can delay delivery until your tool calls finish. Silence does not tell you whether a message was received or acted on.
 
 ## Remote compaction: `link_compact`
 
