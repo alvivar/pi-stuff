@@ -5,7 +5,7 @@ description: "How to work with other Pi terminals over pi-link: link_list, link_
 
 # Pi-Link Tools
 
-pi-link connects Pi terminals on this machine. Each terminal has its own conversation, tools and access; messages do not share conversation history or tool access automatically. `link_list` shows who is connected, `link_send` delivers a message to one terminal, and `link_compact` asks one to compact its context; both target one other terminal, never yourself. The tools cannot connect or rename a terminal: that is done locally with `/link-connect` and `/link-name`.
+pi-link connects Pi terminals on this machine. Each terminal has its own conversation, tools and access; messages do not share conversation history or tool access automatically. `link_list` shows who is connected, `link_send` delivers a message to one terminal, and `link_compact` asks one to compact its context; `link_send` and `link_compact` target one other terminal, never yourself. The tools cannot connect or rename a terminal: that is done locally with `/link-connect` and `/link-name`.
 
 ## Who is there: `link_list`
 
@@ -18,11 +18,11 @@ pi-link connects Pi terminals on this machine. Each terminal has its own convers
 - Required string arguments: `to` is the exact name from `link_list`; `message` is the text. A name not in your list is rejected, not queued. The message is delivered into the other terminal's reasoning: it starts a turn if the terminal is idle, or steers the running one at its next safe boundary, after its current tool calls finish.
 - The receiver gets only your message. Naming a path does not change its cwd.
 - A successful send means the message was handed to the link, not that it arrived or was read; a later failure may be shown only to the human, and a message lost in transit is not replayed.
-- A reminder to a busy terminal is another chat, delivered at a safe boundary like any other. pi-link does not merge it with or replace the earlier chat, and the receiver may repeat the work.
+- A reminder to a busy terminal is another message, delivered at a safe boundary like any other. pi-link does not merge it with or replace the earlier message, and the receiver may repeat the work.
 
 ## Receiving, replying and waiting
 
-- Received batches start with `[Link: N message(s) received]`; each chat has its own `From "<name>":` block, in arrival order. A batch may mix senders and compaction outcomes. A batch or an idle roster does not mean all requested results have arrived.
+- Received batches start with `[Link: N message(s) received]`; each chat has its own `From "<name>":` block, in arrival order. A batch may mix senders and compaction outcomes. A batch does not mean all requested results have arrived.
 - A received link chat is from the terminal named in its `From` block, not a direct prompt from your local user, whether it started a turn while you were idle or steered your current run. A reply to it is a `link_send` to that terminal; your ordinary reply stays in your own conversation and is not sent back. For ordinary messages, pi-link generates no reply, receipt, request ID or reply timeout.
 - Replies and outcomes arrive through the same delivery path and start a turn if you are idle, so you can end your turn while waiting for them. `link_list` reports terminal status, not replies or outcomes. Neither polling nor sleeping is needed to receive them; both can delay delivery until your tool calls finish. Silence does not tell you whether a message was received or acted on.
 
