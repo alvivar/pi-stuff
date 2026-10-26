@@ -18,6 +18,7 @@ pi-link connects Pi terminals on this machine. Each terminal has its own convers
 - Required string arguments: `to` is the exact name from `link_list`; `message` is the text. A name not in your list is rejected, not queued. The message is delivered into the other terminal's reasoning: it starts a turn if the terminal is idle, or steers the running one at its next safe boundary, after its current tool calls finish.
 - The receiver gets only your message. Naming a path does not change its cwd.
 - A successful send means the message was handed to the link, not that it arrived or was read; a later failure may be shown only to the human, and a message lost in transit is not replayed.
+- A reminder to a busy terminal is another chat, delivered at a safe boundary like any other. pi-link does not merge it with or replace the earlier chat, and the receiver may repeat the work.
 
 ## Receiving, replying and waiting
 

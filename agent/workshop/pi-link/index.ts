@@ -1657,8 +1657,10 @@ export default function (pi: ExtensionAPI) {
     name: "link_send",
     label: "Link Send",
     description: [
-      "Send a message to one other Pi terminal on the link.",
+      "Send a message to one other Pi terminal on the link, using its exact name from link_list.",
       "The message always acts: it steers a busy receiver at its next safe boundary, or starts a turn on an idle one.",
+      "To reply to a chat, use link_send to the sender in that chat's From block, even if it arrived while you were busy or alongside other chats in a batch; an ordinary reply stays local.",
+      "Replies and compaction outcomes start a turn if you are idle, so no polling or sleeping is needed to receive them; link_list reports status, not replies or outcomes.",
     ].join(" "),
     promptSnippet:
       "Send a message to another Pi terminal on the local link network",
