@@ -1,22 +1,15 @@
 ---
 name: clipboard-copy
-description: Copy text, code, or a response to the clipboard when the user requests it, on local Windows or Android/Termux. Uses PowerShell on Windows and OSC 52 on Termux.
-compatibility: Windows bash with powershell.exe and Set-Clipboard, or local PI on Termux with Node.js, /proc, and an OSC 52 terminal.
+description: Copy text, code, or a response to the clipboard when the user requests it, on local Windows (Git Bash) or Android/Termux.
 ---
 
 # Copy to the clipboard
 
-Copy only when requested. This replaces the previous clipboard contents. Do not read the clipboard, including for verification or backup. Do not create temporary files.
+Copy only when asked. Do not read the clipboard.
 
-Windows bash uses **Windows** below; local Android/Termux uses **Termux**.
-
-## Pass text safely
-
-For direct input, replace `LITERAL_TEXT` with the exact requested text. Use shell single quotes; represent each apostrophe as `'\''`. Pass text through stdin, never as shell, PowerShell, or Node.js code. Do not use interpolation, `echo`, or command substitution to transport it.
+Replace `LITERAL_TEXT` with the exact text inside the shell single quotes, writing each `'` as `'\''`.
 
 ## Windows
-
-For ordinary text, run this with `bash`.
 
 ```bash
 printf '%s' 'LITERAL_TEXT' | powershell.exe -NoLogo -NoProfile -NonInteractive -Command '
@@ -27,11 +20,7 @@ Set-Clipboard -Value $text
 '
 ```
 
-### Exact text: backslashes or CRLF
-
-Use this route instead when the text contains backslashes, or when it must keep CRLF line endings because the user asks for CRLF or the source text has them.
-
-Run this as one `codemode` script, so the Base64 is never copied by hand. Replace `EXACT_TEXT` with the text as a JavaScript string literal: write `\` as `\\`, `"` as `\"`, LF as `\n`, and CRLF as `\r\n`.
+If the text contains backslashes or must keep CRLF line endings, run this `codemode` script instead. Write `EXACT_TEXT` as a JavaScript string literal: `\` as `\\`, `"` as `\"`, LF as `\n`, CRLF as `\r\n`.
 
 ```js
 const value = "EXACT_TEXT";
@@ -49,11 +38,7 @@ Set-Clipboard -Value $text
 if (result.exit_code !== 0) throw new Error(result.output);
 ```
 
-If `codemode` is unavailable, report that limitation rather than creating a file or sending potentially altered text.
-
 ## Termux
-
-Use OSC 52 for local PI on Termux.
 
 ```bash
 printf '%s' 'LITERAL_TEXT' | node -e '
@@ -75,9 +60,7 @@ console.log("OSC 52 sequence sent to the terminal.");
 '
 ```
 
-## Results and failures
+## Result
 
-- Check the exit status. Report failures; do not silently retry other routes, install dependencies, or change system configuration.
-- After a successful Windows command, report “Clipboard command completed”. Do not claim an independently verified copy.
-- After successful Termux output, report “OSC 52 sequence sent”. OSC 52 does not confirm that the terminal updated the clipboard.
-- If verification is needed, ask the user to paste into another app. Do not request this after every copy or read the clipboard yourself.
+- On failure, report the error. Do not try another route.
+- On success, report “Clipboard command completed” (Windows) or “OSC 52 sequence sent” (Termux). Do not claim the copy is verified.
