@@ -386,7 +386,7 @@ and not a Windows device name such as `con` or `nul`.
 
 ## Status and limitations
 
-- **Version 0.4.1.**
+- **Version 0.4.2.**
 - **Windows** is verified: the regression suite on every change, and the paid end-to-end smoke
   test against a real model. **Unix** (sockets, signals) is little tested: on Linux (WSL)
   only the regression's socket acquisition cases pass, and the suite does not yet run

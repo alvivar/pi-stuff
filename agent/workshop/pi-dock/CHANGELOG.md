@@ -12,7 +12,7 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.4.2 — 2026-10-27
 
 ### Fixed
 
@@ -23,7 +23,7 @@ their version is cut, so a new entry may not have one yet.
   manifests, the last one kept. A runner now holds `~/.pi/dock/<name>.sock.lock` while it
   takes the socket, and one that finds it held exits like one that finds the agent running.
   A lock left by a runner killed meanwhile blocks the agent until removed by hand: a failed
-  `spawn` or `start` names it.
+  `spawn` or `start` names it. (`efb3463`)
 
 ---
 

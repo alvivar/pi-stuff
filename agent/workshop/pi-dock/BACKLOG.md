@@ -36,7 +36,7 @@ What is not built or decided yet. Contracts live in `DESIGN.md`, shipped work in
 
 ## Release
 
-7. [ ] **Publish 0.4.1** — the owner publishes by hand.
+7. [ ] **Publish 0.4.2** — the owner publishes by hand.
 
 ## Decide later
 
