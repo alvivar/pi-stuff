@@ -258,6 +258,15 @@
     ],
     "pi-bugs": [
       {
+        "name": "polaris",
+        "icon": "sparkle",
+        "color": "terminal.ansiBrightCyan",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link polaris@pi-bugs"
+        ]
+      },
+      {
         "name": "fixer",
         "icon": "bug",
         "color": "terminal.ansiGreen",
