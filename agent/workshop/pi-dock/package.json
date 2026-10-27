@@ -1,6 +1,6 @@
 {
   "name": "pi-dock",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Run named, resident Pi agents in the background with durable sessions: spawn them, send prompts, wait for results, and stop and wake them with their memory intact.",
   "author": "alvivar",
   "license": "MIT",

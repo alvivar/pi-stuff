@@ -379,7 +379,7 @@ and not a Windows device name such as `con` or `nul`.
 
 ## Status and limitations
 
-- **Version 0.4.0.**
+- **Version 0.4.1.**
 - **Windows** is verified: the regression suite on every change, and the paid end-to-end smoke
   test against a real model. **Unix** (sockets, signals) is little tested: the regression
   suite and the smoke test have not been run on Linux, macOS or Android (Termux).

@@ -12,7 +12,7 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.4.1 — 2026-10-26
 
 ### Fixed
 
@@ -20,7 +20,7 @@ their version is cut, so a new entry may not have one yet.
   new agent's manifest with a hard link, and Android forbids hard links in app storage. The
   runner now writes the manifest to a temporary file and renames it into place, as `set` does.
   Only the runner that owns the agent's pipe creates its manifest, so concurrent spawns of one
-  name rely on exclusive pipe ownership to start one agent, as wakes do.
+  name rely on exclusive pipe ownership to start one agent, as wakes do. (`fdd90aa`)
 
 ---
 
