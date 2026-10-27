@@ -52,7 +52,7 @@ async function isPresent(file) {
 
 // The check and the rename are not one atomic step: two creators could both pass the check.
 // Only the runner that owns the agent's pipe creates its manifest, so this relies on exclusive
-// pipe ownership, which the Unix stale-socket race (DESIGN item 5) can break.
+// pipe ownership (DESIGN items 5 and 8).
 // No hard link (link + EEXIST would be atomic): Android forbids them in app storage.
 export async function writeManifest(name, manifest) {
   if (await isPresent(manifestPath(name))) {

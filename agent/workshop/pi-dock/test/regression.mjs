@@ -3,11 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
-import { request, serve } from '../src/pipe.mjs';
+import { acquisitionLock, request, serve } from '../src/pipe.mjs';
 import { logPath, manifestPath, pipePath, validateAgentName } from '../src/paths.mjs';
 
 const filename = fileURLToPath(import.meta.url);
@@ -403,9 +403,186 @@ async function stopOwnedRunner(child, pipe) {
   await waitForExit(child, 5000);
 }
 
+// Test fixture, preloaded into a runner: before the runner replaces a stale socket (it holds the
+// acquisition lock by then), it reports 'paused' and waits for the parent's go-ahead.
+const PAUSE_BEFORE_UNLINK = `import fsp from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+const unlink = fsp.unlink;
+fsp.unlink = async (file, ...rest) => {
+  if (String(file).endsWith('.sock')) {
+    process.send('paused');
+    await new Promise((resolve) => process.once('message', resolve));
+  }
+  return unlink(file, ...rest);
+};
+syncBuiltinESMExports();
+`;
+
+// Test fixture, preloaded into a runner: removing an acquisition lock fails.
+const FAIL_LOCK_RELEASE = `import fsp from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+const rmdir = fsp.rmdir;
+fsp.rmdir = async (dir, ...rest) => {
+  if (String(dir).endsWith('.sock.lock')) {
+    throw Object.assign(new Error('injected rmdir failure'), { code: 'EACCES' });
+  }
+  return rmdir(dir, ...rest);
+};
+syncBuiltinESMExports();
+`;
+
+// Test fixture: listens on the path and exits without closing, which leaves a stale socket file.
+const LEAVE_STALE_SOCKET = `import net from 'node:net';
+net.createServer().listen(process.argv[2], () => process.exit(0));
+`;
+
+function connectResult(socketPath) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection(socketPath);
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve('connected');
+    });
+    socket.on('error', (error) => resolve(error.code));
+  });
+}
+
+async function rejectAfter(ms, message) {
+  await new Promise((resolve) => setTimeout(resolve, ms).unref());
+  throw new Error(message);
+}
+
+// Unix only: the acquisition lock makes socket acquisition exclusive. Runners that lose leave no
+// trace: no log, manifest or session. Returns the number of cases run.
+async function unixAcquisitionCases(sandbox, dock, ownedRunners, ownedRunnerPipes) {
+  const cli = path.join(root, 'bin', 'pi-dock.mjs');
+  const cwd = path.join(sandbox, 'unix-cwd');
+  await fs.mkdir(cwd);
+  const pause = path.join(sandbox, 'pause-before-unlink.mjs');
+  await fs.writeFile(pause, PAUSE_BEFORE_UNLINK);
+  const failRelease = path.join(sandbox, 'fail-lock-release.mjs');
+  await fs.writeFile(failRelease, FAIL_LOCK_RELEASE);
+  const leaveStale = path.join(sandbox, 'leave-stale-socket.mjs');
+  await fs.writeFile(leaveStale, LEAVE_STALE_SOCKET);
+  const model = 'anthropic/claude-haiku-4-5';
+
+  const own = (child, name) => {
+    ownedRunners.push(child);
+    ownedRunnerPipes.set(child, pipePath(name));
+    return child;
+  };
+  const createArgs = (name, flag) => ['--name', name, '--cwd', cwd, '--model', model, '--x', flag, '--create'];
+  const staleSocket = async (name) => {
+    const socket = pipePath(name);
+    const result = await runOwnedNode(sandbox, leaveStale, [socket]);
+    assert.equal(result.code, 0, result.stderr);
+    assert((await fs.lstat(socket)).isSocket(), 'the fixture leaves its socket file behind');
+    assert.equal(await connectResult(socket), 'ECONNREFUSED', 'nobody answers the stale socket');
+    return socket;
+  };
+  // A runner paused with the lock held, after its probe found the socket stale.
+  const pausedRunner = async (name, args) => {
+    const child = own(spawn(process.execPath, ['--import', pathToFileURL(pause).href, runner, ...args], {
+      env: sandboxEnv(sandbox),
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    }), name);
+    await Promise.race([
+      new Promise((resolve) => child.once('message', resolve)),
+      rejectAfter(15000, `runner ${name} did not pause before replacing the stale socket`),
+    ]);
+    assert((await fs.stat(acquisitionLock(pipePath(name)))).isDirectory(), 'the paused runner holds the lock');
+    return child;
+  };
+  const assertSilentLoser = async (child, message) => {
+    assert.deepEqual(await waitForExit(child), { code: 0, signal: null }, `${message}: exits 0`);
+  };
+  const assertSoleOwner = async (child, name, flag) => {
+    const socket = pipePath(name);
+    const status = await waitForStatus(socket);
+    assert.equal(status?.pid, child.pid, `${name}: the expected runner owns the socket`);
+    const events = (await logEvents(dock, name)).map((event) => event.event);
+    assert.deepEqual(events, ['spawned'], `${name}: only the owner wrote the log`);
+    assert.deepEqual(JSON.parse(await fs.readFile(manifestPath(name), 'utf8')).flags, [flag], `${name}: the owner's manifest`);
+    await assert.rejects(fs.stat(acquisitionLock(socket)), { code: 'ENOENT' }, `${name}: the lock is released once listening`);
+  };
+
+  // (a) Two runners recover one real stale socket: the second finds the first's lock and leaves.
+  const aName = 'ua';
+  const aSocket = await staleSocket(aName);
+  const aFirst = await pausedRunner(aName, createArgs(aName, 'first'));
+  const aSecond = own(launchRunner(sandbox, createArgs(aName, 'second')), aName);
+  await assertSilentLoser(aSecond, 'a runner that finds the lock held');
+  await assert.rejects(fs.access(logPath(aName)), { code: 'ENOENT' }, 'the loser writes no log');
+  await assert.rejects(fs.access(manifestPath(aName)), { code: 'ENOENT' }, 'the loser writes no manifest');
+  assert.equal(await connectResult(aSocket), 'ECONNREFUSED', 'the loser does not take the socket');
+  aFirst.send('go');
+  await assertSoleOwner(aFirst, aName, 'first');
+
+  // (c) A live owner's socket is never replaced, and a runner that finds it alive releases the
+  // lock: the owner still answers, and a later acquirer is not blocked.
+  const aThird = own(launchRunner(sandbox, createArgs(aName, 'third')), aName);
+  await assertSilentLoser(aThird, 'a runner that finds the socket alive');
+  await assertSoleOwner(aFirst, aName, 'first');
+
+  // (e) A runner that finds the socket alive but cannot remove its lock exits 1 and leaves the
+  // lock behind; the owner's log stays the owner's.
+  const aFailed = own(spawn(process.execPath, ['--import', pathToFileURL(failRelease).href, runner, ...createArgs(aName, 'fourth')], {
+    env: sandboxEnv(sandbox),
+    stdio: 'ignore',
+  }), aName);
+  assert.deepEqual(await waitForExit(aFailed), { code: 1, signal: null }, 'a contender that cannot release the lock exits 1');
+  assert((await fs.stat(acquisitionLock(aSocket))).isDirectory(), 'the lock it could not remove stays');
+  assert.deepEqual((await logEvents(dock, aName)).map((event) => event.event), ['spawned'], 'the contender does not write the owner\'s log');
+  assert.equal((await waitForStatus(aSocket))?.pid, aFirst.pid, 'the owner still answers');
+  await fs.rmdir(acquisitionLock(aSocket));
+  await stopOwnedRunner(aFirst, aSocket);
+
+  // (b) A fresh runner that would bind the free path at once cannot while a recoverer holds the
+  // lock between its stale probe and its unlink.
+  const bName = 'ub';
+  const bSocket = await staleSocket(bName);
+  const bRecoverer = await pausedRunner(bName, createArgs(bName, 'recoverer'));
+  await fs.unlink(bSocket);
+  const bFresh = own(launchRunner(sandbox, createArgs(bName, 'fresh')), bName);
+  await assertSilentLoser(bFresh, 'a fresh runner while the lock is held');
+  await assert.rejects(fs.lstat(bSocket), { code: 'ENOENT' }, 'the fresh runner did not bind');
+  await assert.rejects(fs.access(logPath(bName)), { code: 'ENOENT' }, 'the fresh runner writes no log');
+  await assert.rejects(fs.access(manifestPath(bName)), { code: 'ENOENT' }, 'the fresh runner writes no manifest');
+  bRecoverer.send('go');
+  await assertSoleOwner(bRecoverer, bName, 'recoverer');
+  await stopOwnedRunner(bRecoverer, bSocket);
+
+  // (d) A runner killed while it holds the lock leaves it behind: wakes fail closed and name it,
+  // and once it is removed by hand the agent wakes.
+  const dName = 'ud';
+  await fs.writeFile(manifestPath(dName), `${JSON.stringify({
+    name: dName, sessionFile: path.join(sandbox, 'ud-session.jsonl'), cwd, model, flags: [], pipe: pipePath(dName), startedAt: new Date().toISOString(),
+  })}\n`);
+  const dSocket = await staleSocket(dName);
+  const dKilled = await pausedRunner(dName, ['--name', dName]);
+  dKilled.kill('SIGKILL');
+  await waitForExit(dKilled);
+  const lock = acquisitionLock(dSocket);
+  const before = await treeEntries(sandbox);
+  const blocked = await runOwnedNode(sandbox, cli, ['start', dName]);
+  assert.equal(blocked.code, 1, 'a wake fails while the orphaned lock exists');
+  assert(blocked.stderr.includes(`lock: ${lock} exists`), `the handshake diagnostic names the lock: ${blocked.stderr}`);
+  assert.deepEqual(await treeEntries(sandbox), before, 'a wake blocked by the lock changes nothing');
+  await fs.rmdir(lock);
+  const dWoken = own(launchRunner(sandbox, ['--name', dName]), dName);
+  assert.equal((await waitForStatus(dSocket))?.pid, dWoken.pid, 'once the lock is removed, a wake takes the socket');
+  await stopOwnedRunner(dWoken, dSocket);
+
+  return 5;
+}
+
 async function main() {
   const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), `pi-dock-regression-${randomUUID()}-`));
   const dock = path.join(sandbox, '.pi', 'dock');
+  // paths.mjs finds the dock in the home directory. Point this process at the sandbox as well, so
+  // its own paths (Unix sockets included) never reach the real dock.
+  process.env.HOME = sandbox;
+  process.env.USERPROFILE = sandbox;
   const ownedRunners = [];
   const ownedRunnerPipes = new Map();
   const provider = await startFauxProvider();
@@ -488,6 +665,13 @@ async function main() {
     assert.deepEqual(rewriteResult, { ok: true });
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dock, `${rewriteName}.json`), 'utf8')), manifest('after', 20));
     assert.deepEqual(await tempFiles(dock), [], 'rewrite leaves no temp files');
+
+    let cases = 80;
+    if (process.platform === 'win32') {
+      console.log('regression: SKIPPED 5 Unix socket acquisition cases (Windows uses named pipes)');
+    } else {
+      cases += await unixAcquisitionCases(sandbox, dock, ownedRunners, ownedRunnerPipes);
+    }
 
     const staleName = `stale-${randomUUID()}`;
     const staleSession = path.join(sandbox, 'stale-session.jsonl');
@@ -744,7 +928,7 @@ async function main() {
 
     const liveSetName = `set-live-${randomUUID()}`;
     const liveSetFile = await writeSetFixture(dock, liveSetName);
-    const liveServer = serve(pipePath(liveSetName), () => ({ ok: true, state: 'idle' }));
+    const liveServer = await serve(pipePath(liveSetName), () => ({ ok: true, state: 'idle' }));
     await withOwnedServer(liveServer, new Set(), async () => {
       const beforeLiveSet = await fs.readFile(liveSetFile);
       const liveSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', liveSetName, '--thinking', 'low']);
@@ -780,7 +964,7 @@ async function main() {
     const unknownSetName = `set-unknown-${randomUUID()}`;
     const unknownSetFile = await writeSetFixture(dock, unknownSetName);
     let unknownReply;
-    const unknownServer = serve(pipePath(unknownSetName), () => unknownReply);
+    const unknownServer = await serve(pipePath(unknownSetName), () => unknownReply);
     await withOwnedServer(unknownServer, new Set(), async () => {
       const beforeUnknownSet = await fs.readFile(unknownSetFile);
       // Any reply means something listens: a runner shutting down, or an unexpected shape.
@@ -1165,10 +1349,10 @@ async function main() {
     }
     const lingeringName = `stop-lingering-${randomUUID()}`;
     await writeSetFixture(dock, lingeringName);
-    const lingeringServer = serve(pipePath(lingeringName), () => ({ ok: true, pid: process.pid }));
+    const lingeringServer = await serve(pipePath(lingeringName), () => ({ ok: true, pid: process.pid }));
     const badPidName = `stop-bad-pid-${randomUUID()}`;
     await writeSetFixture(dock, badPidName);
-    const badPidServer = serve(pipePath(badPidName), () => ({ ok: true, pid: 'nope' }));
+    const badPidServer = await serve(pipePath(badPidName), () => ({ ok: true, pid: 'nope' }));
     await withOwnedServer(lingeringServer, new Set(), () => withOwnedServer(badPidServer, new Set(), async () => {
       assert.deepEqual(await runOwnedNode(sandbox, cli, ['stop', badPidName, lingeringName, corrName, multiName, idleName]), exited(
         1,
@@ -1305,7 +1489,7 @@ async function main() {
     await stop(singleName, owner);
 
     // A runner shutting down answers terminal: start wakes a new one once the pipe is free.
-    const shuttingDown = serve(pipePath(singleName), () => {
+    const shuttingDown = await serve(pipePath(singleName), () => {
       setImmediate(() => shuttingDown.close());
       return { ok: false, error: 'terminal' };
     });
@@ -1321,7 +1505,7 @@ async function main() {
 
     const busyName = `start-busy-${randomUUID()}`;
     await writeSetFixture(dock, busyName);
-    const busyServer = serve(pipePath(busyName), () => ({ ok: false, error: 'busy' }));
+    const busyServer = await serve(pipePath(busyName), () => ({ ok: false, error: 'busy' }));
     await withOwnedServer(busyServer, new Set(), async () => {
       assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', busyName]), exited(1, '', `agent ${busyName} refused status: {"ok":false,"error":"busy"}\n`), 'start fails on a non-terminal refusal instead of waking');
     });
@@ -1643,7 +1827,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 80 cases passed');
+    console.log(`regression: ${cases} cases passed`);
   } catch (error) {
     primaryError = error;
   }

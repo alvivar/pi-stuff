@@ -12,6 +12,21 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **On Unix, two runners can no longer both own one agent.** A crashed agent leaves its socket
+  file behind, and runners waking it replace that file once nobody answers it. Two wakes could
+  both find it stale and each listen in turn, the second unlinking the socket the first had
+  just bound: two runners on one session, one of them unreachable, and for `spawn` two
+  manifests, the last one kept. A runner now holds `~/.pi/dock/<name>.sock.lock` while it
+  takes the socket, and one that finds it held exits like one that finds the agent running.
+  A lock left by a runner killed meanwhile blocks the agent until removed by hand: a failed
+  `spawn` or `start` names it.
+
+---
+
 ## 0.4.1 — 2026-10-26
 
 ### Fixed

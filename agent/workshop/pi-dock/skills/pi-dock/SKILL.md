@@ -172,7 +172,11 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 - `agent <name> did not exit within 5s; terminate PID <pid> externally`: terminate that PID, then
   check `pi-dock ls`.
 - `handshake failed for <name>`: a spawned or woken runner did not answer status within 20 s.
-  Read the printed manifest and log diagnostics and the `last log` line, if present.
+  Read the printed manifest and log diagnostics and the `last log` line, if present. A
+  `lock: <path> exists` line (Unix) means a runner is acquiring the socket, or one was killed
+  while it did or could not remove it; the agent cannot start until it is removed. Remove that
+  directory only after no process whose command line contains `runner.mjs --name <name>` is
+  left.
 
 ## Data
 

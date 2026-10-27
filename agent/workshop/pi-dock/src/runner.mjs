@@ -10,7 +10,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { ManifestExistsError, readManifest, writeManifest } from './manifest.mjs';
 import { ensureDockDir, logPath, pipePath } from './paths.mjs';
-import { serve } from './pipe.mjs';
+import { PipeTakenError, serve } from './pipe.mjs';
 
 const { values } = parseArgs({
   options: {
@@ -286,7 +286,7 @@ try {
 
   // Own the pipe before opening the session or loading extensions, so that of concurrent runners
   // for one agent only the owner does either.
-  server = serve(pipe, async (msg) => {
+  server = await serve(pipe, async (msg) => {
     await startup;
     if (msg.cmd === 'status') {
       if (terminal) {
@@ -318,20 +318,21 @@ try {
     }
 
     return { ok: false, error: 'unknown' };
-  });
-  server.on('error', (error) => {
-    if (error.piDockRetrying) {
-      return;
-    }
-    if (error.code === 'EADDRINUSE') {
-      // Another runner owns this agent: leave its log, manifest and session untouched.
+  }).catch((error) => {
+    if (error instanceof PipeTakenError) {
+      // Another runner owns this agent or is acquiring it: leave its log, manifest and session
+      // untouched.
       process.exit(0);
     }
-
-    void fail(error);
+    if (error.cause instanceof PipeTakenError) {
+      // Not the owner either, but its lock could not be removed. The log is the owner's, so the
+      // failure shows as this exit code and the lock left behind, which a failed wake names.
+      process.exit(1);
+    }
+    throw error;
   });
-  await new Promise((resolve) => {
-    server.once('listening', resolve);
+  server.on('error', (error) => {
+    void fail(error);
   });
   dropTornTail();
   // Logged as soon as this runner owns the agent, so its PID is known even if startup hangs.

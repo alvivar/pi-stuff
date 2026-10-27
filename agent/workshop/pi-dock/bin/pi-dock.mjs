@@ -6,8 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listManifests, readManifest, rewriteManifest } from '../src/manifest.mjs';
-import { logPath, manifestPath, validateAgentName } from '../src/paths.mjs';
-import { PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
+import { logPath, manifestPath, pipePath, validateAgentName } from '../src/paths.mjs';
+import { acquisitionLock, PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runner = path.join(root, 'src', 'runner.mjs');
@@ -190,6 +190,10 @@ function reportHandshakeFailure(name) {
   const line = lastLogLine(name);
   if (line) {
     console.error(`last log: ${line}`);
+  }
+  const lock = acquisitionLock(pipePath(name));
+  if (process.platform !== 'win32' && existsSync(lock)) {
+    console.error(`lock: ${lock} exists: a runner is acquiring the socket, or one was killed while it did or could not remove it; remove it only after every runner of ${name} has exited`);
   }
 }
 

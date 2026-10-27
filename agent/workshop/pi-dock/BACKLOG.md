@@ -5,22 +5,18 @@ What is not built or decided yet. Contracts live in `DESIGN.md`, shipped work in
 
 ## To do, in priority order
 
-1. [ ] **Unix runtime test** — the regression and the smoke have never run on Unix; the Unix
-       paths (socket, signals, stale-socket probe) have seen only the owner's use on Android
-       (Termux). Run the regression, and the smoke with authorization, on the owner's Linux
+1. [ ] **Unix runtime test** — the smoke has never run on Unix, and the regression only in
+       WSL (Ubuntu, Node 22.16): its socket acquisition cases pass, then it stops at
+       `wait does not wake a crashed agent`, which expects a dead pipe to be absent (ENOENT, as
+       on Windows) while a dead runner's socket file refuses (ECONNREFUSED). Make the suite run
+       through on Unix, then run it, and the smoke with authorization, on the owner's Linux
        server and on Termux. The README says Unix is little tested. Then decide:
-       - **Stale-socket race:** after `EADDRINUSE`, `recoverUnixListen` probes the socket,
-         unlinks it if nobody answers and listens again; another runner can take it between
-         the probe and the unlink, so two wakes over an orphaned socket could leave two
-         runners. Deleting the socket before `listen` races too. A fix must prove that two
-         runners exclude each other. Manifest creation relies on that exclusion as well: two
-         create runners could both publish, and the last rename wins.
+       - **Socket path length:** `sun_path` holds 108 bytes on Linux (104 on macOS), yet in
+         WSL the regression's sockets of about 123 bytes worked, so the path is apparently
+         truncated. Check what a 64-character name does on Termux (long home path) and on
+         macOS: whether names that share a long prefix can collide.
        - **Probe failure:** a failed probe logs `failed`; verified only on a simulated
          platform.
-       - **Simpler listen errors:** `pipe.mjs` and the runner coordinate through marks on
-         error objects (`piDockRetrying`, `piDockFatal`) and listener order. An async `serve`
-         that resolves listening or rejects with a plain error would remove both marks. It does
-         not fix the race by itself.
 2. [ ] **`set` racing `start` is unsupported: say so** — `set` checks that the agent is off,
        then rewrites the manifest; a `start` in between runs the old config until the next
        restart (nothing is lost). Recommended: state in README and skill that `stop` → `set`

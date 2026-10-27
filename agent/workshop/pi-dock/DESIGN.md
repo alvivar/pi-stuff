@@ -24,9 +24,10 @@ generates the help's usage section.
    `windowsHide`) hosting one in-process `AgentSession`, plus a stateless CLI.
 2. **Data.** `~/.pi/dock/<name>.json` (manifest) + `<name>.log` (event log). Pipe: Windows
    `\\.\pipe\pi-dock-<name>`, Unix `~/.pi/dock/<name>.sock` (stale sockets are probed and
-   replaced). Sessions are created by `SessionManager.create(cwd)` in Pi's default session dir
-   (`<agent dir>/sessions/--<cwd>--/`, agent dir `~/.pi/agent` or `PI_CODING_AGENT_DIR`);
-   the manifest's `sessionFile` is the exact path.
+   replaced under the acquisition lock `<name>.sock.lock`, item 8). Sessions are created by
+   `SessionManager.create(cwd)` in Pi's default session dir (`<agent dir>/sessions/--<cwd>--/`,
+   agent dir `~/.pi/agent` or `PI_CODING_AGENT_DIR`); the manifest's `sessionFile` is the
+   exact path.
 3. **Names** match `^[a-z0-9]+(?:[._-][a-z0-9]+)*$`, max 64, Windows reserved device
    basenames rejected case-insensitively. Rejected (never normalized) as
    `invalid agent name: <value>` before any path or pipe access, by every command.
@@ -40,13 +41,14 @@ generates the help's usage section.
    `startedAt`. Creation refuses an existing manifest (`lstat`; any error but `ENOENT`
    propagates), then publishes like a rewrite: temp file + `rename` in the same directory,
    so readers see only complete JSON. No hard links: Android forbids them in app storage.
-   The check and the rename are not one atomic step; creators rely on exclusive pipe
-   ownership (item 8), since a runner writes the manifest only after it owns the pipe. A
-   caller without the pipe, or a second owner after the Unix stale-socket race (BACKLOG),
-   could replace a manifest created in between. The runner writes
-   it only on create, which only `--create` (passed by `spawn`) requests; a wake without a
-   manifest fails. The only later writer is `set` (powered off), which writes exactly these
-   fields.
+   The check and the rename are not one atomic step, so this is not a standalone no-replace
+   API: its precondition is that the caller is the pipe's sole owner. A runner writes the
+   manifest only after it owns the pipe, and pipe ownership is exclusive among cooperating
+   runners (item 8; on Unix by the acquisition lock). Nothing protects against a caller
+   without the pipe, a runner of an older pi-dock (no lock) or an external unlink of the
+   socket. The runner writes it only on create, which only `--create` (passed by `spawn`)
+   requests; a wake without a manifest fails. The only later writer is `set` (powered off),
+   which writes exactly these fields.
 6. **Resident lifecycle, no limits.** The runner never exits because work finished. It
    exits only on `stop` (→ `stopped`) or a crash/fatal error (→ `failed`). There is no
    turn, time or cost limit, and work extensions start while idle (e.g. pi-link messages)
@@ -69,7 +71,20 @@ generates the help's usage section.
    for the handshake, else prints manifest/log diagnostics and exits 1. One runner per agent:
    a runner takes the pipe before it opens the session or loads extensions, and a runner
    that finds the pipe taken exits 0 without touching the log, manifest or session, so
-   concurrent wakes start one agent. Requests that arrive while the owner is still starting
+   concurrent wakes start one agent. On Unix the socket file outlives a crashed owner, so the
+   whole acquisition holds a lock directory, `~/.pi/dock/<name>.sock.lock`, created with a
+   nonrecursive `mkdir`: listen; if the path is taken, probe it; a socket nobody answers is
+   stale, so unlink it and listen again; one that answers (or a probe timeout) is a live
+   owner. The lock goes once the runner listens (the listener is then the ownership token)
+   or fails; a runner that finds it held exits 0 like one that finds the pipe taken, and
+   any other `mkdir` error, or a failure to remove it, is fatal (`failed`). A runner that found
+   the socket alive did not get the pipe and never writes the owner's log: if it cannot
+   remove its lock it exits 1 silently, and the lock left behind, which a failed handshake
+   names, is the trace. The first listen is inside the lock too: otherwise a runner could
+   bind between another's probe and its unlink, and lose its socket to it. A lock is never
+   stolen (no age, PID or socket heuristics): one left by a runner killed while acquiring
+   blocks the agent, and a failed handshake names it, until it is removed by hand after every
+   runner of that name has exited. Requests that arrive while the owner is still starting
    wait until it is ready (or terminal); they never get a `terminal` reply that would wake
    another runner.
 9. **Prompt correlation.** The runner assigns each pipe prompt an id (`p` + 12 hex) and
@@ -181,7 +196,8 @@ bin/pi-dock.mjs    CLI: strict parseArgs + dispatch to the 12 commands. Stateles
 skills/pi-dock/    SKILL.md — AI operating guide; printed by `skill`, loaded by Pi.
 src/runner.mjs     Detached entry: hosts one AgentSession, serves the pipe, queues and
                    correlates prompts, appends the log, publishes the manifest on create.
-src/pipe.mjs       NDJSON over node:net — serve(path, handler) + request(path, msg, timeout).
+src/pipe.mjs       NDJSON over node:net — serve(path, handler), resolved once listening or
+                   rejected (PipeTakenError if taken), + request(path, msg, timeout).
 src/manifest.mjs   Pipe-owned create / atomic rewrite / list of <name>.json.
 src/paths.mjs      Name validation, ~/.pi/dock resolution, per-platform pipe path.
 ```

@@ -1,14 +1,20 @@
-import { unlink } from 'node:fs/promises';
+import { mkdir, rmdir, unlink } from 'node:fs/promises';
 import net from 'node:net';
 
 export const PIPE_REQUEST_TIMEOUT_MS = 3000;
 const STALE_SOCKET_PROBE_TIMEOUT_MS = 500;
 
-function emitServerError(server, message, code) {
-  const error = new Error(message);
-  error.code = code;
-  error.piDockFatal = true;
-  server.emit('error', error);
+// Another process owns the pipe, or holds its acquisition lock.
+export class PipeTakenError extends Error {
+  constructor(pipePath) {
+    super(`pipe taken: ${pipePath}`);
+    this.name = 'PipeTakenError';
+  }
+}
+
+// Unix only: the directory a runner holds while it acquires the socket.
+export function acquisitionLock(socketPath) {
+  return `${socketPath}.lock`;
 }
 
 function probeUnixSocket(socketPath) {
@@ -41,51 +47,90 @@ function probeUnixSocket(socketPath) {
   });
 }
 
-async function recoverUnixListen(server, socketPath) {
-  const result = await probeUnixSocket(socketPath);
-  if (result === 'stale') {
-    await unlink(socketPath).catch((error) => {
-      if (error.code !== 'ENOENT') {
-        throw error;
-      }
-    });
-    server.listen(socketPath);
-    return;
-  }
-
-  if (result === 'alive') {
-    emitServerError(server, 'already-running', 'EADDRINUSE');
-    return;
-  }
-  // Not contention: the probe itself failed, so this must not read as another runner owning it.
-  emitServerError(server, `cannot probe socket: ${socketPath}`);
-}
-
-function listenUnix(server, socketPath) {
-  let recovering = false;
-
-  server.on('error', (error) => {
-    if (error.piDockFatal || error.code !== 'EADDRINUSE') {
-      return;
+function listen(server, pipePath) {
+  return new Promise((resolve, reject) => {
+    function onListening() {
+      server.off('error', onError);
+      resolve();
     }
-
-    if (recovering) {
-      emitServerError(server, 'already-running', 'EADDRINUSE');
-      return;
+    function onError(error) {
+      server.off('listening', onListening);
+      reject(error);
     }
-
-    recovering = true;
-    error.piDockRetrying = true;
-    void recoverUnixListen(server, socketPath).catch((recoverError) => {
-      recoverError.piDockFatal = true;
-      server.emit('error', recoverError);
-    });
+    server.once('listening', onListening);
+    server.once('error', onError);
+    server.listen(pipePath);
   });
-
-  server.listen(socketPath);
 }
 
-export function serve(pipePath, handler) {
+async function listenOrTaken(server, pipePath) {
+  try {
+    await listen(server, pipePath);
+  } catch (error) {
+    throw error.code === 'EADDRINUSE' ? new PipeTakenError(pipePath) : error;
+  }
+}
+
+// A Unix socket file outlives an owner that crashed, so a taken path is probed, and a socket
+// nobody answers is stale and replaced.
+async function listenOrRecover(server, socketPath) {
+  try {
+    await listen(server, socketPath);
+    return;
+  } catch (error) {
+    if (error.code !== 'EADDRINUSE') {
+      throw error;
+    }
+  }
+
+  const result = await probeUnixSocket(socketPath);
+  if (result === 'alive') {
+    throw new PipeTakenError(socketPath);
+  }
+  if (result === 'error') {
+    // Not contention: the probe itself failed, so this must not read as another runner owning it.
+    throw new Error(`cannot probe socket: ${socketPath}`);
+  }
+  await unlink(socketPath).catch((error) => {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  });
+  await listenOrTaken(server, socketPath);
+}
+
+// The whole acquisition, first listen included, holds a lock directory, so two runners never act
+// on the same probe result: neither replaces a socket the other just bound. Once listening, the
+// listener is the ownership token and the lock goes. A lock left by a runner killed meanwhile
+// blocks the agent until removed by hand; it is never stolen.
+async function listenUnix(server, socketPath) {
+  const lock = acquisitionLock(socketPath);
+  try {
+    await mkdir(lock);
+  } catch (error) {
+    throw error.code === 'EEXIST' ? new PipeTakenError(socketPath) : error;
+  }
+
+  let failure;
+  try {
+    await listenOrRecover(server, socketPath);
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    await rmdir(lock);
+  } catch (error) {
+    const after = failure ? ` (after: ${failure.message})` : '';
+    throw new Error(`cannot remove ${lock}: ${error.message}${after}`, { cause: failure });
+  }
+  if (failure) {
+    throw failure;
+  }
+}
+
+// Resolves with the server once it listens; rejects with PipeTakenError if another runner owns
+// the pipe or is acquiring it.
+export async function serve(pipePath, handler) {
   const server = net.createServer((socket) => {
     let buffer = '';
 
@@ -126,9 +171,9 @@ export function serve(pipePath, handler) {
   });
 
   if (process.platform === 'win32') {
-    server.listen(pipePath);
+    await listenOrTaken(server, pipePath);
   } else {
-    listenUnix(server, pipePath);
+    await listenUnix(server, pipePath);
   }
 
   return server;

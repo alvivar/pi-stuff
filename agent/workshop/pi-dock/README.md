@@ -221,6 +221,13 @@ itself starts.
   `pi-dock ls`.
 - **`handshake failed for <name>`**: a spawned or woken agent did not answer within 20 s. The
   printed diagnostics include the last log line, if any.
+- **`lock: ~/.pi/dock/<name>.sock.lock exists`** (Unix, after a failed handshake): a runner
+  holds this directory while it takes the agent's socket, and removes it once it listens. If
+  it remains, a runner is acquiring the socket right now, or one was killed while it did or
+  could not remove it; other runners never remove it, and until it is removed the agent cannot
+  start. Make sure no runner of that agent is left (no process whose command line contains
+  `runner.mjs --name <name>`), then remove the directory (`rmdir`) and run
+  `pi-dock start <name>`.
 
 > [!CAUTION]
 > PIDs are reused by the operating system. Before terminating one, make sure it is still that
@@ -381,8 +388,9 @@ and not a Windows device name such as `con` or `nul`.
 
 - **Version 0.4.1.**
 - **Windows** is verified: the regression suite on every change, and the paid end-to-end smoke
-  test against a real model. **Unix** (sockets, signals) is little tested: the regression
-  suite and the smoke test have not been run on Linux, macOS or Android (Termux).
+  test against a real model. **Unix** (sockets, signals) is little tested: on Linux (WSL)
+  only the regression's socket acquisition cases pass, and the suite does not yet run
+  through; the smoke test has not been run on Linux, macOS or Android (Termux).
 - **Lockfile:** `package-lock.json` reproduces this checkout's dependencies. It does not pin the
   transitive dependencies of anyone who installs pi-dock some other way.
 - **Source checkout only** (not in the npm package): design and contracts in `DESIGN.md`, and
