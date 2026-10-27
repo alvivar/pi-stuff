@@ -37,10 +37,16 @@ generates the help's usage section.
    200 ms status request and never wake.
 5. **Manifest** = identity + config: `name`, `sessionFile`, `cwd`, `model` (qualified
    `provider/id`, mandatory, sole wake authority), `thinking?`, `flags`, `pipe`,
-   `startedAt`. Creation is exclusive winner-safe publication (temp file + `link`);
-   rewrites are atomic (temp file + `rename`). The runner writes it only on create, which
-   only `--create` (passed by `spawn`) requests; a wake without a manifest fails. The only
-   later writer is `set` (powered off), which writes exactly these fields.
+   `startedAt`. Creation refuses an existing manifest (`lstat`; any error but `ENOENT`
+   propagates), then publishes like a rewrite: temp file + `rename` in the same directory,
+   so readers see only complete JSON. No hard links: Android forbids them in app storage.
+   The check and the rename are not one atomic step; creators rely on exclusive pipe
+   ownership (item 8), since a runner writes the manifest only after it owns the pipe. A
+   caller without the pipe, or a second owner after the Unix stale-socket race (BACKLOG),
+   could replace a manifest created in between. The runner writes
+   it only on create, which only `--create` (passed by `spawn`) requests; a wake without a
+   manifest fails. The only later writer is `set` (powered off), which writes exactly these
+   fields.
 6. **Resident lifecycle, no limits.** The runner never exits because work finished. It
    exits only on `stop` (→ `stopped`) or a crash/fatal error (→ `failed`). There is no
    turn, time or cost limit, and work extensions start while idle (e.g. pi-link messages)
@@ -176,7 +182,7 @@ skills/pi-dock/    SKILL.md — AI operating guide; printed by `skill`, loaded b
 src/runner.mjs     Detached entry: hosts one AgentSession, serves the pipe, queues and
                    correlates prompts, appends the log, publishes the manifest on create.
 src/pipe.mjs       NDJSON over node:net — serve(path, handler) + request(path, msg, timeout).
-src/manifest.mjs   Exclusive create / atomic rewrite / list of <name>.json.
+src/manifest.mjs   Pipe-owned create / atomic rewrite / list of <name>.json.
 src/paths.mjs      Name validation, ~/.pi/dock resolution, per-platform pipe path.
 ```
 

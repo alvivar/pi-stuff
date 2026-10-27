@@ -471,21 +471,9 @@ async function main() {
     assert.equal(validSegmentedResult.code, 1);
     assert.equal(validSegmentedResult.stderr.trim(), `no such agent: ${validSegmentedName}`);
 
-    const raceName = 'manifest-race';
     // The runner creates the dock dir before it writes a manifest; these workers skip the runner.
+    // Concurrent creates are covered by the real-runner race below: pipe ownership excludes them.
     await fs.mkdir(dock, { recursive: true });
-    const racers = await Promise.all(Array.from({ length: 12 }, (_, index) => runWorker(sandbox, 'create', raceName, `racer-${index}`)));
-    const winners = racers.filter((result) => result.ok);
-    const losers = racers.filter((result) => !result.ok);
-    assert.equal(winners.length, 1, 'exactly one concurrent creator wins');
-    assert.equal(losers.length, 11, 'every other concurrent creator loses');
-    for (const loser of losers) {
-      assert.equal(loser.error, `manifest already exists: ${raceName}`);
-    }
-    const winnerBody = await fs.readFile(path.join(dock, `${raceName}.json`), 'utf8');
-    assert.deepEqual(JSON.parse(winnerBody), manifest(winners[0].id));
-    assert.deepEqual(await tempFiles(dock), [], 'concurrent create leaves no temp files');
-
     const existingName = 'manifest-existing';
     assert.deepEqual(await runWorker(sandbox, 'create', existingName, 'original'), { ok: true, id: 'original' });
     const originalBody = await fs.readFile(path.join(dock, `${existingName}.json`), 'utf8');
@@ -1655,7 +1643,7 @@ async function main() {
     assert.equal((await request(pipe, { cmd: 'status' })).state, 'idle', 'failed compaction leaves the agent idle and on');
     await stopOwnedRunner(runners[winnerIndex], pipe);
 
-    console.log('regression: 81 cases passed');
+    console.log('regression: 80 cases passed');
   } catch (error) {
     primaryError = error;
   }

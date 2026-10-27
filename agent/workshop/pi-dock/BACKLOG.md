@@ -5,14 +5,16 @@ What is not built or decided yet. Contracts live in `DESIGN.md`, shipped work in
 
 ## To do, in priority order
 
-1. [ ] **Unix runtime test** — the Unix paths (socket, signals, stale-socket probe) were never
-       run. Run the regression, and the smoke with authorization, on the owner's Linux server.
-       Until then, the README should say pi-dock is tested only on Windows. Then decide:
+1. [ ] **Unix runtime test** — the regression and the smoke have never run on Unix; the Unix
+       paths (socket, signals, stale-socket probe) have seen only the owner's use on Android
+       (Termux). Run the regression, and the smoke with authorization, on the owner's Linux
+       server and on Termux. The README says Unix is little tested. Then decide:
        - **Stale-socket race:** after `EADDRINUSE`, `recoverUnixListen` probes the socket,
          unlinks it if nobody answers and listens again; another runner can take it between
          the probe and the unlink, so two wakes over an orphaned socket could leave two
          runners. Deleting the socket before `listen` races too. A fix must prove that two
-         runners exclude each other.
+         runners exclude each other. Manifest creation relies on that exclusion as well: two
+         create runners could both publish, and the last rename wins.
        - **Probe failure:** a failed probe logs `failed`; verified only on a simulated
          platform.
        - **Simpler listen errors:** `pipe.mjs` and the runner coordinate through marks on

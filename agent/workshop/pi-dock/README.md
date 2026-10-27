@@ -45,6 +45,8 @@ Each agent is one detached process hosting one Pi session, identified by a name 
   (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`) for credentials, settings, models and extensions.
   `pi-dock models` lists only the models whose credentials are configured.
 - The `pi` command is needed to set up credentials and to install pi-dock for Pi (below).
+- Tested on Windows. Linux, macOS and Android (Termux) are little tested yet; see
+  [Status and limitations](#status-and-limitations).
 
 ## Install
 
@@ -379,7 +381,8 @@ and not a Windows device name such as `con` or `nul`.
 
 - **Version 0.4.0.**
 - **Windows** is verified: the regression suite on every change, and the paid end-to-end smoke
-  test against a real model. **Unix** (sockets, signals) has been inspected but not run.
+  test against a real model. **Unix** (sockets, signals) is little tested: the regression
+  suite and the smoke test have not been run on Linux, macOS or Android (Termux).
 - **Lockfile:** `package-lock.json` reproduces this checkout's dependencies. It does not pin the
   transitive dependencies of anyone who installs pi-dock some other way.
 - **Source checkout only** (not in the npm package): design and contracts in `DESIGN.md`, and

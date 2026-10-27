@@ -27,32 +27,43 @@ async function writeTempManifest(name, manifest) {
   }
 }
 
-export async function writeManifest(name, manifest) {
-  const target = manifestPath(name);
+// Readers see either the old file or the complete new one.
+async function renameIntoPlace(name, manifest) {
   const tmp = await writeTempManifest(name, manifest);
 
   try {
-    await fs.link(tmp, target);
-  } catch (error) {
-    if (error.code === 'EEXIST') {
-      throw new ManifestExistsError(name);
-    }
-    throw error;
+    await fs.rename(tmp, manifestPath(name));
   } finally {
     await removeOwnedTempManifest(tmp);
   }
 }
 
-export async function rewriteManifest(name, manifest) {
-  const target = manifestPath(name);
-  await fs.access(target);
-  const tmp = await writeTempManifest(name, manifest);
-
+async function isPresent(file) {
   try {
-    await fs.rename(tmp, target);
-  } finally {
-    await removeOwnedTempManifest(tmp);
+    await fs.lstat(file);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
   }
+}
+
+// The check and the rename are not one atomic step: two creators could both pass the check.
+// Only the runner that owns the agent's pipe creates its manifest, so this relies on exclusive
+// pipe ownership, which the Unix stale-socket race (DESIGN item 5) can break.
+// No hard link (link + EEXIST would be atomic): Android forbids them in app storage.
+export async function writeManifest(name, manifest) {
+  if (await isPresent(manifestPath(name))) {
+    throw new ManifestExistsError(name);
+  }
+  await renameIntoPlace(name, manifest);
+}
+
+export async function rewriteManifest(name, manifest) {
+  await fs.access(manifestPath(name));
+  await renameIntoPlace(name, manifest);
 }
 
 export async function readManifest(name) {

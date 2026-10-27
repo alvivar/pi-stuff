@@ -12,6 +12,18 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **`spawn` works on Android (Termux).** It failed there with `EACCES`: the runner published a
+  new agent's manifest with a hard link, and Android forbids hard links in app storage. The
+  runner now writes the manifest to a temporary file and renames it into place, as `set` does.
+  Only the runner that owns the agent's pipe creates its manifest, so concurrent spawns of one
+  name rely on exclusive pipe ownership to start one agent, as wakes do.
+
+---
+
 ## 0.4.0 — 2026-10-24
 
 ### Breaking changes
