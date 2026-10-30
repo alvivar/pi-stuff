@@ -61,42 +61,6 @@
         ]
       },
       {
-        "name": "test1",
-        "icon": "beaker",
-        "color": "terminal.ansiBrightCyan",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test1@pi-link"
-        ]
-      },
-      {
-        "name": "test2",
-        "icon": "beaker",
-        "color": "terminal.ansiBrightCyan",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test2@pi-link"
-        ]
-      },
-      {
-        "name": "test3",
-        "icon": "beaker",
-        "color": "terminal.ansiBrightCyan",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test3@pi-link"
-        ]
-      },
-      {
-        "name": "test4",
-        "icon": "beaker",
-        "color": "terminal.ansiBrightCyan",
-        "autoExecuteCommands": true,
-        "commands": [
-          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link test4@pi-link"
-        ]
-      },
-      {
         "name": "committer",
         "icon": "git-commit",
         "color": "terminal.ansiYellow",
