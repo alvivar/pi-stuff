@@ -1,6 +1,7 @@
 agent/auth.json
 agent/bin/
 agent/install/
+agent/mcp-auth.json
 agent/mcp-cache.json
 agent/mcp-npx-cache.json
 agent/mcp-onboarding.json
