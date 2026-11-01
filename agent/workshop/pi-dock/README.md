@@ -263,8 +263,11 @@ itself starts.
   `pi-dock start <name>`.
 - **`agent <name> did not exit within 5s; terminate PID <pid> externally`**: `stop` asked the
   agent to exit and it did not, e.g. because an extension's `session_shutdown` handler, which
-  the agent waits for as Pi does on quit, never finished. Terminate that process, then check
-  `pi-dock ls`.
+  the agent waits for as Pi does on quit, never finished. Check that the PID's command line
+  contains `runner.mjs --name <name>` (PIDs are reused), terminate that process, and confirm it
+  has exited before starting the agent again or deleting its files: while it shuts down,
+  `pi-dock ls` can show `failed` and `pi-dock stop` can print `already stopped` or
+  `already failed`.
 - **`handshake failed for <name>`**: a spawned or woken agent's runner exited with an error, or
   the agent did not answer within 20 s. The printed diagnostics include the last log line, if
   any.
@@ -463,8 +466,10 @@ rm <session file> # optional
 ```
 
 Stop it first: without its manifest pi-dock no longer knows the agent, so it cannot stop a
-runner that is still on. Remove the log too: a new agent with the same name would otherwise
-append to the old one. On Unix, also remove `~/.pi/dock/w1.sock` if it is there.
+runner that is still on. If `stop` reported `did not exit within 5s`, follow
+[Recovery](#recovery) first and confirm the runner process has exited. Remove the log too: a
+new agent with the same name would otherwise append to the old one. On Unix, also remove
+`~/.pi/dock/w1.sock` if it is there.
 
 ## Status and limitations
 
@@ -478,4 +483,6 @@ append to the old one. On Unix, also remove `~/.pi/dock/w1.sock` if it is there.
 - **Source checkout only** (not in the npm package): design and contracts in `DESIGN.md`, and
   the tests, run from the checkout: `node test/regression.mjs` (free, no model calls);
   `node test/smoke.mjs <provider/id> [thinking]` makes real, paid calls to that model, with
-  Pi's default thinking unless a level is given.
+  Pi's default thinking unless a level is given. `node test/skill-eval/run.mjs <p1..p5>
+  <provider/id> [thinking]` has that model operate pi-dock with only the skill on one of five
+  puzzles (paid, Windows only; `--no-solver` instead of the model checks the puzzle for free).
