@@ -213,7 +213,8 @@ generates the help's usage section.
     - `--tools a,b` is an exact allowlist, trimmed per name, built-in and extension tools
       alike; `*`, `+name`, `-name` and empty names are usage errors. `--no-tools` stores
       `[]`, which also removes the MCP tools extensions register; an allowlist without
-      `mcp__` entries keeps those reachable indirectly. The two are exclusive. The runner
+      `mcp__` entries keeps those reachable indirectly, and one with any `mcp__` entry keeps
+      only the MCP tools it names (SDK `_allowlistFiltersMcp`). The two are exclusive. The runner
       passes the list as `tools` on every boot, so it also replaces the loadout the
       transcript would restore, and checks it against `session.getAllTools()` before it
       publishes a manifest or binds extensions: missing names fail startup

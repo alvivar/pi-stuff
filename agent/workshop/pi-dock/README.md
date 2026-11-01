@@ -107,8 +107,8 @@ pi-dock stop w1
   then reads `running` or `compacting`); spawn never takes a prompt.
 - `send --wait` queues the prompt, prints its id (`p` + 12 hex) on stderr, and prints the run's
   final text on stdout once it is done.
-- `logs` shows what happened; `show` prints the agent's name, state, model, thinking, flags, cwd,
-  session file and creation time.
+- `logs` shows what happened; `show` prints the agent's name, state, model, thinking, flags,
+  system prompt size, tools, cwd, session file and creation time.
 - `stop` powers the agent off and prints `w1 stopped`. `pi-dock send w1 "…"` or
   `pi-dock start w1` wakes it again, with the conversation intact.
 
@@ -183,7 +183,11 @@ Long prompts are easier with `--file prompt.md`. Prompts run one at a time, in o
   restores the session's saved level or uses its configured default; levels the model does not
   support are clamped by Pi.
 - `pi-dock set` changes model, thinking, system prompt, tools and extension flags, only while
-  the agent is powered off (stopped or failed); the next wake applies them.
+  the agent is powered off (stopped or failed); the next wake applies them. Run `stop`, `set`
+  and `start` one after another, with no other command on that agent in between: `set` checks
+  that the agent is off and then rewrites its manifest, so a `start` in between runs the old
+  configuration until the next restart (nothing is lost), and two `set`s at once can each undo
+  the other's change.
 
 ### System prompt and tools
 
@@ -219,7 +223,8 @@ pi-dock spawn --name thinker --system-prompt ./thinker.md --no-tools
 - pi-dock does not load Pi's built-in MCP and codemode extensions, and `--tools` installs
   nothing: `codemode` or `mcp__…` names fail unless an extension provides them. A list without
   `mcp__` entries leaves the MCP tools extensions register reachable indirectly (through
-  codemode or tool search); only `--no-tools` removes them as well.
+  codemode or tool search). A list that names any `mcp__` tool keeps only the MCP tools it
+  names, and `--no-tools` removes them all.
 - `show` prints `system-prompt <N> bytes` and the tools (`none` after `--no-tools`, `-` when
   unset), never the prompt itself. `set` replaces either one; going back to Pi's defaults is
   not possible yet.

@@ -17,25 +17,21 @@ What is not built or decided yet. Contracts live in `DESIGN.md`, shipped work in
          macOS: whether names that share a long prefix can collide.
        - **Probe failure:** a failed probe logs `failed`; verified only on a simulated
          platform.
-2. [ ] **`set` racing `start` is unsupported: say so** — `set` checks that the agent is off,
-       then rewrites the manifest; a `start` in between runs the old config until the next
-       restart (nothing is lost). Recommended: state in README and skill that `stop` → `set`
-       → `start` must not overlap; a lock is not justified.
-3. [ ] **Comment the `abort()` catch** — `shutdown` does `session.abort().catch(() => {})`. If
+2. [ ] **Comment the `abort()` catch** — `shutdown` does `session.abort().catch(() => {})`. If
        `abort()` ever rejected, the log would say `stopped` untruthfully; whether it can is not
        established. Recommended: a comment stating the assumption; log `failed` only if it is
        ever seen.
-4. [ ] **Extension-registered providers** in `models` and spawn/set preflight — both use a
+3. [ ] **Extension-registered providers** in `models` and spawn/set preflight — both use a
        bare `ModelRuntime`, so providers registered by extensions are not visible and
        spawn/set can reject a valid model. Only matters with extension providers.
-5. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
+4. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
        `logs` and `show` already tell restarts apart.
-6. [ ] **Narrow a catch** (low) — `agentState` falls back to the log's state on any
+5. [ ] **Narrow a catch** (low) — `agentState` falls back to the log's state on any
        non-timeout error, even one that doesn't prove the agent is off.
 
 ## Release
 
-7. [ ] **Publish 0.5.0** — the owner publishes by hand.
+6. [ ] **Publish 0.5.0** — the owner publishes by hand.
 
 ## Decide later
 

@@ -274,7 +274,7 @@ try {
   // --model is the same single model (preflighted again); thinking and flags prove the rewrite.
   result = run(['set', d, '--model', model, '--thinking', 'low', '--x', 'link', '--x', `link-name=${d}`]);
   const dAfterSet = manifest(d);
-  expect('set stopped D rewrites mutable identity', result.status === 0 && result.stdout.trim() === `${d} model=${model} thinking=low flags=${JSON.stringify(['link', `link-name=${d}`])}` && dAfterSet.model === model && dAfterSet.thinking === 'low' && JSON.stringify(dAfterSet.flags) === JSON.stringify(['link', `link-name=${d}`]), result.stderr || result.stdout || JSON.stringify(dAfterSet));
+  expect('set stopped D rewrites mutable identity', result.status === 0 && result.stdout.trim() === `${d} model=${model} thinking=low flags=${JSON.stringify(['link', `link-name=${d}`])} system-prompt=- tools=-` && dAfterSet.model === model && dAfterSet.thinking === 'low' && JSON.stringify(dAfterSet.flags) === JSON.stringify(['link', `link-name=${d}`]), result.stderr || result.stdout || JSON.stringify(dAfterSet));
   expect('set stopped D preserves hard identity', dAfterSet.name === dBeforeSet.name && dAfterSet.sessionFile === dBeforeSet.sessionFile && dAfterSet.cwd === dBeforeSet.cwd && dAfterSet.pipe === dBeforeSet.pipe && dAfterSet.startedAt === dBeforeSet.startedAt, JSON.stringify({ before: dBeforeSet, after: dAfterSet }));
 
   result = run(['compact', 'missing-smoke-agent']);

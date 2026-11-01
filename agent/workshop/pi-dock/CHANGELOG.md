@@ -14,6 +14,15 @@ their version is cut, so a new entry may not have one yet.
 
 ## Unreleased
 
+### Changed
+
+- **The docs correct how `--tools` treats MCP tools and add two cautions.** README and skill
+  said only `--no-tools` removes the MCP tools extensions register; a list that names any
+  `mcp__` tool also keeps only the MCP tools it names. The skill now has agents check that a
+  PID's command line contains `runner.mjs --name <name>` before terminating it, as the README
+  does, and both say that `stop`, `set` and `start` on one agent must not overlap with other
+  commands on it.
+
 ### Fixed
 
 - **A runner that fails startup no longer leaves the command waiting 20 s.** `spawn`, and

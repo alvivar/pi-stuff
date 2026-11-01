@@ -110,6 +110,10 @@ of every command.
   spawn's. `--x` replaces the entire flag list, and each option replaces its stored value; an
   option left out keeps it. The next wake applies the change; name, session, cwd and creation
   time never change.
+- Run `stop`, `set` and `start` one after another, with no other command on that agent in
+  between: `set` checks that the agent is off and then rewrites its manifest, so a `start` in
+  between runs the old config until the next restart (nothing is lost), and two concurrent
+  `set`s can each undo the other's change.
 - `--x key[=value]` flags are passed opaquely to extensions and are inert without them. A flag
   no loaded extension defines, or a value flag without its value, is not applied and is logged
   as a `diagnostic` event on each boot.
@@ -143,8 +147,8 @@ of every command.
   `--tools` if the agent must reply over the link. pi-dock never adds tools on its own.
 - pi-dock does not load Pi's built-in MCP and codemode extensions, and `--tools` installs
   nothing. A list without `mcp__` names leaves MCP tools that extensions register reachable
-  indirectly; only `--no-tools` removes them too. An override cannot be removed in this
-  version.
+  indirectly; a list with any `mcp__` name keeps only the MCP tools it names, and `--no-tools`
+  removes them all. An override cannot be removed in this version.
 
 ## Reading logs
 
@@ -206,10 +210,12 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 ## Recovery
 
 - `agent <name> is not responding`: find the latest `{event:"spawned",pid}` in
-  `pi-dock logs <name>`, terminate that PID externally, then run `pi-dock start <name>`. Do not
-  retry in a loop.
-- `agent <name> did not exit within 5s; terminate PID <pid> externally`: terminate that PID, then
-  check `pi-dock ls`.
+  `pi-dock logs <name>`, check that PID's command line contains `runner.mjs --name <name>`
+  (PIDs are reused), terminate it externally, then run `pi-dock start <name>`. Do not retry in
+  a loop.
+- `agent <name> did not exit within 5s; terminate PID <pid> externally`: check that PID's
+  command line contains `runner.mjs --name <name>` (PIDs are reused), terminate it, then check
+  `pi-dock ls`.
 - `handshake failed for <name>`: a spawned or woken runner exited with an error, or did not
   answer status within 20 s.
   Read the printed manifest and log diagnostics and the `last log` line, if present. A
