@@ -12,7 +12,7 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.5.1 — 2026-11-01
 
 ### Changed
 
@@ -21,7 +21,7 @@ their version is cut, so a new entry may not have one yet.
   `mcp__` tool also keeps only the MCP tools it names. The skill now has agents check that a
   PID's command line contains `runner.mjs --name <name>` before terminating it, as the README
   does, and both say that `stop`, `set` and `start` on one agent must not overlap with other
-  commands on it.
+  commands on it. (`f8e46be`)
 
 ### Fixed
 
@@ -29,12 +29,12 @@ their version is cut, so a new entry may not have one yet.
   `start`, `send` and `compact` when they wake an agent, stop waiting as soon as the runner
   they launched exits with an error, such as an unknown `--tools` name, and print the
   handshake diagnostics at once. A manifest that exists but cannot be read fails with its
-  own error instead of the generic handshake failure.
+  own error instead of the generic handshake failure. (`c2e44ae`)
 - **Startup problems Pi reports are now logged.** An `--x` flag that no loaded extension
   defines, a value flag given without its value, and a provider or model an extension failed
   to register were dropped without a trace. Each boot now logs them as `diagnostic` events.
   A diagnostic does not itself stop startup; a failure it explains, such as a missing model,
-  still does, and the log now shows the cause before `failed`.
+  still does, and the log now shows the cause before `failed`. (`31ad290`)
 
 ---
 
