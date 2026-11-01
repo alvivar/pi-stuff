@@ -1,5 +1,5 @@
 {
-  "active": "pi-link",
+  "active": "pi-dock",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -7,8 +7,8 @@
     "pi-link": [
       {
         "name": "polaris",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightCyan",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -18,7 +18,7 @@
       {
         "name": "vega",
         "icon": "star-full",
-        "color": "terminal.ansiBrightMagenta",
+        "color": "terminal.ansiBrightWhite",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-link"
@@ -27,7 +27,7 @@
       {
         "name": "implementer",
         "icon": "tools",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link implementer@pi-link"
@@ -54,7 +54,7 @@
       {
         "name": "updater",
         "icon": "sync",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiCyan",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link updater@pi-link"
@@ -63,7 +63,7 @@
       {
         "name": "committer",
         "icon": "git-commit",
-        "color": "terminal.ansiYellow",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-link"
@@ -72,7 +72,7 @@
       {
         "name": "bash",
         "icon": "terminal-bash",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiBrightBlack",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
@@ -82,8 +82,8 @@
     "pi-dock": [
       {
         "name": "polaris",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightCyan",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -93,7 +93,7 @@
       {
         "name": "vega",
         "icon": "star-full",
-        "color": "terminal.ansiBrightMagenta",
+        "color": "terminal.ansiBrightWhite",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-dock"
@@ -101,7 +101,7 @@
       },
       {
         "name": "rigel",
-        "icon": "star-half",
+        "icon": "star-full",
         "color": "terminal.ansiBrightBlue",
         "autoExecuteCommands": true,
         "commands": [
@@ -111,7 +111,7 @@
       {
         "name": "implementer",
         "icon": "tools",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link implementer@pi-dock"
@@ -138,7 +138,7 @@
       {
         "name": "committer",
         "icon": "git-commit",
-        "color": "terminal.ansiYellow",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-dock"
@@ -147,7 +147,7 @@
       {
         "name": "bash",
         "icon": "terminal-bash",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiBrightBlack",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
@@ -157,8 +157,8 @@
     "pi-sub": [
       {
         "name": "polaris",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightCyan",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -168,7 +168,7 @@
       {
         "name": "vega",
         "icon": "star-full",
-        "color": "terminal.ansiBrightMagenta",
+        "color": "terminal.ansiBrightWhite",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-sub"
@@ -177,7 +177,7 @@
       {
         "name": "implementer",
         "icon": "tools",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link implementer@pi-sub"
@@ -204,7 +204,7 @@
       {
         "name": "committer",
         "icon": "git-commit",
-        "color": "terminal.ansiYellow",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-sub"
@@ -213,7 +213,7 @@
       {
         "name": "bash",
         "icon": "terminal-bash",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiBrightBlack",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
@@ -223,8 +223,8 @@
     "pi-bugs": [
       {
         "name": "polaris",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightCyan",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link polaris@pi-bugs"
@@ -243,7 +243,7 @@
       {
         "name": "committer",
         "icon": "git-commit",
-        "color": "terminal.ansiYellow",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-bugs"
@@ -252,7 +252,7 @@
       {
         "name": "bash",
         "icon": "terminal-bash",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiBrightBlack",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
@@ -262,8 +262,8 @@
     "pi-chrome": [
       {
         "name": "polaris",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightCyan",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -291,7 +291,7 @@
       {
         "name": "sol",
         "icon": "star-full",
-        "color": "terminal.ansiBrightYellow",
+        "color": "terminal.ansiBrightRed",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link sol@pi-chrome"
@@ -309,7 +309,7 @@
       {
         "name": "committer",
         "icon": "git-commit",
-        "color": "terminal.ansiYellow",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-chrome"
@@ -318,7 +318,7 @@
       {
         "name": "bash",
         "icon": "terminal-bash",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiBrightBlack",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
@@ -328,8 +328,8 @@
     "pi-rules": [
       {
         "name": "polaris",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightCyan",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -339,7 +339,7 @@
       {
         "name": "vega",
         "icon": "star-full",
-        "color": "terminal.ansiBrightMagenta",
+        "color": "terminal.ansiBrightWhite",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-rules"
@@ -348,7 +348,7 @@
       {
         "name": "implementer",
         "icon": "tools",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link implementer@pi-rules"
@@ -375,7 +375,7 @@
       {
         "name": "committer",
         "icon": "git-commit",
-        "color": "terminal.ansiYellow",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi-rules"
@@ -384,7 +384,7 @@
       {
         "name": "bash",
         "icon": "terminal-bash",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiBrightBlack",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
@@ -394,8 +394,8 @@
     "pi.claude.hack": [
       {
         "name": "polaris",
-        "icon": "sparkle",
-        "color": "terminal.ansiBrightCyan",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightYellow",
         "focus": true,
         "autoExecuteCommands": true,
         "commands": [
@@ -423,7 +423,7 @@
       {
         "name": "committer",
         "icon": "git-commit",
-        "color": "terminal.ansiYellow",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@pi.claude.hack"
@@ -432,7 +432,7 @@
       {
         "name": "bash",
         "icon": "terminal-bash",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiBrightBlack",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
@@ -462,7 +462,7 @@
       {
         "name": "claude-code-provider-test",
         "icon": "beaker",
-        "color": "terminal.ansiBlue",
+        "color": "terminal.ansiRed",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link claude-code-provider-test"
@@ -471,7 +471,7 @@
       {
         "name": "committer",
         "icon": "git-commit",
-        "color": "terminal.ansiYellow",
+        "color": "terminal.ansiBrightGreen",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link committer@claude-code-provider"
@@ -480,7 +480,7 @@
       {
         "name": "bash",
         "icon": "terminal-bash",
-        "color": "terminal.ansiWhite",
+        "color": "terminal.ansiBrightBlack",
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi"
