@@ -30,9 +30,8 @@ What is not built or decided yet. Contracts live in `DESIGN.md`, shipped work in
        spawn/set can reject a valid model. Only matters with extension providers.
 5. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
        `logs` and `show` already tell restarts apart.
-6. [ ] **Narrow two catches** (low) — `handshake` treats any manifest read error (corrupt,
-       `EACCES`) as "not there yet" for 20 s; catch only `ENOENT`. `agentState` falls back to
-       the log's state on any non-timeout error, even one that doesn't prove the agent is off.
+6. [ ] **Narrow a catch** (low) — `agentState` falls back to the log's state on any
+       non-timeout error, even one that doesn't prove the agent is off.
 
 ## Release
 

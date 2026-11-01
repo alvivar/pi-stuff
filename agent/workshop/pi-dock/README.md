@@ -258,8 +258,9 @@ itself starts.
   agent to exit and it did not, e.g. because an extension's `session_shutdown` handler, which
   the agent waits for as Pi does on quit, never finished. Terminate that process, then check
   `pi-dock ls`.
-- **`handshake failed for <name>`**: a spawned or woken agent did not answer within 20 s. The
-  printed diagnostics include the last log line, if any.
+- **`handshake failed for <name>`**: a spawned or woken agent's runner exited with an error, or
+  the agent did not answer within 20 s. The printed diagnostics include the last log line, if
+  any.
 - **`lock: ~/.pi/dock/<name>.sock.lock exists`** (Unix, after a failed handshake): a runner
   holds this directory while it takes the agent's socket, and removes it once it listens. If
   it remains, a runner is acquiring the socket right now, or one was killed while it did or

@@ -670,7 +670,7 @@ async function main() {
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dock, `${rewriteName}.json`), 'utf8')), manifest('after', 20));
     assert.deepEqual(await tempFiles(dock), [], 'rewrite leaves no temp files');
 
-    let cases = 86;
+    let cases = 89;
     if (process.platform === 'win32') {
       console.log('regression: SKIPPED 5 Unix socket acquisition cases (Windows uses named pipes)');
     } else {
@@ -1524,6 +1524,24 @@ async function main() {
       // The transcript recorded read and fixture_tool; the explicit list still wins.
       assert.equal((await runOwnedNode(sandbox, cli, ['start', readerName])).code, 0);
       assertConfigured(await ask(readerName), 'writer role prompt\n', ['grep'], 'a woken agent after set');
+
+      // A runner that fails startup ends the handshake when it exits, long before its 20 s
+      // timeout, whether spawn or a wake launched it. 10 s leaves margin for a loaded machine.
+      const assertFailsFast = async (args, name, message) => {
+        const started = Date.now();
+        const result = await runOwnedNode(sandbox, cli, args, configCwd);
+        const elapsed = Date.now() - started;
+        assert.equal(result.code, 1, `${message}: ${result.stdout}`);
+        assert(result.stderr.startsWith(`handshake failed for ${name}\n`), `${message}: ${result.stderr}`);
+        assert(result.stderr.includes('"reason":"tools not found: nope"'), `${message}: ${result.stderr}`);
+        assert(elapsed < 10000, `${message}: took ${elapsed} ms`);
+      };
+      const typoName = `typo-${randomUUID()}`;
+      await assertFailsFast(['spawn', '--name', typoName, '--model', 'regress/alpha-2', '--tools', 'read,nope'], typoName, 'a spawn with an unknown tool fails fast');
+      await assert.rejects(fs.access(manifestPath(typoName)), { code: 'ENOENT' }, 'a spawn with an unknown tool creates no agent');
+      assert.equal((await runOwnedNode(sandbox, cli, ['stop', readerName])).stdout, `${readerName} stopped\n`);
+      assert.equal((await runOwnedNode(sandbox, cli, ['set', readerName, '--tools', 'grep,nope'])).code, 0);
+      await assertFailsFast(['start', readerName], readerName, 'a wake with an unknown tool fails fast');
     } catch (error) {
       configError = error;
     }
@@ -1653,6 +1671,22 @@ async function main() {
     const busyServer = await serve(pipePath(busyName), () => ({ ok: false, error: 'busy' }));
     await withOwnedServer(busyServer, new Set(), async () => {
       assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', busyName]), exited(1, '', `agent ${busyName} refused status: {"ok":false,"error":"busy"}\n`), 'start fails on a non-terminal refusal instead of waking');
+    });
+
+    // The runner start wakes finds the pipe owned and exits 0; the handshake keeps waiting for
+    // the owner, which answers only after 5 s, well after that runner gave up.
+    const loserName = `start-loser-${randomUUID()}`;
+    await writeSetFixture(dock, loserName);
+    let ownerReadyAt;
+    const ownerServer = await serve(pipePath(loserName), () => {
+      if (ownerReadyAt === undefined) {
+        ownerReadyAt = Date.now() + 5000;
+        return { ok: false, error: 'terminal' };
+      }
+      return Date.now() < ownerReadyAt ? { ok: false, error: 'starting' } : { ok: true, state: 'idle', model: 'regress/alpha-2', pid: process.pid };
+    });
+    await withOwnedServer(ownerServer, new Set(), async () => {
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', loserName]), exited(0, `${loserName} idle regress/alpha-2\n`, ''), 'a woken runner that exits 0 does not end the handshake');
     });
 
     // A project extension that compacts when the trigger file appears, with the file's text as

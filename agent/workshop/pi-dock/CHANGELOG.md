@@ -12,6 +12,18 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **A runner that fails startup no longer leaves the command waiting 20 s.** `spawn`, and
+  `start`, `send` and `compact` when they wake an agent, stop waiting as soon as the runner
+  they launched exits with an error, such as an unknown `--tools` name, and print the
+  handshake diagnostics at once. A manifest that exists but cannot be read fails with its
+  own error instead of the generic handshake failure.
+
+---
+
 ## 0.5.0 — 2026-10-31
 
 ### Added

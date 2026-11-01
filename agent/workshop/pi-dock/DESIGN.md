@@ -67,9 +67,12 @@ generates the help's usage section.
    intact), once, then redeliver. Any other refusal of `start`'s status fails as
    `agent <name> refused status: <reply>`. A pipe that
    closes mid-request is reported as `agent <name> stopped or crashed during <cmd>`, never
-   woken or retried; a timeout is `agent <name> is not responding`. Wake waits up to 20 s
-   for the handshake, else prints manifest/log diagnostics and exits 1. One runner per agent:
-   a runner takes the pipe before it opens the session or loads extensions, and a runner
+   woken or retried; a timeout is `agent <name> is not responding`. Wake, like spawn, waits up
+   to 20 s for the handshake (manifest and status), stopping early once the runner it
+   launched exits nonzero or by a signal; a manifest read error other than `ENOENT` fails
+   with its message. A failed handshake prints manifest/log diagnostics and exits 1. A
+   runner's exit 0 does not end the wait: it found the agent owned. One runner per agent: a
+   runner takes the pipe before it opens the session or loads extensions, and a runner
    that finds the pipe taken exits 0 without touching the log, manifest or session, so
    concurrent wakes start one agent. On Unix the socket file outlives a crashed owner, so the
    whole acquisition holds a lock directory, `~/.pi/dock/<name>.sock.lock`, created with a

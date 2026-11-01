@@ -219,15 +219,26 @@ function launchRunner(name, options = {}) {
   return child;
 }
 
-async function handshake(name, timeoutMs = 20000) {
+// Waits for the agent to publish its manifest and answer status. The runner launched for it
+// exits 0 when another runner owns the agent, which then answers; any other exit is a failed
+// startup, so the wait ends there instead of at the timeout.
+async function handshake(name, child, timeoutMs = 20000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const manifest = await readManifest(name).catch(() => null);
+    const manifest = await readManifest(name).catch((error) => {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    });
     if (manifest) {
       const status = await tryStatus(manifest, 250);
       if (status) {
         return { manifest, status };
       }
+    }
+    if (child.exitCode > 0 || child.signalCode !== null) {
+      return null;
     }
     await sleep(250);
   }
@@ -428,7 +439,7 @@ async function spawnCommand(argv) {
     tools,
     create: true,
   });
-  const result = await handshake(name);
+  const result = await handshake(name, child);
   if (!result) {
     reportHandshakeFailure(name);
     process.exit(1);
@@ -441,8 +452,8 @@ async function spawnCommand(argv) {
 }
 
 async function wake(manifest) {
-  launchRunner(manifest.name);
-  const result = await handshake(manifest.name);
+  const child = launchRunner(manifest.name);
+  const result = await handshake(manifest.name, child);
   if (!result) {
     reportHandshakeFailure(manifest.name);
     process.exit(1);
