@@ -21,6 +21,11 @@ their version is cut, so a new entry may not have one yet.
   they launched exits with an error, such as an unknown `--tools` name, and print the
   handshake diagnostics at once. A manifest that exists but cannot be read fails with its
   own error instead of the generic handshake failure.
+- **Startup problems Pi reports are now logged.** An `--x` flag that no loaded extension
+  defines, a value flag given without its value, and a provider or model an extension failed
+  to register were dropped without a trace. Each boot now logs them as `diagnostic` events.
+  A diagnostic does not itself stop startup; a failure it explains, such as a missing model,
+  still does, and the log now shows the cause before `failed`.
 
 ---
 

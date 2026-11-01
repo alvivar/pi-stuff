@@ -147,7 +147,10 @@ generates the help's usage section.
     timeout for the runner's reply. A failure exits 1 with the reason (e.g.
     `Nothing to compact (session too small)`). The outcome is logged like any compaction's.
 15. **Extension flags** `--x key[=value]` are opaque pass-through
-    (`extensionFlagValues`); pi-dock has zero pi-link knowledge. Unknown flags are inert.
+    (`extensionFlagValues`); pi-dock has zero pi-link knowledge. Unknown flags are inert:
+    the SDK applies neither them nor a value flag given without its value, and reports both
+    in `services.diagnostics`, which the runner logs as `diagnostic` events (not fatal by
+    themselves; Pi's CLI exits on an error diagnostic).
     Runners bind extensions in `mode: 'print'` without a UI context, so extensions get the SDK's
     no-op UI and `ctx.hasUI` is false. The runner initializes the SDK theme, which that UI
     exposes and extensions such as pi-link read.
@@ -263,6 +266,14 @@ Log events (append-only NDJSON, one fact per line, each with `ts`):
                                     dropped once shutdown begins, so terminal stays last).
                                     Also, once per boot before any work, each extension the SDK
                                     failed to load (extensionsResult.errors): on = load, no id
+{event:"diagnostic", type, message} once per boot, right after services are created (before
+                                    model lookup, session, tools and manifest, so a startup
+                                    failure they explain keeps its cause), each entry of the
+                                    SDK's services.diagnostics, as given (type
+                                    error|warning|info): unknown extension flags, a value flag
+                                    without its value (neither applied), an extension's failed
+                                    provider or model registration. Non-terminal: it does not
+                                    by itself stop startup
 {event:"done", id}                  run complete (non-terminal)
 {event:"run_failed", id, reason}    run ended in an unrecovered error/abort (non-terminal)
 {event:"compacted", id?}            a compaction succeeded, whoever started it: pi-dock compact,

@@ -670,7 +670,7 @@ async function main() {
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dock, `${rewriteName}.json`), 'utf8')), manifest('after', 20));
     assert.deepEqual(await tempFiles(dock), [], 'rewrite leaves no temp files');
 
-    let cases = 89;
+    let cases = 90;
     if (process.platform === 'win32') {
       console.log('regression: SKIPPED 5 Unix socket acquisition cases (Windows uses named pipes)');
     } else {
@@ -1435,6 +1435,15 @@ async function main() {
     ], 'a boundary custom_message entry logs external exactly once');
     await stop(extName, ext);
 
+    // Flags no extension defines are what the SDK reports as a diagnostic: logged, not fatal.
+    const unknownFlagsName = `unknown-flags-${randomUUID()}`;
+    const unknownFlags = own(launchRunner(sandbox, ['--name', unknownFlagsName, '--cwd', corrCwd, '--model', 'regress/alpha-2', '--x', 'nope', '--x', 'nope-value=1', '--create']), unknownFlagsName);
+    assert(await waitForStatus(pipePath(unknownFlagsName)), 'a runner with unknown flags starts');
+    assert.deepEqual(withoutTimes(await logEvents(dock, unknownFlagsName)), [
+      { event: 'diagnostic', type: 'error', message: 'Unknown options: --nope, --nope-value' },
+    ], 'an SDK diagnostic is logged at startup');
+    await stop(unknownFlagsName, unknownFlags);
+
     // Per-agent system prompt and tools, as the provider receives them. The agents share a cwd
     // whose AGENTS.md (inherited context), .pi/SYSTEM.md (folder prompt) and extension tool
     // apply to each of them unless its own settings replace them.
@@ -1554,15 +1563,16 @@ async function main() {
     }
 
     // A runner refuses a tool it cannot find and a prompt file that went blank after the CLI
-    // checked it, before it publishes a manifest.
-    for (const [options, reason] of [
-      [['--tool', 'read', '--tool', 'codemode', '--tool', 'nope'], 'tools not found: codemode, nope'],
-      [['--system-prompt', blankPrompt], `system prompt file is blank: ${blankPrompt}`],
+    // checked it, before it publishes a manifest. A diagnostic reported before the refusal
+    // (here an unknown flag) is still logged.
+    for (const [options, reason, diagnostics] of [
+      [['--tool', 'read', '--tool', 'codemode', '--tool', 'nope', '--x', 'nope'], 'tools not found: codemode, nope', [{ event: 'diagnostic', type: 'error', message: 'Unknown option: --nope' }]],
+      [['--system-prompt', blankPrompt], `system prompt file is blank: ${blankPrompt}`, []],
     ]) {
       const refusedName = `config-refused-${randomUUID()}`;
       const refused = own(launchRunner(sandbox, ['--name', refusedName, '--cwd', configCwd, '--model', 'regress/alpha-2', ...options, '--create']), refusedName);
       assert.deepEqual(await waitForExit(refused), { code: 1, signal: null }, reason);
-      assert.deepEqual(withoutTimes(await logEvents(dock, refusedName)), [{ event: 'failed', reason }]);
+      assert.deepEqual(withoutTimes(await logEvents(dock, refusedName)), [...diagnostics, { event: 'failed', reason }]);
       await assert.rejects(fs.access(manifestPath(refusedName)), { code: 'ENOENT' }, `${reason}: no manifest`);
     }
 

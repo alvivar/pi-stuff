@@ -364,6 +364,14 @@ try {
     // resourceLoaderOptions.systemPrompt: that reads a string naming an existing file as a path.
     ...(systemPrompt !== undefined && { resourceLoaderOptions: { systemPromptOverride: () => systemPrompt } }),
   });
+  // The SDK returns, rather than prints, what went wrong while setting up services: a flag no
+  // extension defines or one missing its value (not applied), or a provider an extension failed
+  // to register. Logged at once, so a later startup failure (say, the model that provider
+  // supplies is not found) keeps the cause. Pi's CLI exits on such an error; a diagnostic does
+  // not itself stop an agent, as with a flag whose extension is not loaded.
+  for (const { type, message } of services.diagnostics) {
+    appendLog({ event: 'diagnostic', type, message });
+  }
   const modelSpec = createMode ? values.model : existing.model;
   const model = modelSpec ? findModel(services.modelRuntime, modelSpec) : undefined;
   // The session file is written only after the first message; without the cwd override, opening

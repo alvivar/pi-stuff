@@ -110,7 +110,9 @@ of every command.
   spawn's. `--x` replaces the entire flag list, and each option replaces its stored value; an
   option left out keeps it. The next wake applies the change; name, session, cwd and creation
   time never change.
-- `--x key[=value]` flags are passed opaquely to extensions and are inert without them.
+- `--x key[=value]` flags are passed opaquely to extensions and are inert without them. A flag
+  no loaded extension defines, or a value flag without its value, is not applied and is logged
+  as a `diagnostic` event on each boot.
 - `pi-dock compact <name> [instructions]` compacts the session. It requires an idle agent
   (`agent <name> is busy` otherwise, including while prompts are queued or another compaction,
   such as one an extension started, is in progress), wakes an off agent and leaves it on, and
@@ -161,6 +163,10 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
 {event:"extension_error", id?, extension, on, reason}
                                    an extension handler for event `on` threw, or with `on` load
                                    the extension failed to load; the agent goes on
+{event:"diagnostic", type, message}
+                                   at boot, a problem Pi reported while loading (type error,
+                                   warning or info), e.g. an unknown --x flag; it does not by
+                                   itself stop startup, but may explain a later failed
 {event:"done", id}                 the run finished (not terminal)
 {event:"run_failed", id, reason}   the run ended in an unrecovered error or abort; agent stays on
 {event:"compacted", id?}           a compaction finished, whoever started it: pi-dock compact,

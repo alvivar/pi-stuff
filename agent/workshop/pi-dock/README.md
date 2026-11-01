@@ -228,7 +228,9 @@ pi-dock spawn --name thinker --system-prompt ./thinker.md --no-tools
 
 `--x key[=value]` passes a flag to the extensions the agent loads, the same as `--key value` on
 the `pi` command line. pi-dock does not interpret them, and they do nothing without the
-extension that defines them. `set --x` replaces the whole list.
+extension that defines them. `set --x` replaces the whole list. A flag that no loaded extension
+defines, or a value flag given without its value, is not applied: each boot logs it as a
+`diagnostic` event, and the agent runs without it.
 
 With pi-link installed in Pi, this spawns an agent that joins the link and requests the link
 name `reviewer` (pi-link may suffix a taken name, e.g. `reviewer-2`):
