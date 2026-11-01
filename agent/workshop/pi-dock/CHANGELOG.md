@@ -26,6 +26,11 @@ their version is cut, so a new entry may not have one yet.
   up. It now says that stored settings cannot be unset, that only `set` must not overlap other
   changes or wakes, which `wait` failures may have done part of the work, and to delete an
   agent only after a successful `stop`.
+- **After a `stop` timeout, the docs have you confirm that the runner process exited.** They
+  said to terminate the PID and then check `pi-dock ls`, but while that runner is still
+  shutting down `ls` can show `failed` and `stop` can print `already stopped` or
+  `already failed`. README and skill now say to confirm the process has exited before starting
+  the agent again or deleting its files.
 
 ---
 

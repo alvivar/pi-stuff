@@ -181,8 +181,10 @@ diagnostic type message        at boot, a problem Pi reported while loading, e.g
   (PIDs are reused), terminate it externally, then run `pi-dock start <name>`. Do not retry in
   a loop.
 - `agent <name> did not exit within 5s; terminate PID <pid> externally`: check that PID's
-  command line contains `runner.mjs --name <name>` (PIDs are reused), terminate it, then check
-  `pi-dock ls`.
+  command line contains `runner.mjs --name <name>` (PIDs are reused), terminate it, and confirm
+  that process has exited before starting the agent again or deleting its files: `pi-dock ls`
+  can show `failed`, and `pi-dock stop` can print `already stopped`/`already failed`, while that
+  process is still shutting down.
 - `handshake failed for <name>`: a spawned or woken runner exited with an error, or did not
   answer status within 20 s.
   Read the printed manifest and log diagnostics and the `last log` line, if present. A
@@ -202,7 +204,8 @@ diagnostic type message        at boot, a problem Pi reported while loading, e.g
   `pi --fork <file>` starts a separate session. See
   [Opening an agent's session](../../README.md#opening-an-agents-session-in-pi).
 - `stop` is not deletion, and pi-dock never deletes anything. Delete an agent only when the task
-  asks for it, and only after `stop` succeeded: without its manifest, a runner still on can no
-  longer be stopped by name. Remove the manifest and the log (a new agent of that name would
-  append to the old log), and the session file if wanted. See
-  [Deleting an agent](../../README.md#deleting-an-agent).
+  asks for it, and only once the agent is off: `stop` printed `stopped`, `already stopped` or
+  `already failed` (after a `did not exit` timeout, only once its runner process has exited; see
+  Recovery). Without its manifest, a runner still on can no longer be stopped by name. Remove
+  the manifest and the log (a new agent of that name would append to the old log), and the
+  session file if wanted. See [Deleting an agent](../../README.md#deleting-an-agent).
