@@ -8,7 +8,7 @@ import {
   initTheme,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
-import { ManifestExistsError, readManifest, writeManifest } from './manifest.mjs';
+import { ManifestExistsError, readManifest, readSystemPrompt, writeManifest } from './manifest.mjs';
 import { ensureDockDir, logPath, pipePath } from './paths.mjs';
 import { PipeTakenError, serve } from './pipe.mjs';
 
@@ -19,6 +19,9 @@ const { values } = parseArgs({
     model: { type: 'string' },
     thinking: { type: 'string' },
     x: { type: 'string', multiple: true },
+    'system-prompt': { type: 'string' },
+    tool: { type: 'string', multiple: true },
+    'no-tools': { type: 'boolean' },
     create: { type: 'boolean' },
   },
 });
@@ -274,6 +277,16 @@ function findModel(modelRuntime, spec) {
   return model;
 }
 
+// Checked before the manifest is published and extensions are bound: the SDK ignores names it
+// does not know, so a typo or a tool whose extension is not installed would go unnoticed.
+function requireTools(names) {
+  const available = new Set(session.getAllTools().map((tool) => tool.name));
+  const missing = names.filter((toolName) => !available.has(toolName));
+  if (missing.length > 0) {
+    throw new Error(`tools not found: ${missing.join(', ')}`);
+  }
+}
+
 try {
   await ensureDockDir();
 
@@ -283,6 +296,7 @@ try {
   const cwd = createMode ? path.resolve(values.cwd ?? process.cwd()) : existing.cwd;
   const flags = createMode ? values.x ?? [] : existing.flags;
   const thinking = createMode ? values.thinking : existing.thinking;
+  const tools = createMode ? (values['no-tools'] ? [] : values.tool) : existing.tools;
 
   // Own the pipe before opening the session or loading extensions, so that of concurrent runners
   // for one agent only the owner does either.
@@ -338,9 +352,17 @@ try {
   // Logged as soon as this runner owns the agent, so its PID is known even if startup hangs.
   appendLog({ event: 'spawned', pid: process.pid });
 
+  // Read once, so the manifest stores exactly the prompt this session was given.
+  let systemPrompt = existing?.systemPrompt;
+  if (createMode && values['system-prompt'] !== undefined) {
+    systemPrompt = await readSystemPrompt(values['system-prompt']);
+  }
   const services = await createAgentSessionServices({
     cwd,
     extensionFlagValues: parseExtensionFlags(flags),
+    // Replaces the base prompt like `pi --system-prompt`, and wins over <cwd>/.pi/SYSTEM.md. Not
+    // resourceLoaderOptions.systemPrompt: that reads a string naming an existing file as a path.
+    ...(systemPrompt !== undefined && { resourceLoaderOptions: { systemPromptOverride: () => systemPrompt } }),
   });
   const modelSpec = createMode ? values.model : existing.model;
   const model = modelSpec ? findModel(services.modelRuntime, modelSpec) : undefined;
@@ -355,7 +377,12 @@ try {
     sessionManager,
     ...(model ? { model } : {}),
     ...thinkingOption(thinking),
+    // On every boot: an explicit list also replaces the tools the transcript would restore.
+    ...(tools && { tools }),
   }));
+  if (tools) {
+    requireTools(tools);
+  }
 
   if (createMode) {
     const resolvedModel = model ?? session.model;
@@ -375,6 +402,12 @@ try {
     };
     if (thinking) {
       manifest.thinking = thinking;
+    }
+    if (systemPrompt !== undefined) {
+      manifest.systemPrompt = systemPrompt;
+    }
+    if (tools) {
+      manifest.tools = tools;
     }
     try {
       await writeManifest(name, manifest);

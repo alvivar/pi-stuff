@@ -128,9 +128,10 @@ function launchRunner(sandbox, args) {
   });
 }
 
-// A local OpenAI-compatible provider that records each request's last message and answers with the next scripted reply.
+// A local OpenAI-compatible provider that records each request (and its last message) and answers with the next scripted reply.
 function startFauxProvider() {
   const replies = [];
+  const requests = [];
   const prompts = [];
   let unexpected = 0;
   const server = http.createServer((req, res) => {
@@ -138,7 +139,8 @@ function startFauxProvider() {
     req.setEncoding('utf8');
     req.on('data', (chunk) => { body += chunk; });
     req.once('end', () => {
-      prompts.push(JSON.parse(body).messages.at(-1).content);
+      requests.push(JSON.parse(body));
+      prompts.push(requests.at(-1).messages.at(-1).content);
       const reply = replies.shift();
       if (reply) {
         reply(res);
@@ -151,6 +153,7 @@ function startFauxProvider() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({
     server,
     replies,
+    requests,
     prompts,
     baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
     unexpected: () => unexpected,
@@ -210,9 +213,10 @@ function eventsOf(events, id) {
   return withoutTimes(events).filter((event) => event.id === id || event.ids?.includes(id));
 }
 
-function runOwnedNode(sandbox, script, args) {
+function runOwnedNode(sandbox, script, args, cwd) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script, ...args], {
+      cwd,
       env: sandboxEnv(sandbox),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -666,7 +670,7 @@ async function main() {
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dock, `${rewriteName}.json`), 'utf8')), manifest('after', 20));
     assert.deepEqual(await tempFiles(dock), [], 'rewrite leaves no temp files');
 
-    let cases = 80;
+    let cases = 86;
     if (process.platform === 'win32') {
       console.log('regression: SKIPPED 5 Unix socket acquisition cases (Windows uses named pipes)');
     } else {
@@ -689,7 +693,7 @@ async function main() {
       pipe: staleManifest.pipe,
       startedAt: staleManifest.startedAt,
     }, 'set rewrites only known manifest fields');
-    assert.equal(setResult.stdout.trim(), `${staleName} model=anthropic/claude-haiku-4-5 thinking=low flags=[]`);
+    assert.equal(setResult.stdout.trim(), `${staleName} model=anthropic/claude-haiku-4-5 thinking=low flags=[] system-prompt=- tools=-`);
 
     const followName = `follow-${randomUUID()}`;
     const followManifest = { ...manifest('follow'), name: followName, pipe: pipePath(followName) };
@@ -753,8 +757,8 @@ async function main() {
       skill: 'pi-dock skill',
       '--help': 'pi-dock [--help | -h]',
       '-h': 'pi-dock [--help | -h]',
-      spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
-      set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
+      spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
+      set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
     };
     const emptyPrompt = path.join(sandbox, 'empty-prompt.txt');
     await fs.writeFile(emptyPrompt, '');
@@ -870,6 +874,8 @@ async function main() {
       'model test/model',
       'thinking -',
       'flags []',
+      'system-prompt -',
+      'tools -',
       'cwd cwd-observe',
       'session session-observe',
       'created 2026-01-01T00:00:00Z',
@@ -907,6 +913,10 @@ async function main() {
       [['set', emptySetName, '--model=', '--thinking', 'max'], 'model'],
       [['set', emptySetName, '--thinking='], 'thinking'],
       [['set', emptySetName, '--x', 'a', '--thinking='], 'thinking'],
+      [['spawn', '--name', emptySpawnName, '--system-prompt='], 'system-prompt'],
+      [['spawn', '--name', emptySpawnName, '--tools', ''], 'tools'],
+      [['set', emptySetName, '--system-prompt', ''], 'system-prompt'],
+      [['set', emptySetName, '--tools='], 'tools'],
     ]) {
       assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs), {
         code: 1,
@@ -915,9 +925,31 @@ async function main() {
         stderr: `Option '--${option}' must not be empty\nusage: ${usage[commandArgs[0]]}\n`,
       }, `${commandArgs.join(' ')} is a usage error`);
     }
-    assert.deepEqual(await fs.readFile(emptySetFile), beforeEmptySet, 'an empty value rewrites no manifest');
+    // A --tools list takes exact names; a prompt file must be readable and not blank.
+    const blankPrompt = path.join(sandbox, 'blank-prompt.md');
+    await fs.writeFile(blankPrompt, ' \n\t\n');
+    const missingPrompt = path.join(sandbox, 'missing-prompt.md');
+    for (const [options, reason, isUsage] of [
+      [['--tools', 'read,,grep'], "Option '--tools' has an empty tool name: 'read,,grep'", true],
+      [['--tools', '*'], "Option '--tools' takes exact tool names, not patterns or +/- changes: '*'", true],
+      [['--tools', 'read,+grep'], "Option '--tools' takes exact tool names, not patterns or +/- changes: '+grep'", true],
+      [['--tools=-read'], "Option '--tools' takes exact tool names, not patterns or +/- changes: '-read'", true],
+      [['--tools', 'read', '--no-tools'], "Options '--tools' and '--no-tools' cannot be combined", true],
+      [['--system-prompt', blankPrompt], `system prompt file is blank: ${blankPrompt}`, false],
+      [['--system-prompt', missingPrompt], `cannot read system prompt file ${missingPrompt}: ENOENT: no such file or directory, open '${missingPrompt}'`, false],
+    ]) {
+      for (const commandArgs of [['spawn', '--name', emptySpawnName, ...options], ['set', emptySetName, ...options]]) {
+        assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs), {
+          code: 1,
+          signal: null,
+          stdout: '',
+          stderr: `${reason}\n${isUsage ? `usage: ${usage[commandArgs[0]]}\n` : ''}`,
+        }, `${commandArgs.join(' ')} is refused`);
+      }
+    }
+    assert.deepEqual(await fs.readFile(emptySetFile), beforeEmptySet, 'an empty or invalid value rewrites no manifest');
     for (const extension of ['json', 'log']) {
-      await assert.rejects(fs.access(path.join(dock, `${emptySpawnName}.${extension}`)), { code: 'ENOENT' }, 'an empty value launches no agent');
+      await assert.rejects(fs.access(path.join(dock, `${emptySpawnName}.${extension}`)), { code: 'ENOENT' }, 'an empty or invalid value launches no agent');
     }
 
     const absentSetName = `set-absent-${randomUUID()}`;
@@ -1085,7 +1117,7 @@ async function main() {
     const switchManifest = { name: switchName, sessionFile: path.join(sandbox, `${switchName}.jsonl`), cwd: sandbox, model: 'regress/alpha-2', thinking: 'low', flags: ['a'], pipe: pipePath(switchName), startedAt: '2026-01-01T00:00:00.000Z' };
     const switchFile = path.join(dock, `${switchName}.json`);
     await fs.writeFile(switchFile, `${JSON.stringify(switchManifest)}\n`);
-    assert.deepEqual(await runOwnedNode(sandbox, cli, ['set', switchName, '--model', 'regress/alpha-10']), { code: 0, signal: null, stdout: `${switchName} model=regress/alpha-10 thinking=low flags=["a"]\n`, stderr: '' });
+    assert.deepEqual(await runOwnedNode(sandbox, cli, ['set', switchName, '--model', 'regress/alpha-10']), { code: 0, signal: null, stdout: `${switchName} model=regress/alpha-10 thinking=low flags=["a"] system-prompt=- tools=-\n`, stderr: '' });
     assert.deepEqual(JSON.parse(await fs.readFile(switchFile, 'utf8')), { ...switchManifest, model: 'regress/alpha-10' }, 'set persists the new model and keeps everything else');
 
     const closedName = `closed-${randomUUID()}`;
@@ -1402,6 +1434,119 @@ async function main() {
       { event: 'done', id: boundaryId },
     ], 'a boundary custom_message entry logs external exactly once');
     await stop(extName, ext);
+
+    // Per-agent system prompt and tools, as the provider receives them. The agents share a cwd
+    // whose AGENTS.md (inherited context), .pi/SYSTEM.md (folder prompt) and extension tool
+    // apply to each of them unless its own settings replace them.
+    const configCwd = path.join(sandbox, 'config-cwd');
+    await fs.mkdir(path.join(configCwd, '.pi', 'extensions'), { recursive: true });
+    await fs.writeFile(path.join(configCwd, 'AGENTS.md'), 'shared project context');
+    await fs.writeFile(path.join(configCwd, '.pi', 'SYSTEM.md'), 'folder prompt');
+    await fs.writeFile(path.join(configCwd, '.pi', 'extensions', 'fixture-tool.js'), [
+      'export default function (pi) {',
+      "  pi.registerTool({ name: 'fixture_tool', label: 'fixture_tool', description: 'A fixture tool.', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: [{ type: 'text', text: 'fixture' }] }) });",
+      '}',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(configCwd, 'reader.md'), 'reader role prompt');
+    await fs.writeFile(path.join(configCwd, 'writer.md'), '\uFEFFwriter role prompt\n');
+    // The system text and the declared tool names of the next request.
+    const ask = async (name) => {
+      provider.replies.push(textReply('configured'));
+      assert.equal((await wait(name, await send(name, 'hello'))).stdout, 'configured\n');
+      const { messages, tools = [] } = provider.requests.at(-1);
+      assert.equal(messages[0].role, 'system');
+      return { system: messages[0].content, tools: tools.map((tool) => tool.function.name).sort() };
+    };
+    const assertConfigured = (seen, prompt, tools, message) => {
+      assert(seen.system.startsWith(prompt), `${message}: base prompt ${JSON.stringify(seen.system.slice(0, 80))}`);
+      assert(seen.system.includes('shared project context'), `${message}: AGENTS.md still applies`);
+      assert.deepEqual(seen.tools, tools, `${message}: tools`);
+    };
+    const configManifest = async (name) => JSON.parse(await fs.readFile(manifestPath(name), 'utf8'));
+    const readerName = `reader-${randomUUID()}`;
+    const writerName = `writer-${randomUUID()}`;
+    const thinkerName = `thinker-${randomUUID()}`;
+    // The CLI launches these runners, so main's cleanup does not know them. As for the other
+    // CLI-launched agents in this suite, a failed stop is reported, not recovered: it fails the
+    // suite, and every name is still tried. A name never created has nothing to stop.
+    const stopConfigAgents = async () => {
+      const failures = [];
+      for (const name of [readerName, writerName, thinkerName]) {
+        try {
+          const result = await runOwnedNode(sandbox, cli, ['stop', name]);
+          if (result.code !== 0 && result.stderr !== `no such agent: ${name}\n`) {
+            failures.push(new Error(`stop ${name} failed: ${result.stderr.trim()}`));
+          }
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      return failures;
+    };
+    let configError;
+    try {
+      for (const [name, options] of [
+        [readerName, ['--system-prompt', 'reader.md', '--tools', 'read, fixture_tool']],
+        [writerName, ['--system-prompt', path.join(configCwd, 'writer.md'), '--tools', 'grep']],
+        [thinkerName, ['--no-tools']],
+      ]) {
+        assert.deepEqual(await runOwnedNode(sandbox, cli, ['spawn', '--name', name, '--model', 'regress/alpha-2', ...options], configCwd), exited(0, `${name} idle regress/alpha-2\n`, ''), `spawn ${options.join(' ')}`);
+      }
+      assertConfigured(await ask(readerName), 'reader role prompt', ['fixture_tool', 'read'], 'a relative prompt file and a tool list with an extension tool');
+      assertConfigured(await ask(writerName), 'writer role prompt\n', ['grep'], 'an absolute prompt file (BOM dropped) and a tool list without the extension tool');
+      assertConfigured(await ask(thinkerName), 'folder prompt', [], '--no-tools, without a prompt of its own');
+      assert.match((await runOwnedNode(sandbox, cli, ['show', readerName])).stdout, /^system-prompt 18 bytes\ntools \["read","fixture_tool"\]$/m, 'show reports the prompt size and the tools');
+      assert.match((await runOwnedNode(sandbox, cli, ['show', thinkerName])).stdout, /^system-prompt -\ntools none$/m, 'show reports no prompt and no tools');
+
+      // The manifest stores the prompt itself: the file can go, and a wake from another cwd
+      // still uses it and the tools.
+      const { systemPrompt: storedPrompt, tools: storedTools } = await configManifest(readerName);
+      assert.deepEqual([storedPrompt, storedTools], ['reader role prompt', ['read', 'fixture_tool']], 'the manifest stores the prompt and the tools');
+      await fs.rm(path.join(configCwd, 'reader.md'));
+      assert.equal((await runOwnedNode(sandbox, cli, ['stop', readerName])).stdout, `${readerName} stopped\n`);
+      assert.equal((await runOwnedNode(sandbox, cli, ['start', readerName])).code, 0);
+      assertConfigured(await ask(readerName), 'reader role prompt', ['fixture_tool', 'read'], 'a woken agent whose prompt file is gone');
+      assert.equal((await runOwnedNode(sandbox, cli, ['stop', readerName])).stdout, `${readerName} stopped\n`);
+
+      // set keeps both through an unrelated change, leaves the manifest alone on an error and
+      // replaces either one.
+      const unrelated = await runOwnedNode(sandbox, cli, ['set', readerName, '--thinking', 'low']);
+      assert.equal(unrelated.stdout, `${readerName} model=regress/alpha-2 thinking=low flags=[] system-prompt=18 bytes tools=["read","fixture_tool"]\n`, unrelated.stderr);
+      const beforeBadSet = await fs.readFile(manifestPath(readerName));
+      assert.equal((await runOwnedNode(sandbox, cli, ['set', readerName, '--system-prompt', 'gone.md', '--tools', 'grep'], configCwd)).code, 1);
+      assert.equal((await runOwnedNode(sandbox, cli, ['set', readerName, '--system-prompt', 'writer.md', '--tools', 'grep,'], configCwd)).code, 1);
+      assert.deepEqual(await fs.readFile(manifestPath(readerName)), beforeBadSet, 'a failed set rewrites nothing');
+      assert.equal((await runOwnedNode(sandbox, cli, ['set', readerName, '--no-tools'])).code, 0);
+      assert.deepEqual((await configManifest(readerName)).tools, [], '--no-tools replaces a tool list');
+      assert.equal((await runOwnedNode(sandbox, cli, ['set', readerName, '--system-prompt', 'writer.md', '--tools', 'grep'], configCwd)).code, 0);
+      assert.deepEqual(await configManifest(readerName), { ...JSON.parse(beforeBadSet), systemPrompt: 'writer role prompt\n', tools: ['grep'] }, 'set replaces the prompt and the tools, and keeps the rest');
+      // The transcript recorded read and fixture_tool; the explicit list still wins.
+      assert.equal((await runOwnedNode(sandbox, cli, ['start', readerName])).code, 0);
+      assertConfigured(await ask(readerName), 'writer role prompt\n', ['grep'], 'a woken agent after set');
+    } catch (error) {
+      configError = error;
+    }
+    const stopFailures = await stopConfigAgents();
+    if (stopFailures.length > 0) {
+      throw new AggregateError(configError ? [configError, ...stopFailures] : stopFailures, 'config agents did not stop cleanly');
+    }
+    if (configError) {
+      throw configError;
+    }
+
+    // A runner refuses a tool it cannot find and a prompt file that went blank after the CLI
+    // checked it, before it publishes a manifest.
+    for (const [options, reason] of [
+      [['--tool', 'read', '--tool', 'codemode', '--tool', 'nope'], 'tools not found: codemode, nope'],
+      [['--system-prompt', blankPrompt], `system prompt file is blank: ${blankPrompt}`],
+    ]) {
+      const refusedName = `config-refused-${randomUUID()}`;
+      const refused = own(launchRunner(sandbox, ['--name', refusedName, '--cwd', configCwd, '--model', 'regress/alpha-2', ...options, '--create']), refusedName);
+      assert.deepEqual(await waitForExit(refused), { code: 1, signal: null }, reason);
+      assert.deepEqual(withoutTimes(await logEvents(dock, refusedName)), [{ event: 'failed', reason }]);
+      await assert.rejects(fs.access(manifestPath(refusedName)), { code: 'ENOENT' }, `${reason}: no manifest`);
+    }
 
     const ghostName = `ghost-${randomUUID()}`;
     const ghostManifest = path.join(dock, `${ghostName}.json`);

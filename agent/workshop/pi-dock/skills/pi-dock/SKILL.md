@@ -26,7 +26,8 @@ of every command.
    with configured credentials appear, with context, max-out, thinking and images columns. The
    filter is a case-insensitive substring of `provider/id`, or `provider-part/id-part` when it
    contains a slash; no match exits 1.
-2. `pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...`
+2. `pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>]
+   [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...`
    — create the agent in the current directory. It takes no prompt and normally starts
    idle, though an extension may already have started work. It prints
    `<name> <state> <provider/id>`.
@@ -36,6 +37,8 @@ of every command.
    - `--thinking` is `off|minimal|low|medium|high|xhigh|max` and is applied on every wake.
      Without it, Pi restores the session's saved level or picks its configured default. Levels
      the model does not support are clamped by Pi.
+   - `--system-prompt <file>` and `--tools`/`--no-tools` give the agent its own role and tools;
+     see Role and tools.
    - Names are lowercase `a-z0-9` segments joined by single `.`, `_` or `-`, at most 64
      characters, and not a Windows device name (`con`, `nul`, `com1`, …). Invalid names are
      rejected, never normalized. A name that exists fails with `agent already exists: <name>`.
@@ -79,8 +82,9 @@ of every command.
   time: whether it is alive is unknown. The state is derived, never stored.
 - `pi-dock ls` prints `name state model age` (age since creation, in its largest whole unit:
   s, m, h or d). `pi-dock show <name>` prints name, state, model, thinking (`-` when unset), flags
-  (JSON array), cwd, session (the exact session file) and created, one key and value per line.
-  Neither wakes the agent.
+  (JSON array), system-prompt (`<N> bytes` or `-`), tools (JSON array, `none` or `-`), cwd,
+  session (the exact session file) and created, one key and value per line. Neither wakes the
+  agent.
 - Agents are resident: a runner never exits because work finished, only on stop or a crash.
 - `start`, `send` and `compact` wake a stopped or failed agent with its memory intact. `start`
   prints `<name> <state> <provider/id>`; on an agent that is already on it just prints that.
@@ -100,16 +104,45 @@ of every command.
 
 ## Changing an agent
 
-- `pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...` works
-  only on a stopped or failed agent (`agent <name> is running — stop it first` otherwise). The
-  model is preflighted like spawn's. `--x` replaces the entire flag list. The next wake applies
-  the change; name, session, cwd and creation time never change.
+- `pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>]
+  [--tools <a,b> | --no-tools] [--x key[=value]]...` works only on a stopped or failed agent
+  (`agent <name> is running — stop it first` otherwise). The model is preflighted like
+  spawn's. `--x` replaces the entire flag list, and each option replaces its stored value; an
+  option left out keeps it. The next wake applies the change; name, session, cwd and creation
+  time never change.
 - `--x key[=value]` flags are passed opaquely to extensions and are inert without them.
 - `pi-dock compact <name> [instructions]` compacts the session. It requires an idle agent
   (`agent <name> is busy` otherwise, including while prompts are queued or another compaction,
   such as one an extension started, is in progress), wakes an off agent and leaves it on, and
   waits without a timeout for the result; Ctrl-C only stops waiting, not the compaction. All
   remaining arguments form the instructions. A failed compaction exits 1 with its reason.
+
+## Role and tools
+
+- `--system-prompt <file>` replaces Pi's base prompt (as `pi --system-prompt` does, and over
+  `.pi/SYSTEM.md` in the agent's cwd); `APPEND_SYSTEM.md`, `AGENTS.md` context and the cwd
+  still apply. Skills follow Pi's usual rule: they are listed only when the agent's tools
+  include `read` or `bash`. The path is relative to your cwd.
+- `spawn` and `set` refuse an unreadable or blank file up front; a refused `set` leaves the
+  agent unchanged. The runner reads the file again, and if it became unreadable or blank in
+  between, startup fails with the reason in the log and no manifest is written.
+- The agent stores the content, not the path: editing or deleting the file does not affect it.
+  To change the prompt: `stop`, `set --system-prompt <file>`, `start`.
+- `--tools a,b` is the exact list of tools the agent gets, built-in or from extensions; it
+  replaces Pi's defaults (read, bash, edit, write), so name every tool it needs. No `*`,
+  `+name` or `-name`. `--no-tools` gives none. The list applies on every wake, whatever tools
+  the session used before.
+- A name that no loaded tool has (a typo, or an extension that is not installed) fails
+  startup with `tools not found: <names>` in the log. A spawn then writes no manifest, so no
+  agent exists (only its log remains). `set` checks only the syntax, so the next wake fails
+  the same way.
+- Not a sandbox: extensions stay loaded even when their tools are not listed. pi-link stays
+  connected without its tools, so add `link_send` (and the other `link_*` tools it needs) to
+  `--tools` if the agent must reply over the link. pi-dock never adds tools on its own.
+- pi-dock does not load Pi's built-in MCP and codemode extensions, and `--tools` installs
+  nothing. A list without `mcp__` names leaves MCP tools that extensions register reachable
+  indirectly; only `--no-tools` removes them too. An override cannot be removed in this
+  version.
 
 ## Reading logs
 

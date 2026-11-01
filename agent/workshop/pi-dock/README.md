@@ -121,7 +121,7 @@ compacts `w1` with the instructions `--help`. For usage, run the top-level `pi-d
 
 | Command | What it does |
 | --- | --- |
-| `spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...` | Create an idle agent in the current directory |
+| `spawn --name <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> \| --no-tools] [--x key[=value]]...` | Create an idle agent in the current directory |
 | `send <name> [--wait] [--file <path>] [--] [text...]` | Queue a prompt and print its id; `--wait` also waits for the result |
 | `wait <name> <id>` | Wait for a prompt's run and print its final text |
 | `start <name>` | Wake a stopped or failed agent |
@@ -129,7 +129,7 @@ compacts `w1` with the instructions `--help`. For usage, run the top-level `pi-d
 | `ls` | List agents: `name state model age` |
 | `show <name>` | Print one agent's details, one key and value per line |
 | `logs <name> [--tail <n>] [--raw] [--follow]` | Print the agent's event log |
-| `set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...` | Change a powered-off (stopped or failed) agent's configuration |
+| `set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> \| --no-tools] [--x key[=value]]...` | Change a powered-off (stopped or failed) agent's configuration |
 | `compact <name> [instructions]` | Compact an idle agent's session |
 | `models [filter]` | List the models you can use |
 | `skill` | Print the operating guide for AI agents |
@@ -182,8 +182,47 @@ Long prompts are easier with `--file prompt.md`. Prompts run one at a time, in o
 - `--thinking off|minimal|low|medium|high|xhigh|max` is applied on every wake. Without it, Pi
   restores the session's saved level or uses its configured default; levels the model does not
   support are clamped by Pi.
-- `pi-dock set` changes model, thinking and extension flags, only while the agent is powered
-  off (stopped or failed); the next wake applies them.
+- `pi-dock set` changes model, thinking, system prompt, tools and extension flags, only while
+  the agent is powered off (stopped or failed); the next wake applies them.
+
+### System prompt and tools
+
+Each agent can have its own role and tool set, instead of a per-folder `.pi/SYSTEM.md` or
+`defaultTools`:
+
+```bash
+pi-dock spawn --name reader --system-prompt ./reviewer.md --tools read,grep
+pi-dock spawn --name thinker --system-prompt ./thinker.md --no-tools
+```
+
+- `--system-prompt <file>` replaces Pi's base prompt, as `pi --system-prompt` does, and wins
+  over `.pi/SYSTEM.md` in the agent's directory. What Pi adds to the base prompt still
+  applies: `APPEND_SYSTEM.md`, `AGENTS.md` context and the working directory. Skills follow
+  Pi's usual rule: they are listed only when the agent's tools include `read` or `bash`. The
+  path is relative to where you run the command.
+- `spawn` and `set` refuse a file that cannot be read or is blank before they start or change
+  anything. The runner reads the file again; if it has become unreadable or blank in between,
+  startup fails with the reason in the log, and no manifest is written, so no agent exists.
+- The agent keeps a copy of the content, not the path: editing or deleting the file changes
+  nothing. To change the prompt, `stop`, `set --system-prompt <file>`, `start`.
+- `--tools a,b` enables exactly these tools, built-in or from extensions, and replaces Pi's
+  defaults (read, bash, edit, write), so list every tool the agent needs. Names are exact:
+  `*`, `+name` and `-name` are refused. `--no-tools` enables none. The list applies on every
+  wake, whatever tools the session used before.
+- An unknown name, or the tool of an extension that is not installed, fails startup before a
+  manifest is written, so a spawn leaves no agent, only its log. The handshake
+  failure shows `tools not found: …` in the last log line. `set` checks only the syntax, so
+  after a `set` the next wake fails the same way.
+- It is not a sandbox. Extensions whose tools are not listed stay loaded and keep running:
+  pi-link stays connected without its `link_*` tools, so name `link_send` and the others if
+  the agent should reply. pi-dock never adds tools to the list.
+- pi-dock does not load Pi's built-in MCP and codemode extensions, and `--tools` installs
+  nothing: `codemode` or `mcp__…` names fail unless an extension provides them. A list without
+  `mcp__` entries leaves the MCP tools extensions register reachable indirectly (through
+  codemode or tool search); only `--no-tools` removes them as well.
+- `show` prints `system-prompt <N> bytes` and the tools (`none` after `--no-tools`, `-` when
+  unset), never the prompt itself. `set` replaces either one; going back to Pi's defaults is
+  not possible yet.
 
 ### Extension flags and pi-link
 

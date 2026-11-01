@@ -12,6 +12,19 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
+## Unreleased
+
+### Added
+
+- **Per-agent system prompt and tools.** `spawn` and `set` take `--system-prompt <file>`, which
+  replaces Pi's base prompt as `pi --system-prompt` does, and `--tools a,b` or `--no-tools`,
+  an exact tool list applied on every wake. The agent stores the prompt's content, so the file
+  can change or go. A tool no extension provides fails startup before the agent exists; `set`
+  checks it at the next wake. `show` prints the prompt's size and the tools. It is not a
+  sandbox: extensions whose tools are not listed stay loaded.
+
+---
+
 ## 0.4.2 — 2026-10-27
 
 ### Fixed

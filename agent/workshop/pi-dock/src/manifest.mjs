@@ -71,6 +71,21 @@ export async function readManifest(name) {
   return JSON.parse(body);
 }
 
+// A --system-prompt file's content, as the manifest stores it. A leading BOM is dropped, as Pi
+// does. A blank prompt is refused: the SDK would silently use its default prompt instead.
+export async function readSystemPrompt(file) {
+  let content;
+  try {
+    content = await fs.readFile(file, 'utf8');
+  } catch (error) {
+    throw new Error(`cannot read system prompt file ${file}: ${error.message}`);
+  }
+  if (content.trim() === '') {
+    throw new Error(`system prompt file is blank: ${file}`);
+  }
+  return content.replace(/^\uFEFF/, '');
+}
+
 export async function listManifests() {
   const dir = await ensureDockDir();
   const entries = await fs.readdir(dir);

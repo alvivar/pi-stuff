@@ -5,7 +5,7 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { listManifests, readManifest, rewriteManifest } from '../src/manifest.mjs';
+import { listManifests, readManifest, readSystemPrompt, rewriteManifest } from '../src/manifest.mjs';
 import { logPath, manifestPath, pipePath, validateAgentName } from '../src/paths.mjs';
 import { acquisitionLock, PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.mjs';
 
@@ -14,7 +14,7 @@ const runner = path.join(root, 'src', 'runner.mjs');
 const command = process.argv[2] === '-h' ? '--help' : process.argv[2];
 const args = process.argv.slice(3);
 const USAGE = {
-  spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
+  spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
   send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
   wait: 'pi-dock wait <name> <id>',
   start: 'pi-dock start <name>',
@@ -22,7 +22,7 @@ const USAGE = {
   ls: 'pi-dock ls',
   logs: 'pi-dock logs <name> [--tail <n>] [--raw] [--follow]',
   show: 'pi-dock show <name>',
-  set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--x key[=value]]...',
+  set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
   compact: 'pi-dock compact <name> [instructions]',
   models: 'pi-dock models [filter]',
   skill: 'pi-dock skill',
@@ -52,7 +52,7 @@ function parseCommand(argv, options, maxPositionals) {
     failUsage(`Unexpected argument '${parsed.positionals[maxPositionals]}'`);
   }
   // An explicit empty value is likely an unset variable in a script, never "use the default".
-  for (const option of ['model', 'thinking']) {
+  for (const option of ['model', 'thinking', 'system-prompt', 'tools']) {
     if (parsed.values[option] === '') {
       failUsage(`Option '--${option}' must not be empty`);
     }
@@ -118,6 +118,59 @@ function validateThinking(level) {
   }
 }
 
+const CONFIG_OPTIONS = {
+  model: { type: 'string' },
+  thinking: { type: 'string' },
+  'system-prompt': { type: 'string' },
+  tools: { type: 'string' },
+  'no-tools': { type: 'boolean' },
+  x: { type: 'string', multiple: true },
+};
+
+// The tool list --tools or --no-tools selects, or undefined for neither. Exact names only: the
+// SDK would read `*` as a pattern and `+name`/`-name` as changes to the default tools.
+function parseTools(values) {
+  if (values.tools !== undefined && values['no-tools']) {
+    failUsage("Options '--tools' and '--no-tools' cannot be combined");
+  }
+  if (values['no-tools']) {
+    return [];
+  }
+  if (values.tools === undefined) {
+    return undefined;
+  }
+  const names = values.tools.split(',').map((toolName) => toolName.trim());
+  for (const toolName of names) {
+    if (toolName === '') {
+      failUsage(`Option '--tools' has an empty tool name: '${values.tools}'`);
+    }
+    if (toolName.includes('*') || toolName.startsWith('+') || toolName.startsWith('-')) {
+      failUsage(`Option '--tools' takes exact tool names, not patterns or +/- changes: '${toolName}'`);
+    }
+  }
+  return names;
+}
+
+// The --system-prompt file, resolved against this command's cwd, and its content.
+async function readSystemPromptOption(values) {
+  if (values['system-prompt'] === undefined) {
+    return undefined;
+  }
+  const file = path.resolve(values['system-prompt']);
+  return { file, content: await readSystemPrompt(file) };
+}
+
+function describeSystemPrompt(manifest) {
+  return manifest.systemPrompt === undefined ? '-' : `${Buffer.byteLength(manifest.systemPrompt)} bytes`;
+}
+
+function describeTools(manifest) {
+  if (manifest.tools === undefined) {
+    return '-';
+  }
+  return manifest.tools.length === 0 ? 'none' : JSON.stringify(manifest.tools);
+}
+
 async function tryStatus(manifest, timeoutMs) {
   try {
     const reply = await request(manifest.pipe, { cmd: 'status' }, timeoutMs);
@@ -140,6 +193,15 @@ function launchRunner(name, options = {}) {
   }
   if (options.thinking) {
     argv.push('--thinking', options.thinking);
+  }
+  if (options.systemPromptFile) {
+    argv.push('--system-prompt', options.systemPromptFile);
+  }
+  if (options.tools?.length === 0) {
+    argv.push('--no-tools');
+  }
+  for (const tool of options.tools ?? []) {
+    argv.push('--tool', tool);
   }
   if (options.create) {
     argv.push('--create');
@@ -335,18 +397,16 @@ function renderEvent(line) {
 }
 
 async function spawnCommand(argv) {
-  const { values } = parseCommand(argv, {
-    name: { type: 'string' },
-    model: { type: 'string' },
-    thinking: { type: 'string' },
-    x: { type: 'string', multiple: true },
-  }, 0);
+  const { values } = parseCommand(argv, { name: { type: 'string' }, ...CONFIG_OPTIONS }, 0);
   if (values.name === undefined) {
     failUsage();
   }
   const name = validateAgentName(values.name);
 
   validateThinking(values.thinking);
+  const tools = parseTools(values);
+  // A check for clear errors only: the runner reads the file again, and stores what it read.
+  const systemPrompt = await readSystemPromptOption(values);
 
   if (await manifestExists(name)) {
     fail(`agent already exists: ${name}`);
@@ -364,6 +424,8 @@ async function spawnCommand(argv) {
     model: values.model,
     thinking: values.thinking,
     flags: values.x,
+    systemPromptFile: systemPrompt?.file,
+    tools,
     create: true,
   });
   const result = await handshake(name);
@@ -592,6 +654,8 @@ async function showCommand(argv) {
     `model ${manifest.model}`,
     `thinking ${manifest.thinking ?? '-'}`,
     `flags ${JSON.stringify(manifest.flags)}`,
+    `system-prompt ${describeSystemPrompt(manifest)}`,
+    `tools ${describeTools(manifest)}`,
     `cwd ${manifest.cwd}`,
     `session ${manifest.sessionFile}`,
     `created ${manifest.startedAt}`,
@@ -654,11 +718,7 @@ async function confirmPipeAbsent(manifest, name) {
 }
 
 async function setCommand(argv) {
-  const { values, positionals: [name] } = parseCommand(argv, {
-    model: { type: 'string' },
-    thinking: { type: 'string' },
-    x: { type: 'string', multiple: true },
-  }, 1);
+  const { values, positionals: [name] } = parseCommand(argv, CONFIG_OPTIONS, 1);
   // values holds only the options given, and set needs at least one.
   if (name === undefined || Object.keys(values).length === 0) {
     failUsage();
@@ -666,6 +726,8 @@ async function setCommand(argv) {
 
   validateAgentName(name);
   validateThinking(values.thinking);
+  const tools = parseTools(values);
+  const systemPrompt = await readSystemPromptOption(values);
   const manifest = await requireManifest(name);
   await confirmPipeAbsent(manifest, name);
 
@@ -684,12 +746,14 @@ async function setCommand(argv) {
     model: values.model ?? manifest.model,
     thinking: values.thinking ?? manifest.thinking,
     flags: values.x ?? manifest.flags,
+    systemPrompt: systemPrompt?.content ?? manifest.systemPrompt,
+    tools: tools ?? manifest.tools,
     pipe: manifest.pipe,
     startedAt: manifest.startedAt,
   };
 
   await rewriteManifest(name, updated);
-  console.log(`${name} model=${updated.model} thinking=${updated.thinking ?? '-'} flags=${JSON.stringify(updated.flags)}`);
+  console.log(`${name} model=${updated.model} thinking=${updated.thinking ?? '-'} flags=${JSON.stringify(updated.flags)} system-prompt=${describeSystemPrompt(updated)} tools=${describeTools(updated)}`);
 }
 
 async function compactCommand(argv) {

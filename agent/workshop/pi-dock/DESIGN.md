@@ -37,18 +37,18 @@ generates the help's usage section.
    crash = `failed`. Only a torn final fragment is ignored. `ls` and `show` probe with a
    200 ms status request and never wake.
 5. **Manifest** = identity + config: `name`, `sessionFile`, `cwd`, `model` (qualified
-   `provider/id`, mandatory, sole wake authority), `thinking?`, `flags`, `pipe`,
-   `startedAt`. Creation refuses an existing manifest (`lstat`; any error but `ENOENT`
-   propagates), then publishes like a rewrite: temp file + `rename` in the same directory,
-   so readers see only complete JSON. No hard links: Android forbids them in app storage.
-   The check and the rename are not one atomic step, so this is not a standalone no-replace
-   API: its precondition is that the caller is the pipe's sole owner. A runner writes the
-   manifest only after it owns the pipe, and pipe ownership is exclusive among cooperating
-   runners (item 8; on Unix by the acquisition lock). Nothing protects against a caller
-   without the pipe, a runner of an older pi-dock (no lock) or an external unlink of the
-   socket. The runner writes it only on create, which only `--create` (passed by `spawn`)
-   requests; a wake without a manifest fails. The only later writer is `set` (powered off),
-   which writes exactly these fields.
+   `provider/id`, mandatory, sole wake authority), `thinking?`, `flags`, `systemPrompt?`,
+   `tools?` (item 22), `pipe`, `startedAt`. Creation refuses an existing manifest (`lstat`;
+   any error but `ENOENT` propagates), then publishes like a rewrite: temp file + `rename` in
+   the same directory, so readers see only complete JSON. No hard links: Android forbids
+   them in app storage. The check and the rename are not one atomic step, so this is not a
+   standalone no-replace API: its precondition is that the caller is the pipe's sole owner.
+   A runner writes the manifest only after it owns the pipe, and pipe ownership is exclusive
+   among cooperating runners (item 8; on Unix by the acquisition lock). Nothing protects
+   against a caller without the pipe, a runner of an older pi-dock (no lock) or an external
+   unlink of the socket. The runner writes it only on create, which only `--create` (passed
+   by `spawn`) requests; a wake without a manifest fails. The only later writer is `set`
+   (powered off), which writes exactly these fields.
 6. **Resident lifecycle, no limits.** The runner never exits because work finished. It
    exits only on `stop` (→ `stopped`) or a crash/fatal error (→ `failed`). There is no
    turn, time or cost limit, and work extensions start while idle (e.g. pi-link messages)
@@ -127,12 +127,13 @@ generates the help's usage section.
     agent costs up to ~8 s, and output stays in argument order). An operational failure
     (not responding, did not exit, unexpected reply) goes to stderr and the rest still stop;
     exit 1 if any failed. No transaction, no rollback.
-12. **`set`** edits model / thinking / flags only when the agent is confirmed powered off.
+12. **`set`** edits model / thinking / flags / system prompt / tools only when the agent is
+    confirmed powered off.
     Any reply on the pipe → `agent <name> is running — stop it first`; unresponsive →
     `agent <name> is not responding`; missing → `no such agent: <name>`. `--model` is
     preflighted (`…; no agent was changed`). `--x` replaces the whole flag list. Hard
     identity (`name`, `sessionFile`, `cwd`, `pipe`, `startedAt`) is untouchable. Next wake
-    applies it.
+    applies it. Every stored field an option does not name is carried over.
 13. **`--thinking <level>`** is `off|minimal|low|medium|high|xhigh|max`, persisted and
     applied every boot; absent → Pi restores the session's saved level or uses its
     configured default (per-model, then global); levels a model does not support are stored
@@ -159,18 +160,19 @@ generates the help's usage section.
     each), exit 0; extra arguments are a usage error. It ends telling AI agents to read
     `pi-dock skill` first. `skill` prints `skills/pi-dock/SKILL.md` byte for byte, read from
     the package path (single source). The skill is the AI operating contract: when to use
-    pi-dock, workflow, prompt ids and wait outcomes, states and waking, set/compact, log
-    events, recovery (wedged runner: latest `{event:"spawned",pid}` in logs → kill that PID
-    externally → `start`), data paths, warnings. Unknown command exits 1 pointing to
+    pi-dock, workflow, prompt ids and wait outcomes, states and waking, set/compact, role and
+    tools, log events, recovery (wedged runner: latest `{event:"spawned",pid}` in logs → kill
+    that PID externally → `start`), data paths, warnings. Unknown command exits 1 pointing to
     `--help`.
 19. **Observation.** `logs` renders each event as `<ts> <event> key=value…` (strings
     verbatim, other values as JSON) with `text` indented two spaces below; unparsable lines
     print raw. `--raw` prints stored NDJSON, `--tail <n>` the last n events, `--follow`
     polls every 500 ms; all read only complete lines. `show` prints name, state, model,
-    thinking, flags, cwd, session, created. `ls` columns: name, state, model, age (largest
-    whole unit). `models [filter]` lists credentialed models (`model context max-out
-    thinking images`); filter = case-insensitive substring of `provider/id`, or
-    provider-part/id-part with a slash; no match → exit 1.
+    thinking, flags, system-prompt (`<N> bytes`, never the content), tools (JSON, `none`
+    for `[]`), cwd, session, created; `-` marks an unset value. `ls` columns: name, state,
+    model, age (largest whole unit). `models [filter]` lists credentialed models
+    (`model context max-out thinking images`); filter = case-insensitive substring of
+    `provider/id`, or provider-part/id-part with a slash; no match → exit 1.
 20. **Pi package.** `package.json` has the `pi-package` keyword and an explicit manifest
     `pi: {skills: ["./skills"]}`, so Pi loads only the skill and never treats `bin/` or
     `src/` as extensions. The SDK stays in `dependencies`: the runner is a separate Node
@@ -188,6 +190,34 @@ generates the help's usage section.
     entry, not cause: a steered message can join a turn that tool calls already required.
     Not seen: extension prompts sent as user messages (`sendUserMessage`, indistinguishable
     from a pipe prompt) and messages queued but lost to stop/abort. `wait` ignores it.
+22. **Per-agent system prompt and tools** (`spawn`, `set`), instead of per-folder config.
+    - `--system-prompt <file>` (relative to the command's cwd) replaces Pi's base prompt
+      through `resourceLoaderOptions.systemPromptOverride`: as with `pi --system-prompt`, the
+      preamble, tool list, rules and docs go; `APPEND_SYSTEM.md`, `AGENTS.md` context and
+      the cwd stay; skills keep the SDK's rule (listed only when the selected tools include
+      `read` or `bash`, system-prompt.js:102–109); it wins over `<cwd>/.pi/SYSTEM.md`. Not
+      `resourceLoaderOptions.systemPrompt`: the SDK reads a string naming an existing file as
+      a path and falls back to the literal on a read error. The manifest stores the content,
+      a snapshot: the file may change or go. `spawn` checks the file (readable, not blank) and
+      passes its absolute path, not its content (size, process lists); the runner reads it
+      once, after it owns the pipe and before services, rejects a read error or blank
+      content again (the SDK would silently use its default for an empty prompt) and uses
+      that one string for the session and the manifest. A leading BOM is dropped, nothing is
+      trimmed. `set` reads the file itself.
+    - `--tools a,b` is an exact allowlist, trimmed per name, built-in and extension tools
+      alike; `*`, `+name`, `-name` and empty names are usage errors. `--no-tools` stores
+      `[]`, which also removes the MCP tools extensions register; an allowlist without
+      `mcp__` entries keeps those reachable indirectly. The two are exclusive. The runner
+      passes the list as `tools` on every boot, so it also replaces the loadout the
+      transcript would restore, and checks it against `session.getAllTools()` before it
+      publishes a manifest or binds extensions: missing names fail startup
+      (`tools not found: …`). Tools an extension registers only later (e.g. in
+      `session_start`) count as missing. `set` checks only the syntax; the next wake checks
+      availability.
+    - Not a sandbox: unlisted extensions stay loaded and keep running (pi-link stays connected
+      without its `link_*` tools). pi-dock never adds a tool, and loads no built-in
+      extension (no MCP or codemode). An override cannot be removed in this version; manifests
+      without these fields boot as before.
 
 ## Architecture
 
@@ -198,7 +228,8 @@ src/runner.mjs     Detached entry: hosts one AgentSession, serves the pipe, queu
                    correlates prompts, appends the log, publishes the manifest on create.
 src/pipe.mjs       NDJSON over node:net — serve(path, handler), resolved once listening or
                    rejected (PipeTakenError if taken), + request(path, msg, timeout).
-src/manifest.mjs   Pipe-owned create / atomic rewrite / list of <name>.json.
+src/manifest.mjs   Pipe-owned create / atomic rewrite / list of <name>.json, and the
+                   --system-prompt file read that CLI and runner share.
 src/paths.mjs      Name validation, ~/.pi/dock resolution, per-platform pipe path.
 ```
 
@@ -259,7 +290,8 @@ with that event into a complete but invalid line. Readers do not skip corrupt li
   HTTP 500s, held replies), with sandbox retry settings and a sandbox extension that starts
   idle work. Covers names, manifests, spawn races, state derivation, strict args, logs,
   models, wake/deliver classification, correlation, wait, send `--wait`/`--file`/`--`,
-  stop confirmation, compaction, help and `skill`. Run after every change.
+  stop confirmation, compaction, per-agent system prompt and tools (checked in the requests
+  the provider receives), help and `skill`. Run after every change.
 - `node test/smoke.mjs <provider/id> [thinking]` — full lifecycle with every agent on that
   real model, **2 real prompts** via `send --wait`. The thinking level, if given, applies to the
   prompted agent; without it, Pi's default is used. Paid: run only on explicit owner
