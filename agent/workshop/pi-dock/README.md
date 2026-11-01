@@ -150,7 +150,7 @@ which does not tell whether it is alive. Neither wakes it.
 
 `stop` is a power-off, not a delete. The name, configuration, log and session survive, and
 `start`, `send` and `compact` wake the agent with its memory. pi-dock has no command that
-deletes an agent.
+deletes an agent; see [Deleting an agent](#deleting-an-agent) to do it by hand.
 
 `pi-dock stop w1 w2 w3` stops a team. It checks the whole list first, so an invalid, unknown or
 repeated name stops nothing. Then it stops the agents one after another and prints one line per
@@ -430,6 +430,41 @@ agents load it on their own when a task involves pi-dock. For other AI tools, ha
 
 Names are lowercase `a-z0-9` segments joined by single `.`, `_` or `-`, at most 64 characters,
 and not a Windows device name such as `con` or `nul`.
+
+### Opening an agent's session in Pi
+
+The session is an ordinary Pi session, so Pi opens it by the path `pi-dock show <name>` prints:
+
+```bash
+pi --fork <session file>      # a copy, as a new session in the current directory
+pi --session <session file>   # the agent's own conversation; stop the agent first
+```
+
+- `--fork` leaves the agent untouched and needs no stop: use it to read the conversation or
+  continue it separately.
+- `--session` continues the agent's own session, in the agent's directory. Stop the agent
+  first and don't wake it until you quit Pi: while both run, they append to the same file
+  without seeing each other's entries. `pi --continue` or `pi --resume` in the agent's
+  directory can pick its session too.
+- What you add in Pi becomes part of the agent's memory: the next wake continues from there.
+  Pi runs the session with its own prompt, tools and extensions; the agent's next wake applies
+  its manifest again, and what the manifest does not set (e.g. thinking without `--thinking`)
+  follows the session, as on any wake.
+
+### Deleting an agent
+
+To remove an agent by hand:
+
+```bash
+pi-dock show w1   # note the session file, if you also want the conversation gone
+pi-dock stop w1   # must print "stopped", "already stopped" or "already failed"
+rm ~/.pi/dock/w1.json ~/.pi/dock/w1.log
+rm <session file> # optional
+```
+
+Stop it first: without its manifest pi-dock no longer knows the agent, so it cannot stop a
+runner that is still on. Remove the log too: a new agent with the same name would otherwise
+append to the old one. On Unix, also remove `~/.pi/dock/w1.sock` if it is there.
 
 ## Status and limitations
 

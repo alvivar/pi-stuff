@@ -12,6 +12,17 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **The docs explain how to open an agent's session in Pi and how to delete an agent.**
+  README and skill show `pi --fork` and `pi --session` with the file `show` prints, and that
+  the agent must be stopped before its own session is opened. They also give the manual steps
+  to delete an agent, since pi-dock has no command for it.
+
+---
+
 ## 0.5.1 — 2026-11-01
 
 ### Changed

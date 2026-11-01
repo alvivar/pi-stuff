@@ -231,6 +231,14 @@ spaces. `--tail <n>` prints only the last n events, `--raw` the stored NDJSON li
   elsewhere.
 - Sessions live in Pi's session directory (`<agent dir>/sessions/--<cwd>--/`, where the agent dir
   is `~/.pi/agent` or `PI_CODING_AGENT_DIR`); `show` prints the exact file.
+- Pi opens that file: `pi --fork <file>` copies it into a new session and leaves the agent alone;
+  `pi --session <file>` continues the agent's own conversation, so stop the agent first and don't
+  wake it until Pi exits (both would append to the same file); what you add there is part of its
+  memory on the next wake.
+- To delete an agent by hand: `show` (note the session file), `stop`, then remove
+  `~/.pi/dock/<name>.json` and `<name>.log` (and the session file if wanted; on Unix also
+  `<name>.sock` if present). Stop first: without the manifest pi-dock cannot stop a runner that
+  is still on. Remove the log too, or a new agent of that name appends to it.
 
 ## Warnings
 
