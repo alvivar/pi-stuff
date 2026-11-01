@@ -12,7 +12,7 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.5.0 — 2026-10-31
 
 ### Added
 
@@ -21,7 +21,7 @@ their version is cut, so a new entry may not have one yet.
   an exact tool list applied on every wake. The agent stores the prompt's content, so the file
   can change or go. A tool no extension provides fails startup before the agent exists; `set`
   checks it at the next wake. `show` prints the prompt's size and the tools. It is not a
-  sandbox: extensions whose tools are not listed stay loaded.
+  sandbox: extensions whose tools are not listed stay loaded. (`3bde5e7`)
 
 ---
 
