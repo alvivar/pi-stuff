@@ -151,6 +151,80 @@ README's "unsupported" bullet and test B1 in `lifecycle-compact-test.mjs`.
 *Constraints:* a removal is a behavior change to a documented result; it travels
 with its documentation and test in one commit.
 
+### BL-8 — ✗ for host errors in link_send and link_compact results
+
+**Priority:** 8 — small fix, design pinned.
+**Status:** Open — fix approved by the owner (design A); not implemented.
+
+When Pi rejects a call before `execute` runs (argument validation, a
+`beforeToolCall` block or a pre-execution abort), or catches a throw from
+`execute`, it creates an error result with empty `details` and marks it
+`isError`. `renderIconResult` picks the icon from `details.error` alone, so the
+row shows ✓ on Pi's error background. The model still receives the error; only
+the icon is wrong. Found while checking Pi 1.5.0; it predates that release.
+
+The hosts flag these errors in different places. Pi calls
+`renderResult(result, options, theme, context)` with `result` = `{ content, details }`
+and sets `context.isError`. Oh My Pi (OMP) calls
+`renderResult(result, options, theme, args)`: `result` is
+`{ content, details, isError }`, the host error flag is `result.isError`, and the
+fourth argument is the tool call's arguments. OMP's host errors have empty
+`details`, except a validation failure, whose `details` already carry `error`.
+
+*Outcome sought:* those rows show ✗ on both hosts, while pi-link's own errors
+keep ✗ and successes keep ✓.
+
+*Design (A):* both `renderResult` callbacks pass their fourth argument to
+`renderIconResult`, which shows ✗ when
+`context?.isError === true || result.isError === true || Boolean(details?.error)`.
+Under OMP that argument is the call's arguments, so a model-invented `isError`
+argument can only produce a cosmetic ✗; this was accepted. For each tool, cover
+four cases in `message-renderer-test.mjs`: the Pi shape (`details` `{}`, fourth
+argument with `isError: true`) gives ✗; the OMP shape (`result.isError` true,
+`details` `{}`, the call's arguments as fourth argument) gives ✗; a pi-link error
+(`details.error`) gives ✗; a success gives ✓, also with no fourth argument.
+
+*Constraints:* error text is not parsed; results, wire and skill are unchanged.
+A host that sets neither flag keeps today's `details.error`-based behavior;
+Pi 0.84.2 was not checked. OMP support rests on source reading of OMP v18.15.0
+(commit 3fedf8d) only; it was not run.
+
+### BL-9 — OMP compact contract: instructions and completion
+
+**Priority:** not set — to be set by the owner. **Status:** Open.
+
+The remote compaction start (`index.ts` ~728) relies on Pi's `compact()`
+contract. Source reading of OMP v18.15.0 (commit 3fedf8d) reports three gaps
+under OMP:
+
+- *Instructions.* pi-link passes `{ customInstructions, onComplete, onError }`.
+  OMP's `CompactOptions` has no `customInstructions`; instructions are a plain
+  string argument. Under OMP, `link_compact` instructions are not delivered
+  through OMP's documented channel.
+- *Rejection without a callback.* `compact()` returns a promise that pi-link
+  neither awaits nor catches; the `try/catch` covers only synchronous throws. OMP
+  can reject early without calling `onError`, for example when a compaction is
+  already running. `finish()` then never runs: `remoteCompact` and
+  `compactRunning` stay set and no deadline clears them, held messages stay
+  held, later requests are declined with `already_requested`, and the rejection
+  is unhandled.
+- *Resolve without a callback.* In OMP's interactive TUI a failure can resolve
+  the promise without calling `onError` or `onComplete`, with the same effect.
+  A resolve is not proof of success.
+
+*Outcome sought:* under OMP, `link_compact` instructions reach the compaction,
+and every request gets exactly one outcome that matches what happened.
+
+*Revisit when:* the owner sets its priority. A fix then needs, in order: OMP's
+source confirms how to pass the instructions and how to get an unambiguous
+outcome in each OMP mode; an isolated harness covers success, `onError` plus a
+rejection, a rejection without a callback and a resolve without a callback, with
+`finish()` running at most once and success never inferred from a resolve; and a
+live OMP check authorized by the owner.
+
+*Constraints:* no retries, arbitrary timeouts or heuristics. The evidence is
+reported source reading, not runtime: none of the three gaps was reproduced.
+
 ## Decisions not to reopen without new evidence
 
 These were decided against, and each parked candidate above has a plausible path
