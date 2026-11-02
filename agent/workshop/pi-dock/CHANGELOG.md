@@ -12,7 +12,7 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.5.2 — 2026-11-01
 
 ### Changed
 
@@ -20,17 +20,17 @@ their version is cut, so a new entry may not have one yet.
   The README shows `pi --fork` and `pi --session` with the file `show` prints, and that the
   agent must be stopped before its own session is opened. It also gives the manual steps to
   delete an agent, since pi-dock has no command for it. The skill states the rules and links
-  there.
+  there. (`8a4b634`)
 - **The skill is shorter and keeps only what an agent needs to operate pi-dock.** It drops
   output formats the commands show themselves and logging internals, and moves the warnings
   up. It now says that stored settings cannot be unset, that only `set` must not overlap other
   changes or wakes, which `wait` failures may have done part of the work, and to delete an
-  agent only after a successful `stop`.
+  agent only after a successful `stop`. (`ff9dfbe`)
 - **After a `stop` timeout, the docs have you confirm that the runner process exited.** They
   said to terminate the PID and then check `pi-dock ls`, but while that runner is still
   shutting down `ls` can show `failed` and `stop` can print `already stopped` or
   `already failed`. README and skill now say to confirm the process has exited before starting
-  the agent again or deleting its files.
+  the agent again or deleting its files. (`437b2a6`)
 
 ---
 

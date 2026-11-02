@@ -1,4 +1,4 @@
-# pi-dock — design (as built, 0.5.1)
+# pi-dock — design (as built, 0.5.2)
 
 **Identity:** pi-dock keeps named Pi agents running after your shell exits — create one,
 give it work, wait for or read its result, stop it, wake it with memory intact.
@@ -315,6 +315,7 @@ with that event into a complete but invalid line. Readers do not skip corrupt li
 ## Verified
 
 Windows: regression passes on every change; the paid smoke passed 51/51 at f8e46be for 0.5.1
-(2026-11-01, `openai-codex/gpt-6-luna`, thinking high). Unix: inspected, not runtime-tested.
+(2026-11-01, `openai-codex/gpt-6-luna`, thinking high); 0.5.2 changes only docs and tests. Unix:
+inspected, not runtime-tested.
 Real usage: RV lab (2026-08-18) — 3 residents, ~145 piped prompts, ~50 min, zero tool
 failures.
