@@ -6,6 +6,14 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **✗ for host errors in `link_send` and `link_compact` results.** When the host rejects a call before pi-link runs it, such as a failed argument validation, a blocked call or an abort, or when the call throws, the result row now shows ✗ instead of ✓. Pi marks these errors in the render context, and Oh My Pi in the result (from source reading; not tested under Oh My Pi). pi-link's own errors keep ✗ and successes keep ✓. Only the icon changes: results, the wire and the skill are unchanged.
+
+---
+
 ## 0.6.0 — 2026-10-25
 
 ### Changed

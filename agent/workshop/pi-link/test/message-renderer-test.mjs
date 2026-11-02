@@ -594,6 +594,28 @@ for (const { tool, key, title, partialBody } of OUTGOING) {
     check(`8: ${tool} renderResult does not mutate the result`,
       JSON.stringify(result) === snapshot);
   }
+
+  // — the icon also follows the host's own error flag —
+  // These host errors have empty details. Pi flags them in the fourth argument, the render
+  // context; Oh My Pi flags them in result.isError and passes the call's arguments as
+  // the fourth argument instead.
+  const callArgs = { to: "peer", [key]: "hi" };
+  const [success, linkError] = results;
+  const hostError = { content: [{ type: "text", text: "Invalid arguments" }], details: {} };
+  const iconCases = [
+    ["Pi host error", hostError, { isError: true }, "{error}✗ Invalid arguments"],
+    ["OMP host error", { ...hostError, isError: true }, callArgs, "{error}✗ Invalid arguments"],
+    ["pi-link error under Pi", linkError, { isError: false }, "{error}✗ Failed"],
+    ["pi-link error under OMP", { ...linkError, isError: false }, callArgs, "{error}✗ Failed"],
+    ["success under Pi", success, { isError: false }, "{success}✓ Sent to \"peer\""],
+    ["success under OMP", { ...success, isError: false }, callArgs, "{success}✓ Sent to \"peer\""],
+    ["success with no fourth argument", success, undefined, "{success}✓ Sent to \"peer\""],
+  ];
+  for (const [label, result, fourth, expected] of iconCases) {
+    const row = definition.renderResult(result, { expanded: false }, theme, fourth)
+      .render(200).join("\n").trimEnd();
+    check(`8: ${tool} renderResult icon, ${label}`, row === expected, row);
+  }
 }
 
 {
