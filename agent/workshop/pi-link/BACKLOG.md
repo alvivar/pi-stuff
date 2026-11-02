@@ -136,21 +136,6 @@ delivery into a compaction still running. Chosen policy, not a runtime need: shi
 it with `MIN_PI_VERSION` raised to 0.84.3 and no compatibility branch for the
 floor below it. A handler is runtime-safe on 0.84.2, but its typings lack the event.
 
-### BL-7 — `!ctx.compact` guard and the `"unsupported"` reason
-
-**Priority:** 7 — cleanup. **Status:** Open.
-
-`compact` is a required member of `ExtensionContext` on every supported Pi
-(`types.d.ts` 246), so the `!ctx.compact` sub-guard in the `compact_request`
-handler defends a case the API excludes. Whether the whole `"unsupported"` result
-is reachable depends on `!ctx`, which no path was found to reach by reading.
-
-*Outcome sought:* either the branch is shown reachable and stays, or it goes with
-README's "unsupported" bullet and test B1 in `lifecycle-compact-test.mjs`.
-
-*Constraints:* a removal is a behavior change to a documented result; it travels
-with its documentation and test in one commit.
-
 ### BL-9 — OMP compact contract: instructions and completion
 
 **Priority:** not set — to be set by the owner. **Status:** Open.

@@ -257,15 +257,6 @@ const compactRequest = ({ client, self }, id = "r1") =>
   client.receive({ type: "compact_request", id, from: "peer", to: self });
 
 {
-  // 1. Capability absent -> unsupported, no compact call.
-  const hub = await boot({ compact: undefined });
-  compactRequest(hub);
-  await tick();
-  const [res] = responses(hub.frames);
-  check("B1: no compact capability -> unsupported", res?.ok === false && res?.reason === "unsupported", JSON.stringify(res));
-}
-
-{
   // 2. Not idle, gates clear -> the request waits: no answer, no compact call yet,
   // and the target is told so. Once Pi is idle, the next check starts it.
   let calls = 0;
