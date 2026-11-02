@@ -172,6 +172,55 @@ live OMP check authorized by the owner.
 *Constraints:* no retries, arbitrary timeouts or heuristics. The evidence is
 reported source reading, not runtime: none of the three gaps was reproduced.
 
+### BL-10 — Windows launch passes arguments through cmd.exe
+
+**Priority:** not set — to be set by the owner. **Status:** Open.
+
+On Windows, `pi-link <name>` starts Pi as `cmd.exe /d /c pi …` (`runLauncher`
+in `bin/pi-link.mjs`). cmd.exe can reinterpret arguments instead of passing
+them literally: `&` separates commands, `|` pipes, `<` and `>` redirect, `^`
+escapes, and `%VAR%` expands even inside quotes. Isolated `spawnSync` probes
+through cmd.exe, without Pi, confirmed this: the tokens `echo`, `x&echo`,
+`PI_LINK_PROBE` ran two commands, and an environment variable expanded even
+in a quoted token. The pass-through arguments are exposed, as is the
+`--session` path pi-link adds if it contains such characters. The name travels
+in `PI_LINK_NAME`, not interpolated into this command. No production incident
+was reported in this review.
+
+*Outcome sought:* Pi receives its intended launch arguments literally,
+including pass-through values and the resolved session path.
+
+*Revisit when:* the owner sets its priority, or an argument or resolved
+session path is seen reinterpreted.
+
+*Constraints:* no generic quoting heuristic. A fix must prove the arguments
+survive cmd.exe and the npm `.cmd` shim unchanged, or start Pi without a shell
+in a way that respects how it is installed (npm shim, the managed launcher,
+PATH); it cannot assume a directly runnable `pi.js`.
+
+### BL-11 — Session paths resolved differently from Pi
+
+**Priority:** not set — to be set by the owner. **Status:** Open.
+
+pi-link's `expandTilde` expands only `~` and `~/`. In comparisons on Windows,
+Pi 1.5 also normalized `~\`, `/c/...` and `file://` paths that pi-link left
+literal. With those forms in `PI_CODING_AGENT_DIR`,
+`PI_CODING_AGENT_SESSION_DIR` or a settings `sessionDir`, `pi-link <name>`,
+`--list` and `--resolve` can look in the wrong location or fail instead of
+finding Pi's session store. The comparisons ran both implementations'
+extracted helpers, not full session launches; default paths are unaffected.
+
+*Outcome sought:* pi-link resolves the session directory as Pi does, for the
+explicitly supported forms.
+
+*Revisit when:* the owner sets its priority, or a configuration using one of
+these forms is reported.
+
+*Constraints:* decide the supported forms explicitly and test them on Windows
+and POSIX. Do not copy Pi's whole path module, add a Pi dependency or raise the
+floor for this. Until then, the `expandTilde` comment ("Match Pi's
+expandTildePath") overstates the match.
+
 ## Decisions not to reopen without new evidence
 
 These were decided against, and each parked candidate above has a plausible path
