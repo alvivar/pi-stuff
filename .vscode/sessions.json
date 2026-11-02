@@ -1,5 +1,5 @@
 {
-  "active": "pi-dock",
+  "active": "pi-link",
   "activateOnStartup": false,
   "keepExistingTerminals": false,
   "noClear": true,
@@ -22,6 +22,15 @@
         "autoExecuteCommands": true,
         "commands": [
           "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link vega@pi-link"
+        ]
+      },
+      {
+        "name": "rigel",
+        "icon": "star-full",
+        "color": "terminal.ansiBrightBlue",
+        "autoExecuteCommands": true,
+        "commands": [
+          "source C:/Users/andre/miniconda3/etc/profile.d/conda.sh && conda activate pi && pi-link rigel@pi-link"
         ]
       },
       {
