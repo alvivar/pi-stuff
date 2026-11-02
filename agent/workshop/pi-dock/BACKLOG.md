@@ -1,7 +1,7 @@
 # pi-dock — backlog
 
-What is not built or decided yet. Contracts live in `DESIGN.md`, shipped work in
-`CHANGELOG.md`. Delete an item when it ships.
+What is not built or decided yet. Shipped work is in `CHANGELOG.md`. Delete an item when it
+ships.
 
 ## To do, in priority order
 
