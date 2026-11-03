@@ -14,6 +14,8 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 - **`pi-link <name>` rejects `--session-id`.** Pi's `--session-id` opens or creates a session by ID, so it passed through and either failed against the `--session` the wrapper adds or bypassed the lookup by name under the link name `<name>`. It now fails like the other session flags, with `Error: --session-id is managed by pi-link. Remove it.`
 
+- **`pi-link <name> --` no longer lets session and link-name flags through.** The wrapper drops its own `--` and passes the rest to Pi, so a flag after it, such as `pi-link foo -- --session-id abc`, still reached Pi as a flag and bypassed the session lookup or the link name. Tokens after `--` are now refused like the ones before it, in any position, including after Pi's own `--`, because the wrapper cannot tell where Pi's options end. A prompt that only begins with a flag name, as in `pi-link foo -- -- "--session-id explained"`, still passes.
+
 - **The CLI reads a `settings.json` that starts with a BOM.** `pi-link` ignored such a file with a warning and dropped its `sessionDir`, while Pi strips the BOM and uses it, so `--list`, `--resolve` and `pi-link <name>` could look in the default directory instead of Pi's. It now drops one leading BOM before parsing, as Pi does; a file that is still invalid JSON keeps the warning and is ignored.
 
 ### Changed

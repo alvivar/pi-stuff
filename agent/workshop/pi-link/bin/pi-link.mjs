@@ -390,8 +390,11 @@ for (let i = 0; i < rawArgs.length; i++) {
     if (state.mode !== "launcher") {
       fail(`-- is only valid after a session name.`);
     }
-    for (let j = i + 1; j < rawArgs.length; j++) {
-      state.piPassthrough.push(rawArgs[j]);
+    // The wrapper drops its own `--`, so the tokens after it still reach pi and can
+    // be options. Managed flags are refused in any position, as before the `--`.
+    for (const token of rawArgs.slice(i + 1)) {
+      rejectManagedFlag(token);
+      state.piPassthrough.push(token);
     }
     i = rawArgs.length;
     break;

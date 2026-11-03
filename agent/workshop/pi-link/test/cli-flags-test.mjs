@@ -230,6 +230,28 @@ expectExit("E37: foo --link-name bar", ["foo", "--link-name", "bar"], 1, "--link
 // G. Wrapper-vs-pi flag boundaries (added per review)
 expectSpawn("G38: foo --global is consumed by wrapper (not forwarded)", ["foo", "--global"], ["--link"], "foo");
 expectSpawn("G39: foo -- --global escapes through to pi", ["foo", "--", "--global"], ["--link", "--global"], "foo");
+// The wrapper's `--` does not let a managed flag through: pi can still read a token
+// after it as an option, even after pi's own `--` when that is an option's value
+// (G39e, G39f). The wrapper does not parse pi's options, so it refuses a managed
+// flag in any position, including after pi's own `--` (G39g).
+for (const [label, args, error] of [
+  ["G39a: foo -- --session-id abc", ["foo", "--", "--session-id", "abc"], "Error: --session-id is managed by pi-link. Remove it."],
+  ["G39b: foo -- --session-id=abc", ["foo", "--", "--session-id=abc"], "Error: --session-id is managed by pi-link. Remove it."],
+  ["G39c: foo -- --continue", ["foo", "--", "--continue"], "Error: --continue is managed by pi-link. Remove it."],
+  ["G39d: foo -- --link-name x", ["foo", "--", "--link-name", "x"], "Error: --link-name is not accepted by pi-link.\n"],
+  ["G39e: foo -- --append-system-prompt -- --session-id abc", ["foo", "--", "--append-system-prompt", "--", "--session-id", "abc"], "Error: --session-id is managed by pi-link. Remove it."],
+  ["G39f: foo --append-system-prompt -- -- --session-id abc", ["foo", "--append-system-prompt", "--", "--", "--session-id", "abc"], "Error: --session-id is managed by pi-link. Remove it."],
+  ["G39g: foo -- -- --session-id abc", ["foo", "--", "--", "--session-id", "abc"], "Error: --session-id is managed by pi-link. Remove it."],
+]) {
+  runCase(label, () => {
+    const r = run(args);
+    const ok = r.code === 1 && r.stderr.startsWith(error) && r.record === null;
+    return [ok, `args: ${JSON.stringify(args)}\n  actual: exit ${r.code}, stderr=${JSON.stringify(r.stderr)}, record=${JSON.stringify(r.record)}`];
+  });
+}
+// Only a token that is a managed flag, alone or as flag=value, is refused: a prompt
+// that begins with a flag name passes.
+expectSpawn("G39h: foo -- -- \"--session-id explained\" passes", ["foo", "--", "--", "--session-id explained"], ["--link", "--", "--session-id explained"], "foo");
 expectSpawn("G40: foo (no extra args) passes only --link", ["foo"], ["--link"], "foo");
 expectSpawn("G41: PI_LINK_NAME equals the resolved name (whitespace normalized)", ["  foo  "], ["--link"], "foo");
 expectSpawn("G42: foo -a passes through to pi", ["foo", "-a"], ["--link", "-a"], "foo");
