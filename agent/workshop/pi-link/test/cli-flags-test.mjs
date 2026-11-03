@@ -183,23 +183,29 @@ expectExit("C17: foo --model opus extra → reject (opus consumed as value)", ["
 expectSpawn("C18: foo -- extra extra2 passthrough", ["foo", "--", "extra", "extra2"], ["--link", "extra", "extra2"], "foo");
 
 // D. Mode-selecting validation
-expectExit("D19: --list foo → does not accept", ["--list", "foo"], 1, "--list does not accept argument");
+expectExit("D19: --list foo → does not accept", ["--list", "foo"], 1, "--list does not accept arguments:");
 expectExit("D20: --resolve (no value)", ["--resolve"], 1, "requires a name argument");
 expectExit("D21: --resolve --global", ["--resolve", "--global"], 1, "requires a name argument");
 expectExit("D22: --resolve foo bar", ["--resolve", "foo", "bar"], 1, "accepts exactly one name");
-expectExit("D23: --list --resolve foo", ["--list", "--resolve", "foo"], 1, "cannot combine");
+expectExit("D23: --list --resolve foo", ["--list", "--resolve", "foo"], 1, "Cannot combine");
 expectExit("D24: --resolve=\"\"", ["--resolve="], 1, "requires");
-expectExit("D25: foo --list", ["foo", "--list"], 1, "cannot combine");
+expectExit("D25: foo --list", ["foo", "--list"], 1, "Cannot combine");
 expectExit("D26: --resolve foo --resolve bar", ["--resolve", "foo", "--resolve", "bar"], 1, "specified more than once");
 expectExit("D27: --resolve=foo --resolve=bar", ["--resolve=foo", "--resolve=bar"], 1, "specified more than once");
 expectExit("D28: --global --resolve missing", ["--global", "--resolve", "nope"], 2, "No session named");
-expectExit("D29: foo --help", ["foo", "--help"], 1, "cannot combine");
+expectExit("D29: foo --help", ["foo", "--help"], 1, "Cannot combine");
 
 // E. Help / unknown / managed-flag rejection
 expectExit("E30a: --help", ["--help"], 0, "Usage:");
 expectExit("E30b: -h", ["-h"], 0, "Usage:");
 expectExit("E31: --help foo", ["--help", "foo"], 1, "--help does not accept arguments");
 expectExit("E32: no args", [], 0, "Usage:");
+// Help is output, not a diagnostic: it goes to stdout, so it can be piped or saved.
+runCase("E32b: help prints to stdout only", () => {
+  const runs = [["--help"], ["-h"], []].map((args) => ({ args, ...run(args) }));
+  const ok = runs.every((r) => r.code === 0 && r.stdout.startsWith("Usage: pi-link ") && r.stderr === "");
+  return [ok, runs.map((r) => `${JSON.stringify(r.args)}: exit ${r.code}, stdout=${JSON.stringify(r.stdout.slice(0, 40))}, stderr=${JSON.stringify(r.stderr)}`).join("; ")];
+});
 expectExit("E33: --unknown", ["--unknown"], 1, "Unknown argument");
 expectExit("E34: --all unknown", ["--all"], 1, "Unknown argument");
 expectExit("E35: --session foo.jsonl", ["--session", "foo.jsonl"], 1, "managed by pi-link");
@@ -435,7 +441,7 @@ runCase("H6c: invalid settings.json is reported and the default dir is used", ()
   const sessionPath = writeSessionAt(join(dir, "sessions", "h6c", "fallback.jsonl"), namedSession("fallback"));
   const r = run(["--resolve", "fallback"], { PI_CODING_AGENT_DIR: dir });
   const ok = r.code === 0 && r.stdout === sessionPath &&
-    r.stderr.startsWith(`pi-link: ignored ${join(dir, "settings.json")}: `);
+    r.stderr.startsWith(`Warning: Ignored ${join(dir, "settings.json")}: `);
   return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}, stderr=${JSON.stringify(r.stderr)}`];
 });
 
@@ -471,8 +477,8 @@ runCase("I43: --version prints semver", () => {
   ];
 });
 expectExit("I44: --version foo rejects arguments", ["--version", "foo"], 1, "does not accept arguments");
-expectExit("I45: foo --version cannot combine", ["foo", "--version"], 1, "cannot combine");
-expectExit("I46: --list --version cannot combine", ["--list", "--version"], 1, "cannot combine");
+expectExit("I45: foo --version cannot combine", ["foo", "--version"], 1, "Cannot combine");
+expectExit("I46: --list --version cannot combine", ["--list", "--version"], 1, "Cannot combine");
 
 // ── J. --status (live hub query) ─────────────────────────────────────────────
 //
@@ -658,13 +664,13 @@ expectExit("J4b: a 200 that is not JSON exits 1", ["--status"], 1, unexpectedTex
 expectExit("J4c: valid JSON of the wrong shape exits 1", ["--status"], 1, unexpectedText(shapeHub.port), atPort(shapeHub.port));
 expectExit("J4d: --json does not bypass the unsupported check", ["--status", "--json"], 1, unexpectedText(oldHub.port), atPort(oldHub.port));
 expectExit("J5: --status foo rejects arguments", ["--status", "foo"], 1, "does not accept arguments");
-expectExit("J6: --status --list cannot combine", ["--status", "--list"], 1, "cannot combine");
-expectExit("J6b: --list --status cannot combine", ["--list", "--status"], 1, "cannot combine");
-expectExit("J7: --status -g cannot combine", ["--status", "-g"], 1, "cannot combine");
-expectExit("J7b: -g --status cannot combine regardless of order", ["-g", "--status"], 1, "cannot combine");
-expectExit("J7c: --status --global cannot combine", ["--status", "--global"], 1, "cannot combine");
+expectExit("J6: --status --list cannot combine", ["--status", "--list"], 1, "Cannot combine");
+expectExit("J6b: --list --status cannot combine", ["--list", "--status"], 1, "Cannot combine");
+expectExit("J7: --status -g cannot combine", ["--status", "-g"], 1, "Cannot combine");
+expectExit("J7b: -g --status cannot combine regardless of order", ["-g", "--status"], 1, "Cannot combine");
+expectExit("J7c: --status --global cannot combine", ["--status", "--global"], 1, "Cannot combine");
 expectExit("J7d: --json without --status is a usage error", ["--json"], 1, "only valid with --status");
-expectExit("J7e: --list --json is rejected", ["--list", "--json"], 1, "does not accept argument");
+expectExit("J7e: --list --json is rejected", ["--list", "--json"], 1, "--list does not accept arguments:");
 
 runCase("J8: the exit-2 message names the effective port", () => {
   const r = run(["--status"], atPort(deadHub.port));
@@ -680,8 +686,8 @@ runCase("J8b: an unusable PI_LINK_PORT is reported, not validated", () => {
 
 runCase("J9: help advertises --status", () => {
   const r = run(["--help"]);
-  const ok = r.code === 0 && r.stderr.includes("pi-link --status [--json]");
-  return [ok, JSON.stringify(r.stderr)];
+  const ok = r.code === 0 && r.stdout.includes("pi-link --status [--json]");
+  return [ok, JSON.stringify(r.stdout)];
 });
 
 // J10 — a stalled body is a timeout, not an unsupported hub.

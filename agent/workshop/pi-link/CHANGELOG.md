@@ -20,6 +20,8 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 - **A target no longer answers `unsupported`.** The `compact_request` branch that declined with it when the target had no context or no compaction capability was unreachable on every supported host, and is removed. A requester still reads `unsupported` from a target on an earlier version as `not done: compaction unavailable on target`.
 
+- **Consistent CLI messages.** `pi-link --help`, `-h` and `pi-link` with no arguments now print the usage to stdout, as Pi does, so it can be piped or saved; exit codes are unchanged. The settings warning reads `Warning: Ignored <path>: <reason>` instead of `pi-link: ignored <path>: <reason>`. Prose after `Error: ` or `Warning: ` starts with a capital letter unless it begins with a literal token such as a flag, a quoted command or `pi-link`, as in `Error: Cannot combine --list and --resolve.`; sentences end with a period, and commands embedded in prose use double quotes, as in `"pi-link list" was removed. Use "pi-link --list".` The `--link-name` rejection now reads `Error: --link-name is not accepted by pi-link.` and points to `pi-link <name>` to open the named session on the link, or `pi --link-name <name>` to set only the link name.
+
 ---
 
 ## 0.6.0 — 2026-10-25
