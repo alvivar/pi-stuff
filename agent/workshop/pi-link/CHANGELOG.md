@@ -14,6 +14,8 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 - **`pi-link <name>` rejects `--session-id`.** Pi's `--session-id` opens or creates a session by ID, so it passed through and either failed against the `--session` the wrapper adds or bypassed the lookup by name under the link name `<name>`. It now fails like the other session flags, with `Error: --session-id is managed by pi-link. Remove it.`
 
+- **The CLI reads a `settings.json` that starts with a BOM.** `pi-link` ignored such a file with a warning and dropped its `sessionDir`, while Pi strips the BOM and uses it, so `--list`, `--resolve` and `pi-link <name>` could look in the default directory instead of Pi's. It now drops one leading BOM before parsing, as Pi does; a file that is still invalid JSON keeps the warning and is ignored.
+
 ### Changed
 
 - **A target no longer answers `unsupported`.** The `compact_request` branch that declined with it when the target had no context or no compaction capability was unreachable on every supported host, and is removed. A requester still reads `unsupported` from a target on an earlier version as `not done: compaction unavailable on target`.

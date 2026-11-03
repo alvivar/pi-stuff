@@ -39,7 +39,8 @@ function readSessionDirFromSettings(settingsPath) {
   if (!existsSync(settingsPath)) return undefined;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    // Like Pi's stripBom, drop one leading BOM before parsing.
+    parsed = JSON.parse(readFileSync(settingsPath, "utf-8").replace(/^\uFEFF/, ""));
   } catch (err) {
     console.error(`pi-link: ignored ${settingsPath}: ${err.message}`);
     return undefined;

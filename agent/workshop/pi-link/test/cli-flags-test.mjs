@@ -402,6 +402,43 @@ runCase("H5d: list scopes to this cwd and keeps its message count", () => {
   ];
 });
 
+// settings.json is parsed as Pi parses it: one leading BOM is dropped, and a file
+// that still fails to parse is reported and ignored. Each case uses its own agent
+// dir, so its global settings.json reaches no other case.
+function agentDirWithSettings(name, settingsText) {
+  const dir = join(stubDir, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "settings.json"), settingsText);
+  return dir;
+}
+const namedSession = (name) => [
+  { type: "session", cwd: stubDir, id: name },
+  { type: "custom", customType: "link-name", data: { name } },
+];
+
+for (const [label, name, bom] of [
+  ["H6a: settings.json with a BOM sets sessionDir", "bom", "\uFEFF"],
+  ["H6b: settings.json without a BOM sets sessionDir", "plain", ""],
+]) {
+  runCase(label, () => {
+    const flatDir = join(stubDir, `${name}-settings-sessions`);
+    const sessionPath = writeSessionAt(join(flatDir, `${name}.jsonl`), namedSession(name));
+    const dir = agentDirWithSettings(`${name}-settings-agent`, bom + JSON.stringify({ sessionDir: flatDir }));
+    const r = run(["--resolve", name], { PI_CODING_AGENT_DIR: dir });
+    const ok = r.code === 0 && r.stdout === sessionPath && r.stderr === "";
+    return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}, stderr=${JSON.stringify(r.stderr)}`];
+  });
+}
+
+runCase("H6c: invalid settings.json is reported and the default dir is used", () => {
+  const dir = agentDirWithSettings("invalid-settings-agent", '{ "sessionDir": ');
+  const sessionPath = writeSessionAt(join(dir, "sessions", "h6c", "fallback.jsonl"), namedSession("fallback"));
+  const r = run(["--resolve", "fallback"], { PI_CODING_AGENT_DIR: dir });
+  const ok = r.code === 0 && r.stdout === sessionPath &&
+    r.stderr.startsWith(`pi-link: ignored ${join(dir, "settings.json")}: `);
+  return [ok, `exit ${r.code}, stdout=${JSON.stringify(r.stdout)}, stderr=${JSON.stringify(r.stderr)}`];
+});
+
 runCase("H7: duplicate local names are ambiguous", () => {
   writeSession(join("h7-dupe-a", "first.jsonl"), [
     { type: "session", cwd: stubDir, id: "h7-dupe-a" },
