@@ -284,7 +284,7 @@ function rejectManagedFlag(token) {
     );
     process.exit(1);
   }
-  if (["--session", "--continue", "-c", "--resume", "-r", "--fork", "--no-session", "--session-dir"].includes(key)) {
+  if (["--session", "--continue", "-c", "--resume", "-r", "--fork", "--no-session", "--session-dir", "--session-id"].includes(key)) {
     console.error(`Error: ${key} is managed by pi-link. Remove it.`);
     process.exit(1);
   }

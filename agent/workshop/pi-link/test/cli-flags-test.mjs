@@ -204,6 +204,21 @@ expectExit("E33: --unknown", ["--unknown"], 1, "Unknown argument");
 expectExit("E34: --all unknown", ["--all"], 1, "Unknown argument");
 expectExit("E35: --session foo.jsonl", ["--session", "foo.jsonl"], 1, "managed by pi-link");
 expectExit("E36: foo --session bar.jsonl", ["foo", "--session", "bar.jsonl"], 1, "managed by pi-link");
+// --session-id opens or creates a session by ID, bypassing the lookup by name, so it
+// is rejected like --session. Before or after the name and in the = form, pi never starts.
+for (const [label, args] of [
+  ["E36a: --session-id abc foo", ["--session-id", "abc", "foo"]],
+  ["E36b: foo --session-id abc", ["foo", "--session-id", "abc"]],
+  ["E36c: foo --session-id=abc", ["foo", "--session-id=abc"]],
+]) {
+  runCase(label, () => {
+    const r = run(args);
+    const ok = r.code === 1 &&
+      r.stderr.includes("Error: --session-id is managed by pi-link. Remove it.") &&
+      r.record === null;
+    return [ok, `args: ${JSON.stringify(args)}\n  actual: exit ${r.code}, stderr=${JSON.stringify(r.stderr)}, record=${JSON.stringify(r.record)}`];
+  });
+}
 expectExit("E37: foo --link-name bar", ["foo", "--link-name", "bar"], 1, "--link-name is not accepted");
 
 // G. Wrapper-vs-pi flag boundaries (added per review)
