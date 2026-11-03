@@ -22,6 +22,8 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 - **Consistent CLI messages.** `pi-link --help`, `-h` and `pi-link` with no arguments now print the usage to stdout, as Pi does, so it can be piped or saved; exit codes are unchanged. The settings warning reads `Warning: Ignored <path>: <reason>` instead of `pi-link: ignored <path>: <reason>`. Prose after `Error: ` or `Warning: ` starts with a capital letter unless it begins with a literal token such as a flag, a quoted command or `pi-link`, as in `Error: Cannot combine --list and --resolve.`; sentences end with a period, and commands embedded in prose use double quotes, as in `"pi-link list" was removed. Use "pi-link --list".` The `--link-name` rejection now reads `Error: --link-name is not accepted by pi-link.` and points to `pi-link <name>` to open the named session on the link, or `pi --link-name <name>` to set only the link name.
 
+- **Consistent extension messages.** The `link_compact` self-target result reads `Cannot compact yourself`, without a period, like `link_send`'s `Cannot send to yourself`; `/link` when disconnected warns `Not connected to the link`, the text the tools return, instead of `Link: not connected`.
+
 ---
 
 ## 0.6.0 — 2026-10-25

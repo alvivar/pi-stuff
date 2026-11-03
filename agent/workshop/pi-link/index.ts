@@ -1765,7 +1765,7 @@ export default function (pi: ExtensionAPI) {
       if (role === "disconnected") return notConnectedResult();
 
       if (params.to === terminalName) {
-        return textResult("Cannot compact yourself.", {
+        return textResult("Cannot compact yourself", {
           to: params.to,
           error: "self_target",
         });
@@ -1906,7 +1906,7 @@ export default function (pi: ExtensionAPI) {
     description: "Show link status",
     handler: async (_args, _ctx) => {
       if (role === "disconnected") {
-        _ctx.ui.notify("Link: not connected", "warning");
+        _ctx.ui.notify("Not connected to the link", "warning");
         return;
       }
       const visible = visibleTerminals();
