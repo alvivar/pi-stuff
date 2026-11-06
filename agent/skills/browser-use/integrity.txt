@@ -1,40 +1,78 @@
 browser-use skill - local vendor-boundary integrity record
 ==========================================================
-Installed         : browser-use 0.13.10 / browser-harness 0.1.13
-Recorded          : 2026-09-11 00:22:39 -0600
+Installed         : browser-use 0.13.14 / browser-harness 0.1.13
+Recorded          : 2026-11-04
 Maintainer        : PI agent only
-Current upstream  : upstream-pristine-v0.13.10.txt
-Previous upstream : upstream-pristine-v0.13.7.txt
+Current upstream  : upstream-pristine-v0.13.14.txt
+Previous upstream : upstream-pristine-v0.13.10.txt, upstream-pristine-v0.13.7.txt
+Pre-upgrade backup: backups/pre-v0.13.14-20261104-103331/
 
 POLICY
 The ONLY restriction is WHO RECEIVES data, not browser capability.
 Forbidden: Browser Use/PostHog cloud, telemetry, hosted remote daemons/live views,
 profile-sync/cloud cookie sync, vendor promotion, and vendor self-update commands.
-Allowed: all local browser/cookie/session capability and sending any data to destinations
+Allowed: full local browser/cookie/session capability and sending any data to destinations
 the USER selects, including their own servers and named third-party services.
 User-selected remote CDP through BU_CDP_URL/BU_CDP_WS is explicitly allowed.
+Do not introduce capability restrictions or a local-disk-only rule.
 
-HARDENED DIFF AGAINST v0.13.10 (6 hunks)
-1. Removed vendor homepage and unpinned OpenClaw install metadata from frontmatter.
-2. Added the vendor-boundary policy near the top.
-3. Removed new capability limits on activate_tab and raw CDP/JS scroll alternatives.
-4. Replaced the Browser Use Cloud section with the vendor boundary while preserving
-   user-selected remote CDP.
-5. Marked profile-sync as prohibited vendor cloud cookie sync.
-6. Removed cloud-daemon/live-view orchestration and cloud shutdown/API instructions.
+INSTALL
+uv tool upgrade browser-use==0.13.14 --no-sources --default-index https://pypi.org/simple
+The declared dependency pins browser-harness==0.1.13. Other dependencies were resolved
+by uv; this is not a fully locked environment. uv pip check passed for 106 packages.
+No vendor updater or skill installer was run.
 
-TELEMETRY AUDIT
-The defect remains in browser-harness 0.1.13: capture_cli_event() still does not call
-_safe_properties() and still builds raw task/output/steps/error_message properties.
-telemetry.json remains disabled=true; auth.json is absent. Environment opt-outs remain
-required for each browser-use process, including BROWSER_HARNESS_TELEMETRY=false.
+SKILL REVIEW
+Current skill incorporates local operational changes from upstream 0.13.14:
+- Task-created tab cleanup and reuse of one default local daemon across tasks/sites.
+- Shared current-tab race explanation and local recovery guidance.
+- Background focus emulation with cleanup; foreground/CDP/JS alternatives remain allowed.
+- OS-specific Chrome approval handling and keyword CDP parameter instructions.
+The diff against upstream 0.13.14 has 8 hunks:
+- Preserve the local description; remove hosted-cloud expansion, vendor homepage and
+  unpinned OpenClaw installer metadata; retain the vendor boundary near the top.
+- Remove new restrictions on foreground activation and raw CDP/JS scroll alternatives.
+- Replace cloud-based concurrency recommendations with serialized local work or
+  user-selected remote endpoints.
+- Clarify that mac-approve applies only to macOS.
+- Replace the vendor Remote Browsers section and mark profile-sync prohibited.
+- Remove vendor daemon/live-view orchestration and cloud shutdown/API instructions.
+
+TELEMETRY RE-AUDIT
+browser-harness telemetry.py is byte-identical to the pre-upgrade copy (SHA-256
+8d48b95afe4b149c2be115e0df18dd9f62496148a194277702d74829455cfa94).
+The capture_cli_event() sanitizer bypass remains in 0.1.13.
+Reviewed the browser-use CLI dispatch, ProductTelemetry opt-out and CloudSync event gate.
+The product now includes a persisted UUID device-id path with a hardware fallback;
+ProductTelemetry creates no PostHog client when ANONYMIZED_TELEMETRY=false.
+Synthetic opt-out tests confirmed neither harness capture function called its sender.
+CONFIG.ANONYMIZED_TELEMETRY and CONFIG.BROWSER_USE_CLOUD_SYNC both evaluated false.
+CLI telemetry status before/after browser tests: enabled=false, disabled_by_env=true,
+disabled_by_config=true, install_id=null. telemetry.json remains disabled=true.
+No auth.json exists in browser-harness configuration.
+These checks validate opt-outs; they are not a network packet capture or firewall rule.
+
+ENVIRONMENT
+Persisted user variables: ANONYMIZED_TELEMETRY=false, BH_TELEMETRY=false,
+BROWSER_USE_CLOUD_SYNC=false. BROWSER_HARNESS_TELEMETRY is not persisted.
+Export all four false for every browser-use invocation, plus PYTHONIOENCODING=utf-8.
+
+FUNCTIONAL TESTS (Chrome/156.0.8078.80, real local Chrome connection)
+PASS: isolated data-URL navigation, JS, coordinate click, focus emulation enable/disable,
+Input.insertText keyword parameters, accessibility tree, screenshot capture.
+PASS: temporary tab closed, original attached tab restored, original tab set unchanged.
+These are smoke tests, not exhaustive tests of uploads, downloads, dialogs or auth flows.
 
 DO NOT RUN
 - browser-use skill install
 - browser-use --update
-Both can overwrite the hardened skill and restore vendor defaults.
+They can overwrite the hardened skill and restore vendor defaults.
 
 VERIFY
   sha256sum -c integrity.sha256
-A SKILL.md mismatch means stop browser work, diff against the current pristine copy,
-and restore the approved vendor boundary before proceeding.
+The manifest covers the hardened SKILL.md and all three pristine upstream copies.
+A SKILL.md mismatch means stop browser work, inspect the diff and restore the approved
+vendor boundary before proceeding. Update the manifest only after reviewing changes.
+
+LICENSE
+Both upstream packages are MIT licensed; upstream license terms remain applicable.

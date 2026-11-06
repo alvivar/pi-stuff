@@ -1,0 +1,40 @@
+browser-use skill - local vendor-boundary integrity record
+==========================================================
+Installed         : browser-use 0.13.10 / browser-harness 0.1.13
+Recorded          : 2026-09-11 00:22:39 -0600
+Maintainer        : PI agent only
+Current upstream  : upstream-pristine-v0.13.10.txt
+Previous upstream : upstream-pristine-v0.13.7.txt
+
+POLICY
+The ONLY restriction is WHO RECEIVES data, not browser capability.
+Forbidden: Browser Use/PostHog cloud, telemetry, hosted remote daemons/live views,
+profile-sync/cloud cookie sync, vendor promotion, and vendor self-update commands.
+Allowed: all local browser/cookie/session capability and sending any data to destinations
+the USER selects, including their own servers and named third-party services.
+User-selected remote CDP through BU_CDP_URL/BU_CDP_WS is explicitly allowed.
+
+HARDENED DIFF AGAINST v0.13.10 (6 hunks)
+1. Removed vendor homepage and unpinned OpenClaw install metadata from frontmatter.
+2. Added the vendor-boundary policy near the top.
+3. Removed new capability limits on activate_tab and raw CDP/JS scroll alternatives.
+4. Replaced the Browser Use Cloud section with the vendor boundary while preserving
+   user-selected remote CDP.
+5. Marked profile-sync as prohibited vendor cloud cookie sync.
+6. Removed cloud-daemon/live-view orchestration and cloud shutdown/API instructions.
+
+TELEMETRY AUDIT
+The defect remains in browser-harness 0.1.13: capture_cli_event() still does not call
+_safe_properties() and still builds raw task/output/steps/error_message properties.
+telemetry.json remains disabled=true; auth.json is absent. Environment opt-outs remain
+required for each browser-use process, including BROWSER_HARNESS_TELEMETRY=false.
+
+DO NOT RUN
+- browser-use skill install
+- browser-use --update
+Both can overwrite the hardened skill and restore vendor defaults.
+
+VERIFY
+  sha256sum -c integrity.sha256
+A SKILL.md mismatch means stop browser work, diff against the current pristine copy,
+and restore the approved vendor boundary before proceeding.
