@@ -25,6 +25,15 @@ their version is cut, so a new entry may not have one yet.
 
 ### Changed
 
+- **Agents run Pi SDK 1.5.0.** The dependency moves from exactly `1.4.0` to exactly `1.5.0`.
+  Agents and their extensions get Pi 1.5.0's changes, including its breaking one: tool
+  arguments are validated with pi-schema, so TypeBox features outside JSON Schema no longer
+  apply to extension tools. When no `--model` is given and Pi picks an OpenAI model by
+  default, it is now `gpt-6.1-sol` instead of `gpt-5.5`. Compaction with a provider signed in
+  through OAuth now uses that login, as prompts do. `npm audit` no longer flags undici. An
+  extension package Pi cannot install no longer stops an agent from starting: the agent runs
+  without it, and the log records a `diagnostic` warning, as for every extension package
+  warning Pi reports.
 - **The docs no longer say that `pi --fork` leaves the agent untouched.** Pi ends an
   incomplete last line of the file it forks with a newline, a write to the agent's session if
   the agent is writing at that moment. The README and the skill now say to stop the agent

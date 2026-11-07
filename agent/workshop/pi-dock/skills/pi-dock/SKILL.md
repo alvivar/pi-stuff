@@ -167,7 +167,8 @@ extension_error extension on reason
                                an extension handler for event `on` threw, or (on load) the
                                extension failed to load and the agent runs without it
 diagnostic type message        at boot, a problem Pi reported while loading, e.g. an unknown
-                               --x flag
+                               --x flag, or an extension package it could not install (the
+                               agent runs without it)
 ```
 
 - `done` proves that run ended, not that the agent is idle or a collaboration is over: queued

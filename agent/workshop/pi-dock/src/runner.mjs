@@ -116,7 +116,7 @@ async function shutdown(event, details, code) {
   // Read before abort's await, during which a pending bindExtensions could still complete.
   const extensionsBound = bound;
   unsubscribe();
-  // Not expected to reject: in SDK 1.4.0, abort() signals the run, retry and compaction to stop,
+  // Not expected to reject: in SDK 1.5.0, abort() signals the run, retry and compaction to stop,
   // then awaits idle, which only resolves. Should it reject, shutdown still ends in its terminal
   // event, which would not mention the failed abort.
   await session?.abort().catch(() => {});
@@ -400,7 +400,13 @@ try {
   // to register. Logged at once, so a later startup failure (say, the model that provider
   // supplies is not found) keeps the cause. Pi's CLI exits on such an error; a diagnostic does
   // not itself stop an agent, as with a flag whose extension is not loaded.
-  for (const { type, message } of services.diagnostics) {
+  // Pi's CLI also reports each extension package warning as a diagnostic. Since SDK 1.5.0 this
+  // includes a package that could not be installed, which the agent then runs without.
+  const packageWarnings = (services.resourceLoader.getExtensions().warnings ?? []).map(({ path: source, warning }) => ({
+    type: 'warning',
+    message: `Extension package "${source}": ${warning}`,
+  }));
+  for (const { type, message } of [...services.diagnostics, ...packageWarnings]) {
     appendLog({ event: 'diagnostic', type, message });
   }
   const modelSpec = createMode ? values.model : existing.model;

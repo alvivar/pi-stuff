@@ -41,7 +41,7 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 
 - Node.js **22.19 or later** (required by the Pi SDK).
 - Pi set up with credentials for at least one model. pi-dock runs agents with its own copy of the
-  Pi SDK (`@earendil-works/pi-coding-agent` 1.4.0) but uses your Pi agent directory
+  Pi SDK (`@earendil-works/pi-coding-agent` 1.5.0) but uses your Pi agent directory
   (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`) for credentials, settings, models and extensions.
   `pi-dock models` lists only the models whose credentials are configured.
 - The `pi` command is needed to set up credentials and to install pi-dock for Pi (below).
@@ -68,13 +68,6 @@ install it globally:
 npm i -g pi-dock           # optional
 npm uninstall -g pi-dock   # undo
 ```
-
-`npm audit` flags undici (GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472, GHSA-xjj6-f33q-929c; fixed
-in 8.12.2) through the Pi SDK, which pins undici 8.10.2. pi-dock can't override it for you:
-npm ignores `overrides` in an installed package, and `npm audit fix --force` would downgrade
-the SDK to 0.75.3. Exploiting them takes a malicious HTTP or SSE response on an affected
-undici API path; Pi 1.4.0 pins the same vulnerable undici version. The warning goes away once
-pi-dock moves to an SDK that ships a fixed undici.
 
 For development, install it from a checkout of this directory:
 

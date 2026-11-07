@@ -670,7 +670,7 @@ async function main() {
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dock, `${rewriteName}.json`), 'utf8')), manifest('after', 20));
     assert.deepEqual(await tempFiles(dock), [], 'rewrite leaves no temp files');
 
-    let cases = 94;
+    let cases = 95;
     if (process.platform === 'win32') {
       console.log('regression: SKIPPED 5 Unix socket acquisition cases (Windows uses named pipes)');
     } else {
@@ -1444,6 +1444,23 @@ async function main() {
       { event: 'diagnostic', type: 'error', message: 'Unknown options: --nope, --nope-value' },
     ], 'an SDK diagnostic is logged at startup');
     await stop(unknownFlagsName, unknownFlags);
+
+    // An extension package warning is a diagnostic too, logged before a later startup failure. A
+    // host-provided package in dependencies instead of peerDependencies warns without network.
+    const warningCwd = path.join(sandbox, 'package-warning-cwd');
+    const warningPackage = path.join(sandbox, 'warning-package');
+    await fs.mkdir(path.join(warningCwd, '.pi'), { recursive: true });
+    await fs.mkdir(warningPackage);
+    await fs.writeFile(path.join(warningPackage, 'package.json'), JSON.stringify({ name: 'warning-package', version: '1.0.0', type: 'module', pi: { extensions: ['./extension.js'] }, dependencies: { '@earendil-works/pi-ai': '*' } }));
+    await fs.writeFile(path.join(warningPackage, 'extension.js'), 'export default function () {}\n');
+    await fs.writeFile(path.join(warningCwd, '.pi', 'settings.json'), JSON.stringify({ packages: [warningPackage] }));
+    const warningName = `package-warning-${randomUUID()}`;
+    const warned = own(launchRunner(sandbox, ['--name', warningName, '--cwd', warningCwd, '--model', 'regress/alpha-2', '--tool', 'nope', '--create']), warningName);
+    assert.deepEqual(await waitForExit(warned), { code: 1, signal: null }, 'a runner with an unknown tool fails');
+    const warningEvents = withoutTimes(await logEvents(dock, warningName));
+    assert.deepEqual(warningEvents.map(({ event, type }) => [event, type]), [['diagnostic', 'warning'], ['failed', undefined]], JSON.stringify(warningEvents));
+    assert(warningEvents[0].message.startsWith(`Extension package "${path.join(warningPackage, 'package.json')}": Host-provided extension packages must be declared in peerDependencies`), warningEvents[0].message);
+    assert.equal(warningEvents[1].reason, 'tools not found: nope');
 
     // Per-agent system prompt and tools, as the provider receives them. The agents share a cwd
     // whose AGENTS.md (inherited context), .pi/SYSTEM.md (folder prompt) and extension tool

@@ -31,7 +31,7 @@ ships.
 
 ## Decide later
 
-- **SDK upgrades:** the SDK is pinned to exactly `1.4.0`. When to move to a newer Pi, and
+- **SDK upgrades:** the SDK is pinned to exactly `1.5.0`. When to move to a newer Pi, and
   whether each upgrade needs a paid smoke.
 
 ## Ideas — need design before building
@@ -55,7 +55,7 @@ ships.
 | Extension errors after shutdown begins are not logged, including `session_shutdown` handler errors. | Keeps `stopped`/`failed` the last event. | Shutdown errors need diagnosing. |
 | A `session_shutdown` handler that hangs keeps the agent from exiting; `stop` reports `did not exit within 5s`. | Pi waits for it the same way on quit; the failure is visible. | A real extension hangs there. |
 | A create that fails (e.g. no model) logs `failed` but not the extension load errors. | Load errors are logged for agents that boot. | They are needed to diagnose a failed create. |
-| `textFromMessage` trusts that `turn_end` carries an assistant message. | Guaranteed by the SDK 1.4.0 emitters, not by its public types. | The SDK is upgraded. |
+| `textFromMessage` trusts that `turn_end` carries an assistant message. | Guaranteed by the SDK 1.5.0 emitters, not by its public types. | The SDK is upgraded. |
 | A pipe request relies on `'close'` (no `'end'` handler). | Correct with our runner, the only peer. | Another process talks on the pipe. |
 | A non-JSON pipe reply is reported with Node's raw error, which shows its first 10 characters. | The pipe belongs to our own runner. | Sensitive data crosses the pipe. |
 | The smoke checks the requested thinking level in the manifest, not the level the model applies. | For `gpt-6-luna`, `high` is not clamped. | The smoke runs on another model or level. |
