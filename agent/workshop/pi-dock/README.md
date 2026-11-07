@@ -177,8 +177,8 @@ Long prompts are easier with `--file prompt.md`. Prompts run one at a time, in o
 ### Models and thinking
 
 - `--model provider/id` takes a ref from `pi-dock models`. Without it, Pi's default model is
-  used. An unknown model (the error suggests matches) or one without credentials fails before
-  anything is created.
+  used, or with `--fork` the source's model if it has credentials. An unknown model (the error
+  suggests matches) or one without credentials fails before an agent or a copy is created.
 - `--thinking off|minimal|low|medium|high|xhigh|max` is applied on every wake. Without it, Pi
   restores the session's saved level or uses its configured default; levels the model does not
   support are clamped by Pi.
@@ -473,8 +473,11 @@ pi --fork <session file>      # a copy, as a new session in the current director
 pi --session <session file>   # the agent's own conversation; stop the agent first
 ```
 
-- `--fork` leaves the agent untouched and needs no stop: use it to read the conversation or
-  continue it separately.
+- `--fork` opens a copy as a separate session: use it to read the conversation or continue it
+  separately. Pi ends an incomplete last line of the file it forks with a newline, a write to
+  the agent's session if the agent is writing at that moment, so stop the agent first or fork a
+  copy of its file. `pi-dock spawn --fork` only reads the session; see
+  [Forking a session](#forking-a-session).
 - `--session` continues the agent's own session, in the agent's directory. Stop the agent
   first and don't wake it until you quit Pi: while both run, they append to the same file
   without seeing each other's entries. `pi --continue` or `pi --resume` in the agent's

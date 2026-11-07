@@ -23,6 +23,13 @@ their version is cut, so a new entry may not have one yet.
   uses the source's model if it has credentials, and preflight checks that model. A spawn that
   fails before the agent exists removes the copy.
 
+### Changed
+
+- **The docs no longer say that `pi --fork` leaves the agent untouched.** Pi ends an
+  incomplete last line of the file it forks with a newline, a write to the agent's session if
+  the agent is writing at that moment. The README and the skill now say to stop the agent
+  first or fork a copy of its file; `spawn --fork` only reads it.
+
 ## 0.5.2 — 2026-11-01
 
 ### Changed

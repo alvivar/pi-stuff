@@ -207,8 +207,10 @@ diagnostic type message        at boot, a problem Pi reported while loading, e.g
 - Never let Pi and a running agent write the same session, including through `pi -p`:
   `pi --session <file>` continues the agent's own session, and `--continue` or `--resume` in the
   agent's cwd may select it, so verify the selection or stop the agent first. What Pi adds there
-  is part of the agent's memory on its next wake. To inspect the session, read the file;
-  `pi --fork <file>` starts a separate session. See
+  is part of the agent's memory on its next wake. To inspect the session, read the file.
+  `pi --fork <file>` starts a separate session but can end an incomplete last line of the file
+  with a newline: with a running agent, fork a copy of the file or use `pi-dock spawn --fork`,
+  which only reads it. See
   [Opening an agent's session](../../README.md#opening-an-agents-session-in-pi).
 - `stop` is not deletion, and pi-dock never deletes an agent or its files. Delete an agent only
   when the task asks for it, and only once the agent is off: `stop` printed `stopped`,
