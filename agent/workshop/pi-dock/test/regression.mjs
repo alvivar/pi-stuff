@@ -670,7 +670,7 @@ async function main() {
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dock, `${rewriteName}.json`), 'utf8')), manifest('after', 20));
     assert.deepEqual(await tempFiles(dock), [], 'rewrite leaves no temp files');
 
-    let cases = 90;
+    let cases = 94;
     if (process.platform === 'win32') {
       console.log('regression: SKIPPED 5 Unix socket acquisition cases (Windows uses named pipes)');
     } else {
@@ -757,7 +757,7 @@ async function main() {
       skill: 'pi-dock skill',
       '--help': 'pi-dock [--help | -h]',
       '-h': 'pi-dock [--help | -h]',
-      spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
+      spawn: 'pi-dock spawn --name <name> [--fork <path|id>] [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
       set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
     };
     const emptyPrompt = path.join(sandbox, 'empty-prompt.txt');
@@ -908,6 +908,7 @@ async function main() {
     const emptySpawnName = `spawn-empty-${randomUUID()}`;
     for (const [commandArgs, option] of [
       [['spawn', '--name', emptySpawnName, '--model='], 'model'],
+      [['spawn', '--name', emptySpawnName, '--fork', ''], 'fork'],
       [['spawn', '--name', emptySpawnName, '--thinking', ''], 'thinking'],
       [['set', emptySetName, '--model='], 'model'],
       [['set', emptySetName, '--model=', '--thinking', 'max'], 'model'],
@@ -1476,12 +1477,14 @@ async function main() {
     const readerName = `reader-${randomUUID()}`;
     const writerName = `writer-${randomUUID()}`;
     const thinkerName = `thinker-${randomUUID()}`;
+    const forkPathName = `fork-path-${randomUUID()}`;
+    const forkIdName = `fork-id-${randomUUID()}`;
     // The CLI launches these runners, so main's cleanup does not know them. As for the other
     // CLI-launched agents in this suite, a failed stop is reported, not recovered: it fails the
     // suite, and every name is still tried. A name never created has nothing to stop.
     const stopConfigAgents = async () => {
       const failures = [];
-      for (const name of [readerName, writerName, thinkerName]) {
+      for (const name of [readerName, writerName, thinkerName, forkPathName, forkIdName]) {
         try {
           const result = await runOwnedNode(sandbox, cli, ['stop', name]);
           if (result.code !== 0 && result.stderr !== `no such agent: ${name}\n`) {
@@ -1551,6 +1554,68 @@ async function main() {
       assert.equal((await runOwnedNode(sandbox, cli, ['stop', readerName])).stdout, `${readerName} stopped\n`);
       assert.equal((await runOwnedNode(sandbox, cli, ['set', readerName, '--tools', 'grep,nope'])).code, 0);
       await assertFailsFast(['start', readerName], readerName, 'a wake with an unknown tool fails fast');
+
+      // spawn --fork, as `pi --fork`: a new session in the spawn's cwd that copies the source,
+      // named by path or exact id. The fork cwd's default model is alpha-2, so a source on
+      // alpha-10 shows whether the fork restores the source's model.
+      const forkSourceCwd = path.join(sandbox, 'fork-source-cwd');
+      const forkCwd = path.join(sandbox, 'fork-cwd');
+      await fs.mkdir(forkSourceCwd);
+      await fs.mkdir(path.join(forkCwd, '.pi'), { recursive: true });
+      await fs.writeFile(path.join(forkCwd, '.pi', 'settings.json'), JSON.stringify({ defaultProvider: 'regress', defaultModel: 'alpha-2' }));
+      const sourceName = `fork-source-${randomUUID()}`;
+      const source = own(launchRunner(sandbox, ['--name', sourceName, '--cwd', forkSourceCwd, '--model', 'regress/alpha-10', '--create']), sourceName);
+      assert(await waitForStatus(pipePath(sourceName)), 'fork source starts');
+      provider.replies.push(textReply('noted'));
+      assert.equal((await wait(sourceName, await send(sourceName, 'remember apple'))).stdout, 'noted\n');
+      await stop(sourceName, source);
+      const sourceFile = (await configManifest(sourceName)).sessionFile;
+      const sourceBytes = await fs.readFile(sourceFile);
+      const sourceId = JSON.parse(sourceBytes.toString('utf8').split('\n')[0]).id;
+      const forkHeader = async (name) => {
+        const { sessionFile } = await configManifest(name);
+        assert.notEqual(sessionFile, sourceFile, `${name} has a session of its own`);
+        return JSON.parse((await fs.readFile(sessionFile, 'utf8')).split('\n')[0]);
+      };
+
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['spawn', '--name', forkPathName, '--fork', path.relative(forkCwd, sourceFile)], forkCwd), exited(0, `${forkPathName} idle regress/alpha-10\n`, ''), 'a fork by relative path, without --model, gets the source model');
+      const pathHeader = await forkHeader(forkPathName);
+      assert.deepEqual([pathHeader.cwd, pathHeader.parentSession], [forkCwd, sourceFile], 'the fork lives in the spawn cwd and names its source');
+      assert.notEqual(pathHeader.id, sourceId, 'the fork has a new session id');
+      provider.replies.push(textReply('apple'));
+      assert.equal((await wait(forkPathName, await send(forkPathName, 'which word?'))).stdout, 'apple\n');
+      const forkRequest = provider.requests.at(-1);
+      assert.equal(forkRequest.model, 'alpha-10', 'the fork runs on the source model');
+      // messages[0] is the system prompt (role developer for a reasoning model).
+      const conversation = forkRequest.messages.slice(1).map((message) => `${message.role}: ${JSON.stringify(message.content)}`).join('\n');
+      assert.match(conversation, /^user: .*remember apple.*\nassistant: .*noted.*\nuser: .*which word\?.*$/, 'the fork sends the source conversation before its own prompt');
+      assert.deepEqual(await fs.readFile(sourceFile), sourceBytes, 'forking leaves the source byte-identical');
+
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['spawn', '--name', forkIdName, '--fork', sourceId, '--model', 'regress/alpha-2'], forkCwd), exited(0, `${forkIdName} idle regress/alpha-2\n`, ''), 'a fork by exact id from another project, with --model');
+      assert.equal((await forkHeader(forkIdName)).parentSession, sourceFile, 'the id names the source session');
+
+      const sessionsTree = () => treeEntries(path.join(sandbox, 'agent', 'sessions'));
+      const beforeRefusedForks = await sessionsTree();
+      for (const [fork, stderr] of [
+        ['missing.jsonl', `ENOENT: no such file or directory, access '${path.join(forkCwd, 'missing.jsonl')}'\n`],
+        [sourceId.slice(0, 8), `no session found with id: ${sourceId.slice(0, 8)}\n`],
+      ]) {
+        const refusedName = `fork-refused-${randomUUID()}`;
+        assert.deepEqual(await runOwnedNode(sandbox, cli, ['spawn', '--name', refusedName, '--fork', fork], forkCwd), exited(1, '', stderr), `--fork ${fork} is refused`);
+        await assert.rejects(fs.access(logPath(refusedName)), { code: 'ENOENT' }, `--fork ${fork} starts no runner`);
+      }
+      // A source whose last line is cut short, as while its writer appends; the SDK's forkFrom
+      // would end it with a newline.
+      const tornSource = path.join(sandbox, 'torn-source.jsonl');
+      const tornBytes = Buffer.concat([sourceBytes, Buffer.from('{"type":"message","id":"torn')]);
+      await fs.writeFile(tornSource, tornBytes);
+      const forkTypoName = `fork-typo-${randomUUID()}`;
+      const forkTypo = await runOwnedNode(sandbox, cli, ['spawn', '--name', forkTypoName, '--fork', tornSource, '--model', 'regress/alpha-2', '--tools', 'nope'], forkCwd);
+      assert.equal(forkTypo.code, 1, forkTypo.stdout);
+      assert(forkTypo.stderr.includes('"reason":"tools not found: nope"'), forkTypo.stderr);
+      await assert.rejects(fs.access(manifestPath(forkTypoName)), { code: 'ENOENT' }, 'a fork that fails startup creates no agent');
+      assert.deepEqual(await sessionsTree(), beforeRefusedForks, 'a refused or failed fork leaves no session behind');
+      assert.deepEqual(await fs.readFile(tornSource), tornBytes, 'a fork only reads its source');
     } catch (error) {
       configError = error;
     }

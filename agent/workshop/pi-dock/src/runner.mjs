@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, readFileSync, truncateSync } from 'node:fs';
+import { appendFileSync, closeSync, openSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
   initTheme,
+  parseSessionEntries,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { ManifestExistsError, readManifest, readSystemPrompt, writeManifest } from './manifest.mjs';
@@ -16,6 +17,7 @@ const { values } = parseArgs({
   options: {
     name: { type: 'string' },
     cwd: { type: 'string' },
+    fork: { type: 'string' },
     model: { type: 'string' },
     thinking: { type: 'string' },
     x: { type: 'string', multiple: true },
@@ -41,6 +43,10 @@ let terminal = false;
 // Set once bindExtensions has completed; only a shutdown that begins after that emits
 // session_shutdown.
 let bound = false;
+// A fork's session file until the manifest names it. Unlike a new session, written on its first
+// message, a fork is written at once; a startup that ends before it is published removes it, so
+// it leaves no copy that no agent owns and that `pi --continue` in its cwd would resume.
+let unpublishedFork;
 let queue = Promise.resolve();
 // Settles once the runner is ready or terminal; pipe requests that arrive earlier wait for it.
 let settleStartup;
@@ -277,6 +283,28 @@ function findModel(modelRuntime, spec) {
   return model;
 }
 
+// As `pi --fork`: a new session in cwd with a copy of every entry of the source, its header
+// naming the source as parentSession. Unlike the SDK's forkFrom, the source is only read: forkFrom
+// ends an unterminated last line with a newline, a write to a session that another agent or Pi
+// may be running. Here an incomplete last line is left out of the copy instead.
+function forkSession(source, cwd) {
+  const entries = parseSessionEntries(readFileSync(source, 'utf8'));
+  if (entries[0]?.type !== 'session') {
+    throw new Error(`cannot fork ${source}: not a Pi session`);
+  }
+  // The SDK's header and file name for a new session in cwd; it writes nothing until a message.
+  const fork = SessionManager.create(cwd, undefined, { parentSession: source });
+  const copy = [fork.getHeader(), ...entries.filter((entry) => entry.type !== 'session')];
+  const fd = openSync(fork.getSessionFile(), 'wx');
+  unpublishedFork = fork.getSessionFile();
+  try {
+    writeFileSync(fd, copy.map((entry) => `${JSON.stringify(entry)}\n`).join(''));
+  } finally {
+    closeSync(fd);
+  }
+  return SessionManager.open(fork.getSessionFile(), undefined, cwd);
+}
+
 // Checked before the manifest is published and extensions are bound: the SDK ignores names it
 // does not know, so a typo or a tool whose extension is not installed would go unnoticed.
 function requireTools(names) {
@@ -376,9 +404,14 @@ try {
   const model = modelSpec ? findModel(services.modelRuntime, modelSpec) : undefined;
   // The session file is written only after the first message; without the cwd override, opening
   // a missing one would start a session in the waker's cwd instead of the agent's.
-  const sessionManager = createMode
-    ? SessionManager.create(cwd)
-    : SessionManager.open(existing.sessionFile, undefined, cwd);
+  let sessionManager;
+  if (!createMode) {
+    sessionManager = SessionManager.open(existing.sessionFile, undefined, cwd);
+  } else if (values.fork) {
+    sessionManager = forkSession(values.fork, cwd);
+  } else {
+    sessionManager = SessionManager.create(cwd);
+  }
   let extensionsResult;
   ({ session, extensionsResult } = await createAgentSessionFromServices({
     services,
@@ -422,10 +455,14 @@ try {
     } catch (error) {
       if (error instanceof ManifestExistsError) {
         session.dispose();
+        if (unpublishedFork) {
+          rmSync(unpublishedFork);
+        }
         process.exit(0);
       }
       throw error;
     }
+    unpublishedFork = undefined;
   }
 
   // The SDK returns extensions that failed to load instead of reporting them to onError. Like a
@@ -463,5 +500,13 @@ try {
 
   settleStartup();
 } catch (error) {
-  await fail(error);
+  let failure = error;
+  if (unpublishedFork) {
+    try {
+      rmSync(unpublishedFork);
+    } catch (removeError) {
+      failure = new Error(`${error.message}; the fork was not removed: ${removeError.message}`);
+    }
+  }
+  await fail(failure);
 }

@@ -12,6 +12,17 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
+## Unreleased
+
+### Added
+
+- **`spawn --fork` starts an agent from a copy of an existing Pi session.** As with
+  `pi --fork`, the copy is a new session in the current directory whose header names the
+  source, which pi-dock only reads. The source is a session file or an exact session id, so an
+  agent can fork its own conversation with `$PI_SESSION_FILE`. Without `--model`, the agent
+  uses the source's model if it has credentials, and preflight checks that model. A spawn that
+  fails before the agent exists removes the copy.
+
 ## 0.5.2 — 2026-11-01
 
 ### Changed

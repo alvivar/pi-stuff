@@ -32,12 +32,19 @@ of every command.
 1. `pi-dock models [filter]` — when you need to choose a model: lists the `provider/id` refs
    that have configured credentials. The filter is a case-insensitive substring of
    `provider/id`, or `provider-part/id-part`.
-2. `pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>]
+2. `pi-dock spawn --name <name> [--fork <path|id>] [--model <provider/id>] [--thinking <level>]
    [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...`
    — create the agent in the current directory. It takes no prompt and prints
    `<name> <state> <provider/id>`.
-   - Without `--model`, Pi's default model is used. An unknown model (the error suggests
+   - Without `--model` or `--fork`, Pi's default model is used. An unknown model (the error suggests
      matches) or one without credentials fails preflight, and nothing is created.
+   - `--fork <path|id>` starts from a copy of that session, as `pi --fork`: a path (it has `/`
+     or `\`, or ends in `.jsonl`) or an exact session id. Take another agent's session file
+     from `show`; your own is `$PI_SESSION_FILE`. Without `--model`, the source's model is used
+     if it has credentials; thinking and tools follow the session unless set; the system prompt
+     is not inherited. A fork of your own session ends at your unanswered `pi-dock spawn` call,
+     which it sees as failed: say in its first prompt that it is the fork. See
+     [Forking a session](../../README.md#forking-a-session).
    - `--thinking` is `off|minimal|low|medium|high|xhigh|max` and is applied on every wake.
      Without it, the session's saved level or Pi's default applies.
    - Names are lowercase `a-z0-9` segments joined by single `.`, `_` or `-`, at most 64
@@ -203,9 +210,10 @@ diagnostic type message        at boot, a problem Pi reported while loading, e.g
   is part of the agent's memory on its next wake. To inspect the session, read the file;
   `pi --fork <file>` starts a separate session. See
   [Opening an agent's session](../../README.md#opening-an-agents-session-in-pi).
-- `stop` is not deletion, and pi-dock never deletes anything. Delete an agent only when the task
-  asks for it, and only once the agent is off: `stop` printed `stopped`, `already stopped` or
-  `already failed` (after a `did not exit` timeout, only once its runner process has exited; see
-  Recovery). Without its manifest, a runner still on can no longer be stopped by name. Remove
-  the manifest and the log (a new agent of that name would append to the old log), and the
-  session file if wanted. See [Deleting an agent](../../README.md#deleting-an-agent).
+- `stop` is not deletion, and pi-dock never deletes an agent or its files. Delete an agent only
+  when the task asks for it, and only once the agent is off: `stop` printed `stopped`,
+  `already stopped` or `already failed` (after a `did not exit` timeout, only once its runner
+  process has exited; see Recovery). Without its manifest, a runner still on can no longer be
+  stopped by name. Remove the manifest and the log (a new agent of that name would append to
+  the old log), and the session file if wanted. See
+  [Deleting an agent](../../README.md#deleting-an-agent).

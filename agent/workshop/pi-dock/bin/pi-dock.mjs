@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -14,7 +14,7 @@ const runner = path.join(root, 'src', 'runner.mjs');
 const command = process.argv[2] === '-h' ? '--help' : process.argv[2];
 const args = process.argv.slice(3);
 const USAGE = {
-  spawn: 'pi-dock spawn --name <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
+  spawn: 'pi-dock spawn --name <name> [--fork <path|id>] [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
   send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
   wait: 'pi-dock wait <name> <id>',
   start: 'pi-dock start <name>',
@@ -52,7 +52,7 @@ function parseCommand(argv, options, maxPositionals) {
     failUsage(`Unexpected argument '${parsed.positionals[maxPositionals]}'`);
   }
   // An explicit empty value is likely an unset variable in a script, never "use the default".
-  for (const option of ['model', 'thinking', 'system-prompt', 'tools']) {
+  for (const option of ['fork', 'model', 'thinking', 'system-prompt', 'tools']) {
     if (parsed.values[option] === '') {
       failUsage(`Option '--${option}' must not be empty`);
     }
@@ -160,6 +160,26 @@ async function readSystemPromptOption(values) {
   return { file, content: await readSystemPrompt(file) };
 }
 
+// The session file --fork names, read as `pi --fork` reads it: a path if it has a separator or
+// ends in .jsonl, relative to this command's cwd; otherwise an exact session id, looked up in
+// Pi's default session directory, this cwd's project first (it reads only headers), then every
+// project. Unlike Pi, no id prefix: it could fork another conversation unnoticed.
+async function resolveForkSource(value) {
+  if (value.includes('/') || value.includes('\\') || value.endsWith('.jsonl')) {
+    const file = path.resolve(value);
+    // A check for clear errors only: the runner reads the file when it forks.
+    await access(file);
+    return file;
+  }
+  const { SessionManager } = await import('@earendil-works/pi-coding-agent');
+  const file = SessionManager.findById(process.cwd(), value)
+    ?? (await SessionManager.listAll()).find((session) => session.id === value)?.path;
+  if (file === undefined) {
+    fail(`no session found with id: ${value}`);
+  }
+  return file;
+}
+
 function describeSystemPrompt(manifest) {
   return manifest.systemPrompt === undefined ? '-' : `${Buffer.byteLength(manifest.systemPrompt)} bytes`;
 }
@@ -187,6 +207,9 @@ function launchRunner(name, options = {}) {
 
   if (options.cwd) {
     argv.push('--cwd', options.cwd);
+  }
+  if (options.fork) {
+    argv.push('--fork', options.fork);
   }
   if (options.model) {
     argv.push('--model', options.model);
@@ -296,10 +319,11 @@ async function matchingModels(modelRuntime, filter) {
     .sort((a, b) => (modelRef(a) < modelRef(b) ? -1 : 1));
 }
 
-async function preflightSpawn(cwd, modelSpec) {
+async function preflightSpawn(cwd, modelSpec, forkFile) {
   const {
     createAgentSession,
     ModelRuntime,
+    parseSessionEntries,
     SessionManager,
   } = await import('@earendil-works/pi-coding-agent');
   const modelRuntime = await ModelRuntime.create();
@@ -321,9 +345,12 @@ async function preflightSpawn(cwd, modelSpec) {
 
   let session;
   try {
+    // A fork's entries, held in memory, so the SDK picks the model the runner will start with:
+    // the source's, if its provider has credentials, else the default.
+    const entries = forkFile === undefined ? undefined : parseSessionEntries(await readFile(forkFile, 'utf8'));
     ({ session } = await createAgentSession({
       cwd,
-      sessionManager: SessionManager.inMemory(cwd),
+      sessionManager: SessionManager.inMemory(cwd, undefined, entries),
       modelRuntime,
     }));
 
@@ -408,7 +435,7 @@ function renderEvent(line) {
 }
 
 async function spawnCommand(argv) {
-  const { values } = parseCommand(argv, { name: { type: 'string' }, ...CONFIG_OPTIONS }, 0);
+  const { values } = parseCommand(argv, { name: { type: 'string' }, fork: { type: 'string' }, ...CONFIG_OPTIONS }, 0);
   if (values.name === undefined) {
     failUsage();
   }
@@ -423,15 +450,17 @@ async function spawnCommand(argv) {
     fail(`agent already exists: ${name}`);
   }
 
+  const forkFile = values.fork === undefined ? undefined : await resolveForkSource(values.fork);
   const cwd = process.cwd();
   try {
-    await preflightSpawn(cwd, values.model);
+    await preflightSpawn(cwd, values.model, forkFile);
   } catch (error) {
     fail(`preflight failed: ${error.message}; no agent was created`);
   }
 
   const child = launchRunner(name, {
     cwd,
+    fork: forkFile,
     model: values.model,
     thinking: values.thinking,
     flags: values.x,
