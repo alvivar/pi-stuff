@@ -146,7 +146,7 @@ try {
   expect('bare help is static and complete', result.status === 0 && help.includes('pi-dock spawn') && help.includes('pi-dock compact') && help.includes('pi-dock models') && help.includes('pi-dock skill') && help.includes('read the output of pi-dock skill'), result.stderr || help);
 
   result = run(['skill']);
-  expect('skill prints the operating guide', result.status === 0 && result.stdout === readFileSync(path.join(process.cwd(), 'skills', 'pi-dock', 'SKILL.md'), 'utf8') && result.stdout.includes('not responding') && result.stdout.includes('event:"text"') && result.stdout.includes('--follow'), result.stderr || result.stdout);
+  expect('skill prints the operating guide', result.status === 0 && result.stdout === readFileSync(path.join(process.cwd(), 'skills', 'pi-dock', 'SKILL.md'), 'utf8') && result.stdout.includes('not responding') && result.stdout.includes('text id? text') && result.stdout.includes('--follow'), result.stderr || result.stdout);
 
   result = run(['--help']);
   expect('long help matches bare help', result.status === 0 && result.stdout === help, result.stderr || result.stdout);
