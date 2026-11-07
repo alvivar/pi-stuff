@@ -17,21 +17,17 @@ ships.
          macOS: whether names that share a long prefix can collide.
        - **Probe failure:** a failed probe logs `failed`; verified only on a simulated
          platform.
-2. [ ] **Comment the `abort()` catch** — `shutdown` does `session.abort().catch(() => {})`. If
-       `abort()` ever rejected, the log would say `stopped` untruthfully; whether it can is not
-       established. Recommended: a comment stating the assumption; log `failed` only if it is
-       ever seen.
-3. [ ] **Extension-registered providers** in `models` and spawn/set preflight — both use a
+2. [ ] **Extension-registered providers** in `models` and spawn/set preflight — both use a
        bare `ModelRuntime`, so providers registered by extensions are not visible and
        spawn/set can reject a valid model. Only matters with extension providers.
-4. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
+3. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
        `logs` and `show` already tell restarts apart.
-5. [ ] **Narrow a catch** (low) — `agentState` falls back to the log's state on any
+4. [ ] **Narrow a catch** (low) — `agentState` falls back to the log's state on any
        non-timeout error, even one that doesn't prove the agent is off.
 
 ## Release
 
-6. [ ] **Publish 0.5.2** — the owner publishes by hand.
+5. [ ] **Publish 0.5.2** — the owner publishes by hand.
 
 ## Decide later
 
@@ -40,7 +36,6 @@ ships.
 
 ## Ideas — need design before building
 
-- `fork`.
 - **Summary retention test** (paid): compaction experiments only recalled facts from the kept
   tail. Plant a fact only in the summarized prefix and ask a question that doesn't hint at it.
 - **Readability nits**, not defects: the pipe server accepts several lines per connection
