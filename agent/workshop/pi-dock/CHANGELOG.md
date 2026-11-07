@@ -12,18 +12,9 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.6.0 — 2026-11-07
 
-### Added
-
-- **`spawn --fork` starts an agent from a copy of an existing Pi session.** As with
-  `pi --fork`, the copy is a new session in the current directory whose header names the
-  source, which pi-dock only reads. The source is a session file or an exact session id, so an
-  agent can fork its own conversation with `$PI_SESSION_FILE`. Without `--model`, the agent
-  uses the source's model if it has credentials, and preflight checks that model. A spawn that
-  fails before the agent exists removes the copy.
-
-### Changed
+### Breaking changes
 
 - **Agents run Pi SDK 1.5.0.** The dependency moves from exactly `1.4.0` to exactly `1.5.0`.
   Agents and their extensions get Pi 1.5.0's changes, including its breaking one: tool
@@ -33,11 +24,23 @@ their version is cut, so a new entry may not have one yet.
   through OAuth now uses that login, as prompts do. `npm audit` no longer flags undici. An
   extension package Pi cannot install no longer stops an agent from starting: the agent runs
   without it, and the log records a `diagnostic` warning, as for every extension package
-  warning Pi reports.
+  warning Pi reports. (`68a0900`)
+
+### Added
+
+- **`spawn --fork` starts an agent from a copy of an existing Pi session.** As with
+  `pi --fork`, the copy is a new session in the current directory whose header names the
+  source, which pi-dock only reads. The source is a session file or an exact session id, so an
+  agent can fork its own conversation with `$PI_SESSION_FILE`. Without `--model`, the agent
+  uses the source's model if it has credentials, and preflight checks that model. A spawn that
+  fails before the agent exists removes the copy. (`c034578`)
+
+### Changed
+
 - **The docs no longer say that `pi --fork` leaves the agent untouched.** Pi ends an
   incomplete last line of the file it forks with a newline, a write to the agent's session if
   the agent is writing at that moment. The README and the skill now say to stop the agent
-  first or fork a copy of its file; `spawn --fork` only reads it.
+  first or fork a copy of its file; `spawn --fork` only reads it. (`3af1831`)
 
 ## 0.5.2 — 2026-11-01
 

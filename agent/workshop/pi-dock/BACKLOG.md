@@ -27,7 +27,7 @@ ships.
 
 ## Release
 
-5. [ ] **Publish 0.5.2** — the owner publishes by hand.
+5. [ ] **Publish 0.6.0** — the owner publishes by hand.
 
 ## Decide later
 

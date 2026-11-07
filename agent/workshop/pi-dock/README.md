@@ -499,7 +499,7 @@ new agent with the same name would otherwise append to the old one. On Unix, als
 
 ## Status and limitations
 
-- **Version 0.5.2.**
+- **Version 0.6.0.**
 - **Windows** is verified: the regression suite on every change, and the paid end-to-end smoke
   test against a real model. **Unix** (sockets, signals) is little tested: on Linux (WSL)
   only the regression's socket acquisition cases pass, and the suite does not yet run
