@@ -1,3 +1,4 @@
+/.vscode/
 agent/auth.json
 agent/bin/
 agent/install/
