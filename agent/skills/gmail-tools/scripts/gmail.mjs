@@ -33,12 +33,16 @@ export function parseArgs(args, env = process.env) {
   if (confirmation !== undefined && !/^[a-f0-9]{64}$/.test(confirmation)) throw new Error('Invalid confirmation digest.');
   return { command, session, confirmation };
 }
-async function stdinObject(input) {
-  let value = '';
+export async function stdinObject(input) {
+  const chunks = [];
+  let size = 0;
   for await (const chunk of input) {
-    value += chunk.toString('utf8');
-    if (Buffer.byteLength(value) > 1024 * 1024) throw new Error('Input exceeds 1MB.');
+    size += chunk.length;
+    if (size > 1024 * 1024) throw new Error('Input exceeds 1MB.');
+    chunks.push(chunk);
   }
+  // Decode once: a UTF-8 sequence can be split across chunks.
+  const value = Buffer.concat(chunks).toString('utf8');
   try { return JSON.parse(value); } catch { throw new Error('Supply one valid JSON object on stdin.'); }
 }
 export async function main(args = process.argv.slice(2), env = process.env, input = process.stdin) {

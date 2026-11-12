@@ -7,8 +7,9 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { GmailService, validateInput } from '../scripts/service.mjs';
-import { parseArgs } from '../scripts/gmail.mjs';
-import { parseBrowserResult, safeEnv } from '../scripts/bridge.mjs';
+import { Readable } from 'node:stream';
+import { parseArgs, stdinObject } from '../scripts/gmail.mjs';
+import { parseBrowserResult, pythonValue, safeEnv } from '../scripts/bridge.mjs';
 import { withState, statePaths } from '../scripts/store.mjs';
 import { clone, createBatch, createPlan, emptyState } from '../scripts/core.mjs';
 
@@ -133,4 +134,15 @@ test('browser failures with unknown outcome are marked uncertain, completed ones
  assert.equal(fail('PI_GMAIL_RESULT:{"ok":false,"error":"apply_interrupted",',1).uncertain,true);
  for(const code of['browser_error','apply_interrupted','dom_operation_failed'])assert.equal(fail(result(code)).uncertain,true,code);
  for(const code of['precondition_changed','mutation_uncertain','tab_closed'])assert.equal(fail(result(code)).uncertain,false,code);
+});
+test('stdin JSON keeps UTF-8 characters split across chunks',async()=>{
+ const bytes=Buffer.from('{"query":"café"}'),split=bytes.indexOf(0xc3)+1;
+ assert.deepEqual(await stdinObject(Readable.from([bytes.subarray(0,split),bytes.subarray(split)])),{query:'café'});
+});
+test('browser request reaches Python with non-BMP Unicode intact',async()=>{
+ const request={query:'subject:😀 café',labels:['Ünïcode 日本']};
+ const code=`import json, urllib.parse\nrequest = ${pythonValue(request)}\nurllib.parse.quote(request["query"])\nprint(json.dumps(request))`;
+ assert.match(code,/^[\x00-\x7f]*$/);
+ const {stdout}=await promisify(execFile)('python',['-c',code]);
+ assert.deepEqual(JSON.parse(stdout),request);
 });

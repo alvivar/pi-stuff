@@ -88,21 +88,27 @@ export async function withBrowserLock(fn) {
   } finally { if (!keepLock) await rm(LANE_LOCK, { recursive: true, force: true }); }
 }
 
+// Python expression for a JSON value, as ASCII. Non-ASCII is escaped inside the JSON text, so
+// json.loads (not Python string-literal escapes) decodes it and joins surrogate pairs.
+export function pythonValue(value) {
+  const json = JSON.stringify(value).replace(/[\u007f-\uffff]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  return `json.loads(${JSON.stringify(json)})`;
+}
+
 export async function invokeBrowser(request, signal) {
+  // Entire script is ASCII; no shell interpolation and no Windows code-page surprises.
   const script = [
     'import sys, json',
-    `sys.path.insert(0, ${JSON.stringify(ROOT)})`,
+    `sys.path.insert(0, ${pythonValue(ROOT)})`,
     'from gmail_backend import GmailError, dispatch',
-    `request = json.loads(${JSON.stringify(JSON.stringify(request))})`,
+    `request = ${pythonValue(request)}`,
     'try:',
     '    result = dispatch(request, globals())',
     'except Exception as exc:',
     '    result = {"ok": False, "error": exc.code if isinstance(exc, GmailError) else "browser_error", "message": str(exc)[:500], "report": getattr(exc, "report", None)}',
     `print(${JSON.stringify(PREFIX)} + json.dumps(result, ensure_ascii=True))`,
   ].join('\n') + '\n';
-  // Entire input is ASCII; no shell interpolation and no Windows code-page surprises.
-  const ascii = script.replace(/[\u007f-\uffff]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
-  return parseBrowserResult(await runProcess([], ascii, signal, request.op === 'apply' ? 600000 : 180000));
+  return parseBrowserResult(await runProcess([], script, signal, request.op === 'apply' ? 600000 : 180000));
 }
 
 // A worker that dies while printing can leave no result or a truncated one; both are uncertain.
