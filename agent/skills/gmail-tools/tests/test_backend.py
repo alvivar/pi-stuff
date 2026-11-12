@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from gmail_backend import GmailError, advance, apply_plan, identity, lookup_query, state, steps
+from gmail_backend import GmailError, GmailUI, advance, apply_plan, identity, lookup_query, state, steps
 
 
 def row(i=1, **kwargs):
@@ -98,6 +98,18 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(len(ui.calls), 1)
         self.assertFalse(ui.data[0]['unread'])
         self.assertIn('Inbox', ui.data[0]['labels'])
+
+    def test_daemon_timeout_reports_uncertain_codes(self):
+        # browser-use raises a TimeoutError subclass after a CDP command was already submitted.
+        def timeout(*args, **kwargs): raise TimeoutError('Runtime.evaluate timed out after 5s waiting for the daemon')
+        ui = GmailUI({'js': timeout}, {'account': 'a@example.org', 'base_path': '/mail/u/0/'})
+        with self.assertRaises(GmailError) as caught: ui.guard()
+        self.assertEqual(caught.exception.code, 'dom_operation_failed')
+        r = row()
+        fake = FakeUI([r])
+        fake.mutate = timeout
+        report = apply_plan(fake, [entry(r, 1, read=True)])
+        self.assertEqual(report['error'], 'apply_interrupted')
 
     def test_read_and_labels_are_not_implicit(self):
         r = row()

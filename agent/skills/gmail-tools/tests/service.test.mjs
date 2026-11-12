@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { GmailService, validateInput } from '../scripts/service.mjs';
 import { parseArgs } from '../scripts/gmail.mjs';
+import { parseBrowserResult, safeEnv } from '../scripts/bridge.mjs';
 import { withState, statePaths } from '../scripts/store.mjs';
 import { clone, createBatch, createPlan, emptyState } from '../scripts/core.mjs';
 
@@ -115,4 +116,21 @@ test('CLI help and invalid command run without browser or Pi packages',async()=>
  await assert.rejects(exec(process.execPath,[cli,'unknown'],{cwd:tmpdir()}),e=>{
   const data=JSON.parse(e.stdout);assert.equal(data.ok,false);assert.match(data.message,/Unknown command/);return true;
  });
+});
+test('browser-use child cannot re-enable cloud autospawn from .env',async()=>{
+ const saved=process.env.BU_AUTOSPAWN;process.env.BU_AUTOSPAWN='1';
+ try{
+  // browser-use loads .env with os.environ.setdefault; run.py tests BU_AUTOSPAWN for truthiness.
+  const {stdout}=await promisify(execFile)('python',['-c',"import os;os.environ.setdefault('BU_AUTOSPAWN','1');print(repr(os.environ.get('BU_AUTOSPAWN')))"],{env:safeEnv()});
+  assert.equal(stdout.trim(),"''");
+ }finally{if(saved===undefined)delete process.env.BU_AUTOSPAWN;else process.env.BU_AUTOSPAWN=saved;}
+});
+test('browser failures with unknown outcome are marked uncertain, completed ones are not',()=>{
+ const fail=(out,code=0)=>{try{parseBrowserResult({out,err:'',code});}catch(e){return e;}assert.fail('expected failure');};
+ const result=error=>`PI_GMAIL_RESULT:${JSON.stringify({ok:false,error,message:'m'})}
+`;
+ assert.equal(fail('',1).uncertain,true);
+ assert.equal(fail('PI_GMAIL_RESULT:{"ok":false,"error":"apply_interrupted",',1).uncertain,true);
+ for(const code of['browser_error','apply_interrupted','dom_operation_failed'])assert.equal(fail(result(code)).uncertain,true,code);
+ for(const code of['precondition_changed','mutation_uncertain','tab_closed'])assert.equal(fail(result(code)).uncertain,false,code);
 });

@@ -311,7 +311,7 @@ def apply_plan(ui, entries):
                    and state(final[e['row']['id']]) == e['after']} for e in entries]
         return {'ok': all(r['ok'] for r in report), 'results': report, 'journal': journal}
     except Exception as exc:
-        return {'ok': False, 'error': getattr(exc, 'code', 'apply_interrupted'),
+        return {'ok': False, 'error': exc.code if isinstance(exc, GmailError) else 'apply_interrupted',
                 'message': 'Execution stopped. Some steps may have completed; verify before preparing a new plan.',
                 'report': {'journal': journal, 'processed_count': len(processed), 'uncertain': True}}
 

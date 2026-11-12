@@ -103,7 +103,8 @@ changes before preparation are reflected; already-satisfied actions are shown.
 5. Run `verify` with `{"plan_id":"..."}`. It re-queries identities and compares
    actual labels/read state against the intended state. Inbox counters are not
    evidence of completion.
-6. If interrupted/partial, verify first. An attempted plan cannot be executed
+6. If interrupted/partial, verify first (after an interruption, recover the
+   browser lane lock as described below). An attempted plan cannot be executed
    again. Prepare a new exact plan for remaining changes and obtain any required
    authorization again. Never blindly repeat a click or broaden identity matches.
 
@@ -124,12 +125,22 @@ changes before preparation are reflected; already-satisfied actions are shown.
   Stop for ambiguous accounts, login, password, MFA or consent; never approve
   those automatically.
 - Scripts reuse the default local browser-use daemon with telemetry checked
-  and recording disabled. Do not start vendor cloud sessions or another daemon.
+  and recording disabled. They set `BU_AUTOSPAWN` empty (no cloud bootstrap)
+  and refuse a non-default `BU_NAME`, `BU_CDP_URL` and `BU_CDP_WS` (allowed for
+  browser-use generally, unsupported here). Before using this skill,
+  ensure the default daemon is attached to local Chrome: an already running
+  non-local default daemon is not detected. Do not start vendor cloud sessions
+  (forbidden by the browser-use policy) or another daemon.
   Load the browser-use skill when diagnosing underlying browser mechanics.
 - Do not run other browser controllers or interact with the Gmail tab during
   apply. Existing selections, changed views/accounts, unsupported DOM/controls
   and changed targets cause a fail-closed stop.
 - Browser/state locks are not stolen. Inspect owner.json and the owner PID
   before removing a verified stale lock. The contract lists their paths.
+- A browser failure with an unknown outcome (cancel, timeout, daemon IPC
+  timeout, worker exit without a result, unexpected browser error) keeps the
+  browser lane lock: work already sent to the browser-use daemon may still
+  complete. Known Gmail-state failures release it. Confirm the Gmail
+  tab is idle, remove the lock, then run `verify` before any new change.
 - The current adapter expects English Gmail and stable legacy thread IDs.
   Unsupported layouts/locales fail rather than guessing.

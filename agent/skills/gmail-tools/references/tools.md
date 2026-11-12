@@ -96,6 +96,13 @@ The browser lane lock is:
 ~/.config/browser-harness/tmp/pi-gmail-tools.lock/owner.json
 Both lock types contain owner PID/time, not bodies. A crash may leave a lock:
 inspect its PID and remove only a confirmed stale lock. Locks are not stolen.
+A browser failure with an unknown outcome deliberately keeps the browser lane
+lock, because commands already sent to the browser-use daemon outlive the CLI:
+errors `interrupted` (cancel/timeout), `no_response` (worker exit without a complete
+result), `browser_error`, `apply_interrupted` and `dom_operation_failed`
+(unexpected exceptions, including daemon IPC timeouts). Other error codes are
+completed determinations and release it. Confirm the Gmail tab is idle, remove the lock,
+then verify before any new change.
 
 ## Limits and boundary
 
@@ -104,5 +111,9 @@ Action lookups examine up to 20 search pages. No Pi/npm dependencies to install.
 No sending/replies, permanent deletion, link following, attachment downloads,
 subscription changes, account settings, API credentials or infrastructure changes.
 Telemetry must be disabled with null install_id; otherwise scripts stop.
-Recording is disabled for these operations. No Browser Use Cloud.
+Recording is disabled for these operations. No Browser Use Cloud: BU_AUTOSPAWN
+is set empty, so browser-use cannot bootstrap a cloud browser. Callers must ensure
+the default daemon is local: an already running non-local default daemon is not
+detected (vendor-cloud daemons are forbidden by the browser-use policy). A non-default
+BU_NAME, BU_CDP_URL and BU_CDP_WS are refused here.
 Other browser controllers/human navigation can still race the UI: serialize work.
