@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { GmailService, validateInput } from '../scripts/service.mjs';
+import { GmailService, outputText, validateInput } from '../scripts/service.mjs';
 import { Readable } from 'node:stream';
 import { parseArgs, stdinObject } from '../scripts/gmail.mjs';
 import { parseBrowserResult, pythonValue, safeEnv } from '../scripts/bridge.mjs';
@@ -132,6 +132,8 @@ test('browser failures with unknown outcome are marked uncertain, completed ones
 `;
  assert.equal(fail('',1).uncertain,true);
  assert.equal(fail('PI_GMAIL_RESULT:{"ok":false,"error":"apply_interrupted",',1).uncertain,true);
+ const inspectFailure=`PI_GMAIL_RESULT:${JSON.stringify({ok:false,error:'opened_view_unverifiable',report:{opened:true,cleanup_error:'browser_error'}})}\n`;
+ assert.equal(fail(inspectFailure).uncertain,true);
  for(const code of['browser_error','apply_interrupted','dom_operation_failed'])assert.equal(fail(result(code)).uncertain,true,code);
  for(const code of['precondition_changed','mutation_uncertain','tab_closed'])assert.equal(fail(result(code)).uncertain,false,code);
 });
@@ -145,4 +147,39 @@ test('browser request reaches Python with non-BMP Unicode intact',async()=>{
  assert.match(code,/^[\x00-\x7f]*$/);
  const {stdout}=await promisify(execFile)('python',['-c',code]);
  assert.deepEqual(JSON.parse(stdout),request);
+});
+test('printed scan output stays within 48KB',async()=>{
+ const h=harness();await h.service.run('connect',{account:connection.account});
+ h.service.browser=async()=>({ok:true,query:'in:inbox',page:1,next_page:null,rows:Array.from({length:100},(_,i)=>
+  ({...clone(row),id:i.toString(16).padStart(16,'0'),subject:'Long synthetic subject '.repeat(30),summary:'Sender '.repeat(20)}))});
+ const printed=outputText(await h.service.run('scan',{query:'in:inbox',limit:100}));
+ assert.ok(Buffer.byteLength(printed)<=48000);
+ const out=JSON.parse(printed);
+ assert.equal(out.truncated,true);assert.ok(out.rows.length>0&&out.rows.length<100);
+});
+test('oversized inspect keeps its status and shortens the text',async()=>{
+ const h=harness(),{b}=await prepared(h);
+ const text='\u0001\u{1F600}'.repeat(6000);
+ h.service.browser=async()=>({ok:true,text,attachment_names:[],truncated:false,marked_read:true});
+ const printed=outputText(await h.service.run('inspect',{batch_id:b.batch_id,n:1,allow_mark_read:true,redact_sensitive:false}));
+ assert.ok(Buffer.byteLength(printed)<=48000);
+ const out=JSON.parse(printed);
+ assert.equal(out.ok,true);assert.equal(out.n,1);assert.equal(out.marked_read,true);assert.equal(out.truncated,true);
+ assert.ok(out.text.length>0&&text.startsWith(out.text));
+ assert.doesNotMatch(out.notice,/stored range/);
+});
+test('printed output counts the trailing newline',()=>{
+ const printed=outputText({ok:true,n:1,marked_read:true,truncated:false,text:'\u0001'.repeat(9000),attachment_names:[]});
+ assert.ok(Buffer.byteLength(printed)<=48000);assert.ok(printed.endsWith('}\n'));
+});
+test('large apply error keeps its recovery fields and shortens the journal',()=>{
+ const journal=Array.from({length:1000},(_,i)=>({operation:'add_label',count:1,status:i<999?'verified':'attempting'}));
+ const printed=outputText({ok:false,error:'apply_interrupted',message:'Execution stopped.',report:{journal,processed_count:7,uncertain:true}});
+ assert.ok(Buffer.byteLength(printed)<=48000);
+ const out=JSON.parse(printed);
+ assert.equal(out.ok,false);assert.equal(out.error,'apply_interrupted');assert.equal(out.message,'Execution stopped.');
+ assert.equal(out.report.uncertain,true);assert.equal(out.report.processed_count,7);assert.equal(out.truncated,true);
+ assert.ok(out.report.journal.length>0&&out.report.journal.length<1000);
+ assert.equal(out.report.journal.at(-1).status,'attempting');
+ assert.match(out.notice,/verify/);
 });

@@ -16,6 +16,11 @@ class GmailError(RuntimeError):
         super().__init__(message or code)
 
 
+def error_code(exc):
+    """GmailError codes are completed determinations; anything else has an unknown browser outcome."""
+    return exc.code if isinstance(exc, GmailError) else 'browser_error'
+
+
 def identity(row):
     subject_hash = row.get('subject_hash') or hashlib.sha256(row['subject'].encode('utf-8')).hexdigest()
     return [row['id'], row['sender'], row['senders'], subject_hash, row['time'], row['summary']]
@@ -399,16 +404,21 @@ def dispatch(request, helpers):
                 raise GmailError('opened_view_unverifiable')
             time.sleep(.4)
             body = ui.dom('body', ref=actual, expected_hash=opened_hash, max_chars=request.get('max_chars', 6000))
-            return {'ok': True, **body, 'marked_read': actual['unread']}
         except Exception as exc:
             if opened:
                 exc.report = {'opened': True, 'may_have_marked_read': actual['unread']}
-            raise
-        finally:
-            if opened:
-                # Do not obscure an inspection error/side-effect report with a navigation error.
                 try: ui.search(lookup_query([ref]))
-                except Exception: pass
+                except Exception as cleanup:
+                    # Keep the inspection error; record the navigation failure alongside it.
+                    exc.report['cleanup_error'] = error_code(cleanup)
+            raise
+        try:
+            ui.search(lookup_query([ref]))
+        except Exception as cleanup:
+            error = GmailError(error_code(cleanup), 'Conversation was inspected, but returning to the list failed. Check the Gmail tab before continuing.')
+            error.report = {'opened': True, 'marked_read': actual['unread'], 'cleanup_error': error.code}
+            raise error from None
+        return {'ok': True, **body, 'marked_read': actual['unread']}
     if op == 'apply':
         result = apply_plan(ui, request['entries'])
         return result

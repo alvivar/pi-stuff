@@ -100,12 +100,12 @@ export async function invokeBrowser(request, signal) {
   const script = [
     'import sys, json',
     `sys.path.insert(0, ${pythonValue(ROOT)})`,
-    'from gmail_backend import GmailError, dispatch',
+    'from gmail_backend import dispatch, error_code',
     `request = ${pythonValue(request)}`,
     'try:',
     '    result = dispatch(request, globals())',
     'except Exception as exc:',
-    '    result = {"ok": False, "error": exc.code if isinstance(exc, GmailError) else "browser_error", "message": str(exc)[:500], "report": getattr(exc, "report", None)}',
+    '    result = {"ok": False, "error": error_code(exc), "message": str(exc)[:500], "report": getattr(exc, "report", None)}',
     `print(${JSON.stringify(PREFIX)} + json.dumps(result, ensure_ascii=True))`,
   ].join('\n') + '\n';
   return parseBrowserResult(await runProcess([], script, signal, request.op === 'apply' ? 600000 : 180000));
@@ -125,7 +125,9 @@ export function parseBrowserResult(result) {
   try { parsed = JSON.parse(line.slice(PREFIX.length)); } catch { throw noResponse(); }
   if (result.code !== 0 || parsed.ok === false) {
     throw Object.assign(new Error(parsed.message || 'Gmail operation failed.'),
-      { code: parsed.error, report: parsed.report, uncertain: UNCERTAIN_CODES.has(parsed.error) });
+      { code: parsed.error, report: parsed.report,
+        // An inspect error can carry a cleanup navigation failure whose outcome is also unknown.
+        uncertain: UNCERTAIN_CODES.has(parsed.error) || UNCERTAIN_CODES.has(parsed.report?.cleanup_error) });
   }
   return parsed;
 }

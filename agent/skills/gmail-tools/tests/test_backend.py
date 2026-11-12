@@ -2,8 +2,9 @@ import copy
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from gmail_backend import GmailError, GmailUI, advance, apply_plan, identity, lookup_query, state, steps
+from gmail_backend import GmailError, GmailUI, advance, dispatch, apply_plan, identity, lookup_query, state, steps
 
 
 def row(i=1, **kwargs):
@@ -131,6 +132,35 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(apply_plan(ui, [e])['ok'])
         self.assertEqual(ui.data[0]['labels'], ['Inbox'])
         self.assertFalse(ui.data[0]['unread'])
+
+
+
+class InspectCleanupTests(unittest.TestCase):
+    def inspect(self, body, cleanup):
+        r = row()
+        hashes = iter(['#search/q', '#search/q', '#search/q/thread'])
+        def dom(ui, op, **kwargs):
+            if op == 'body': return body()
+        request = {'op': 'inspect', 'ref': r, 'allow_mark_read': True,
+                   'connection': {'account': 'a@example.org', 'tab_id': 't', 'base_path': '/mail/u/0/'}}
+        helpers = {'list_tabs': lambda: [{'targetId': 't'}], 'switch_tab': lambda tab: None}
+        with patch.object(GmailUI, 'collect', lambda ui, refs: [copy.deepcopy(r)]),              patch.object(GmailUI, 'guard', lambda ui: {'hash': next(hashes)}),              patch.object(GmailUI, 'dom', dom),              patch.object(GmailUI, 'search', lambda ui, query: cleanup()),              patch('gmail_backend.time.sleep', lambda _: None):
+            return dispatch(request, helpers)
+
+    def test_cleanup_failure_after_successful_inspection_is_reported_with_read_state(self):
+        def cleanup(): raise GmailError('account_changed')
+        with self.assertRaises(GmailError) as caught:
+            self.inspect(lambda: {'text': 'body', 'attachment_names': [], 'truncated': False}, cleanup)
+        self.assertEqual(caught.exception.code, 'account_changed')
+        self.assertEqual(caught.exception.report, {'opened': True, 'marked_read': True, 'cleanup_error': 'account_changed'})
+
+    def test_cleanup_failure_does_not_replace_inspection_error(self):
+        def body(): raise GmailError('body_changed')
+        def cleanup(): raise TimeoutError('daemon timeout')
+        with self.assertRaises(GmailError) as caught:
+            self.inspect(body, cleanup)
+        self.assertEqual(caught.exception.code, 'body_changed')
+        self.assertEqual(caught.exception.report['cleanup_error'], 'browser_error')
 
 
 if __name__ == '__main__':

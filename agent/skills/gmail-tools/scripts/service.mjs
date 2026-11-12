@@ -42,18 +42,46 @@ export function validateInput(command, p) {
   if (command === 'batch') { integer(p.from, 'from', 1, 100); integer(p.limit, 'limit', 1, 100); }
 }
 
-export function bounded(data) {
+const MAX_OUTPUT = 48000;
+const emitted = value => JSON.stringify(value) + '\n';
+const size = value => Buffer.byteLength(emitted(value));
+
+// Exact CLI stdout for a success or error result, at most MAX_OUTPUT bytes.
+export const outputText = result => emitted(bounded(result));
+
+function bounded(data) {
   const value = clone(data);
-  if (Buffer.byteLength(JSON.stringify(value)) <= 48000) return value;
-  const field = ['rows', 'entries', 'results'].find(k => Array.isArray(value[k]));
-  if (field) {
-    value.truncated = true;
-    value.notice = 'Output bounded to 48KB. Use batch with a number range for stored metadata.';
-    while (value[field].length && Buffer.byteLength(JSON.stringify(value)) > 48000) value[field].pop();
-    if (Buffer.byteLength(JSON.stringify(value)) <= 48000) return value;
+  if (size(value) <= MAX_OUTPUT) return value;
+  value.truncated = true;
+  // Apply's journal (on success, or in an error report) is verbose detail; verify gives the actual state.
+  const journal = value.journal ?? value.report?.journal;
+  if (Array.isArray(journal)) {
+    value.notice = 'Journal shortened to fit the 48KB output limit (oldest entries omitted). Run verify for the actual state.';
+    while (journal.length && size(value) > MAX_OUTPUT) {
+      // Drop oldest entries roughly in proportion to the excess, so large journals need few passes.
+      journal.splice(0, Math.max(1, Math.floor(journal.length * (size(value) - MAX_OUTPUT) / size(value))));
+    }
   }
-  return { ok: value.ok ?? false, truncated: true, batch_id: value.batch_id, plan_id: value.plan_id,
-    notice: 'Result exceeded 48KB; retrieve a smaller stored range.' };
+  if (size(value) <= MAX_OUTPUT) return value;
+  if (typeof value.text === 'string') {
+    // Inspect: shorten the body, keeping status such as marked_read. A code point emits at most 6 bytes.
+    value.notice = 'Text shortened to fit the 48KB output limit. Inspected bodies are not stored.';
+    let chars = [...value.text];
+    for (let excess = size(value) - MAX_OUTPUT; excess > 0 && chars.length; excess = size(value) - MAX_OUTPUT) {
+      chars = chars.slice(0, -Math.ceil(excess / 6));
+      value.text = chars.join('');
+    }
+  } else {
+    const field = ['rows', 'entries', 'results'].find(k => Array.isArray(value[k]));
+    if (field) {
+      value.notice = 'Output bounded to 48KB. Use batch with a number range for stored metadata.';
+      while (value[field].length && size(value) > MAX_OUTPUT) value[field].pop();
+    }
+  }
+  if (size(value) <= MAX_OUTPUT) return value;
+  const { ok = false, error, message, batch_id, plan_id, n, status, marked_read } = value;
+  return { ok, error, message, truncated: true, batch_id, plan_id, n, status, marked_read,
+    notice: 'Result details exceeded 48KB and were omitted. Stored batches/plans can be read in ranges with batch; inspected bodies are not stored.' };
 }
 
 export function recoverState(state) {
@@ -160,6 +188,6 @@ export class GmailService {
       }
     }
     await this.save(this.state);
-    return bounded(output);
+    return output;
   }
 }
