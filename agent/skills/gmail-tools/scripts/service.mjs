@@ -1,0 +1,165 @@
+import { assertConnection, clone, createBatch, createPlan, digest, emptyState,
+  normalizeChanges, publicBatch, publicPlan, validatePlan, redact, revision, mailState } from './core.mjs';
+import { invokeBrowser, withBrowserLock } from './bridge.mjs';
+
+export const COMMANDS = ['connect', 'scan', 'inspect', 'prepare', 'apply', 'verify', 'batch'];
+const fail = message => { throw new Error(message); };
+const str = (v, name, max = 100, min = 1) => {
+  if (typeof v !== 'string' || v.length < min || v.length > max) fail(`Invalid ${name}.`);
+};
+const integer = (v, name, min, max) => {
+  if (v !== undefined && (!Number.isInteger(v) || v < min || v > max)) fail(`Invalid ${name}.`);
+};
+export function validateInput(command, p) {
+  if (!p || Array.isArray(p) || typeof p !== 'object') fail('Input must be a JSON object.');
+  const fields = {
+    connect: ['account', 'tab_id'], scan: ['query', 'limit', 'page', 'offset', 'page_token', 'max_pages', 'include_snippets'],
+    inspect: ['batch_id', 'n', 'allow_mark_read', 'max_chars', 'redact_sensitive'],
+    prepare: ['batch_id', 'changes'], apply: ['plan_id', 'digest'], verify: ['plan_id'],
+    batch: ['id', 'from', 'limit', 'forget'],
+  }[command];
+  if (!fields || Object.keys(p).some(k => !fields.includes(k))) fail('Unknown command or parameter.');
+  for (const name of ['batch_id', 'plan_id', 'id']) if (fields.includes(name)) str(p[name], name);
+  for (const name of ['include_snippets', 'allow_mark_read', 'redact_sensitive', 'forget']) {
+    if (p[name] !== undefined && typeof p[name] !== 'boolean') fail(`${name} must be boolean.`);
+  }
+  if (command === 'connect') {
+    str(p.account, 'account', 254, 3);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.account)) fail('Supply an explicit account email.');
+    if (p.tab_id !== undefined) str(p.tab_id, 'tab_id');
+  }
+  if (command === 'scan') {
+    str(p.query, 'query', 4000);
+    integer(p.limit, 'limit', 1, 100); integer(p.page, 'page', 1, 100);
+    integer(p.offset, 'offset', 0, 99); integer(p.max_pages, 'max_pages', 1, 10);
+    if (p.page_token !== undefined) str(p.page_token, 'page_token');
+  }
+  if (command === 'inspect') {
+    if (p.n === undefined) fail('n is required.');
+    integer(p.n, 'n', 1, 100); integer(p.max_chars, 'max_chars', 1, 12000);
+  }
+  if (command === 'apply' && (typeof p.digest !== 'string' || !/^[a-f0-9]{64}$/.test(p.digest))) fail('Invalid plan digest.');
+  if (command === 'batch') { integer(p.from, 'from', 1, 100); integer(p.limit, 'limit', 1, 100); }
+}
+
+export function bounded(data) {
+  const value = clone(data);
+  if (Buffer.byteLength(JSON.stringify(value)) <= 48000) return value;
+  const field = ['rows', 'entries', 'results'].find(k => Array.isArray(value[k]));
+  if (field) {
+    value.truncated = true;
+    value.notice = 'Output bounded to 48KB. Use batch with a number range for stored metadata.';
+    while (value[field].length && Buffer.byteLength(JSON.stringify(value)) > 48000) value[field].pop();
+    if (Buffer.byteLength(JSON.stringify(value)) <= 48000) return value;
+  }
+  return { ok: value.ok ?? false, truncated: true, batch_id: value.batch_id, plan_id: value.plan_id,
+    notice: 'Result exceeded 48KB; retrieve a smaller stored range.' };
+}
+
+export function recoverState(state) {
+  if (!state || state.version !== 1 || !state.batches || !state.plans) fail('Invalid/unsupported local state. Do not overwrite it silently.');
+  for (const p of Object.values(state.plans)) if (p.status === 'running') p.status = 'uncertain';
+  return state;
+}
+
+export class GmailService {
+  constructor({ state = emptyState(), save = async () => {}, browser } = {}) {
+    this.state = recoverState(state);
+    this.save = save;
+    this.browser = browser ?? ((request, signal) => withBrowserLock(() => invokeBrowser(request, signal)));
+  }
+  connection() { assertConnection(this.state.connection); return this.state.connection; }
+  getBatch(id) {
+    if (!Object.hasOwn(this.state.batches, id)) fail('Unknown batch_id in this session.');
+    return this.state.batches[id];
+  }
+  getPlan(id) {
+    if (!Object.hasOwn(this.state.plans, id)) fail('Unknown plan_id in this session.');
+    return this.state.plans[id];
+  }
+  request(op, extra = {}) { return { op, connection: this.connection(), ...extra }; }
+  async run(command, p, { signal, confirmation } = {}) {
+    validateInput(command, p);
+    if (signal?.aborted) fail('Cancelled before browser operation.');
+    let output;
+    if (command === 'connect') {
+      const result = await this.browser({ op: 'connect', ...p }, signal);
+      assertConnection(result.connection);
+      this.state.connection = result.connection;
+      output = { ok: true, ...result.connection };
+    } else if (command === 'scan') {
+      if (Object.keys(this.state.batches).length >= 20) fail('20 batches reached. Forget obsolete local snapshots with batch.');
+      const c = this.connection();
+      const result = await this.browser(this.request('scan', { ...p, snippets: !!p.include_snippets, limit: p.limit ?? 50 }), signal);
+      const b = createBatch(c, result);
+      this.state.batches[b.id] = b;
+      output = { ok: true, ...publicBatch(b) };
+      if (p.include_snippets) for (const row of output.rows) row.snippet = redact(result.rows.find(r => r.id === row.ref)?.snippet ?? '');
+    } else if (command === 'inspect') {
+      const b = this.getBatch(p.batch_id);
+      if (b.account !== this.connection().account) fail('Batch belongs to another account.');
+      const ref = b.rows.find(r => r.n === p.n);
+      if (!ref) fail('Number not in batch.');
+      const result = await this.browser(this.request('inspect', { ref, allow_mark_read: !!p.allow_mark_read, max_chars: p.max_chars ?? 6000 }), signal);
+      if (result.marked_read) ref.unread = false;
+      output = { ok: true, batch_id: b.id, n: p.n, marked_read: result.marked_read,
+        text: p.redact_sensitive === false ? result.text : redact(result.text),
+        attachment_names: result.attachment_names.map(v => p.redact_sensitive === false ? v : redact(v)),
+        truncated: result.truncated, untrusted_email_content: true };
+    } else if (command === 'prepare') {
+      if (Object.keys(this.state.plans).length >= 20) fail('20 plans reached. Forget obsolete local plans with batch.');
+      const b = this.getBatch(p.batch_id);
+      if (b.account !== this.connection().account) fail('Batch belongs to another account.');
+      const changes = normalizeChanges(b, p.changes);
+      const refs = changes.map(c => b.rows.find(r => r.id === c.id));
+      const fresh = await this.browser(this.request('lookup', { refs }), signal);
+      const plan = createPlan(b, p.changes, fresh.rows);
+      this.state.plans[plan.id] = plan;
+      output = { ok: true, ...publicPlan(plan),
+        approval: 'Obtain authorization in the conversation, then apply with --confirm set to this exact digest. This flag is a caller acknowledgment, not proof of human identity.' };
+    } else if (command === 'apply') {
+      const plan = this.getPlan(p.plan_id);
+      validatePlan(plan, p.digest, this.connection().account);
+      if (confirmation !== plan.digest) fail('No mutation performed. After user authorization, supply --confirm with the exact prepared digest.');
+      if (signal?.aborted) fail('Cancelled before apply.');
+      plan.status = 'running';
+      await this.save(this.state); // Durable before any mutating browser call.
+      try {
+        const result = await this.browser(this.request('apply', { entries: plan.entries }), signal);
+        plan.status = result.ok ? 'completed' : 'partial'; plan.report = result;
+        output = { ...result, plan_id: plan.id, status: plan.status };
+      } catch (error) {
+        plan.status = 'uncertain';
+        plan.report = { error: error.code ?? 'interrupted', ...(error.report ? { report: error.report } : {}) };
+        throw error;
+      } finally { await this.save(this.state); }
+    } else if (command === 'verify') {
+      const plan = this.getPlan(p.plan_id);
+      if (plan.account !== this.connection().account) fail('Plan belongs to another account.');
+      const result = await this.browser(this.request('verify', { refs: plan.entries.map(e => e.row) }), signal);
+      const rows = new Map(result.rows.map(r => [r.id, r]));
+      const results = plan.entries.map(e => {
+        const row = rows.get(e.row.id), actual = row ? mailState(row) : null;
+        return { n: e.change.n, matches: !!row && revision(row) === e.revision && digest(actual) === digest(e.after),
+          still_before: !!row && digest(actual) === digest(e.before), actual, expected: e.after };
+      });
+      output = { ok: results.every(r => r.matches), plan_id: plan.id, status: plan.status, count: results.length, results };
+    } else if (command === 'batch') {
+      const b = Object.hasOwn(this.state.batches, p.id) ? this.state.batches[p.id] : undefined;
+      const plan = Object.hasOwn(this.state.plans, p.id) ? this.state.plans[p.id] : undefined;
+      if (!b && !plan) fail('Unknown local batch/plan ID.');
+      if (p.forget) {
+        if (plan?.status === 'running') fail('Cannot forget an executing plan.');
+        if (b && Object.values(this.state.plans).some(v => v.batch_id === b.id)) fail('Forget dependent plans first.');
+        delete this.state.batches[p.id]; delete this.state.plans[p.id];
+        output = { ok: true, forgotten: p.id, mailbox_changed: false };
+      } else {
+        output = { ok: true, ...(b ? publicBatch(b) : publicPlan(plan)) };
+        const field = b ? 'rows' : 'entries';
+        output[field] = output[field].filter(r => r.n >= (p.from ?? 1)).slice(0, p.limit ?? 50);
+      }
+    }
+    await this.save(this.state);
+    return bounded(output);
+  }
+}
