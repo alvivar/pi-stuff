@@ -106,7 +106,19 @@ export class GmailService {
     return this.state.plans[id];
   }
   request(op, extra = {}) { return { op, connection: this.connection(), ...extra }; }
-  async run(command, p, { signal, confirmation } = {}) {
+  // The single owner of final persistence. Saving after a failure keeps e.g. an uncertain apply;
+  // a save failure is appended to, never substituted for, the original error.
+  async run(command, p, options = {}) {
+    let output;
+    try { output = await this.#execute(command, p, options); }
+    catch (error) {
+      await this.save(this.state).catch(saveError => { error.message += ` Local state could not be saved: ${saveError.message}`; });
+      throw error;
+    }
+    await this.save(this.state);
+    return output;
+  }
+  async #execute(command, p, { signal, confirmation }) {
     validateInput(command, p);
     if (signal?.aborted) fail('Cancelled before browser operation.');
     let output;
@@ -141,7 +153,7 @@ export class GmailService {
       const changes = normalizeChanges(b, p.changes);
       const refs = changes.map(c => b.rows.find(r => r.id === c.id));
       const fresh = await this.browser(this.request('lookup', { refs }), signal);
-      const plan = createPlan(b, p.changes, fresh.rows);
+      const plan = createPlan(b, changes, fresh.rows);
       this.state.plans[plan.id] = plan;
       output = { ok: true, ...publicPlan(plan),
         approval: 'Obtain authorization in the conversation, then apply with --confirm set to this exact digest. This flag is a caller acknowledgment, not proof of human identity.' };
@@ -151,16 +163,18 @@ export class GmailService {
       if (confirmation !== plan.digest) fail('No mutation performed. After user authorization, supply --confirm with the exact prepared digest.');
       if (signal?.aborted) fail('Cancelled before apply.');
       plan.status = 'running';
-      await this.save(this.state); // Durable before any mutating browser call.
+      // Persisted before the browser call so an interrupted process recovers as uncertain.
+      // This covers process interruption, not power loss.
+      await this.save(this.state);
       try {
         const result = await this.browser(this.request('apply', { entries: plan.entries }), signal);
-        plan.status = result.ok ? 'completed' : 'partial'; plan.report = result;
+        plan.status = 'completed'; plan.report = result; // The bridge throws for every failed apply.
         output = { ...result, plan_id: plan.id, status: plan.status };
       } catch (error) {
         plan.status = 'uncertain';
         plan.report = { error: error.code ?? 'interrupted', ...(error.report ? { report: error.report } : {}) };
         throw error;
-      } finally { await this.save(this.state); }
+      }
     } else if (command === 'verify') {
       const plan = this.getPlan(p.plan_id);
       if (plan.account !== this.connection().account) fail('Plan belongs to another account.');
@@ -187,7 +201,6 @@ export class GmailService {
         output[field] = output[field].filter(r => r.n >= (p.from ?? 1)).slice(0, p.limit ?? 50);
       }
     }
-    await this.save(this.state);
     return output;
   }
 }

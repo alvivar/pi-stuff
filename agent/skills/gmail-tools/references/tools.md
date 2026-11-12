@@ -62,8 +62,9 @@ The caller must obtain the authorization required by the conversation before
 passing the flag. It prevents accidental/mismatched execution, but does not
 authenticate a human. There is **no Pi UI dialog** in this pure-script version.
 
-A plan can be attempted once. States: prepared, running, completed, partial,
-uncertain. A mismatched/missing flag causes zero mutation and leaves it prepared.
+A plan can be attempted once. States: prepared, running, completed, uncertain.
+Any failed or interrupted apply, including a final state that does not match the
+plan, leaves it uncertain. A mismatched/missing flag causes zero mutation and leaves it prepared.
 Account, identity, revision, selection and state are checked before clicks.
 Results include a bounded journal. Mutations are not atomic; some steps can
 complete before an error. Never blindly replay. Allow up to 10 minutes.

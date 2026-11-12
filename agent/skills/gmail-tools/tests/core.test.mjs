@@ -6,6 +6,7 @@ const conn = { account: 'person@example.com', tab_id: 'abc123', base_path: '/mai
 const row = (id='abcdef0123456789') => ({ id, sender:'sender@example.org', senders:['sender@example.org'],
  subject:'An ordinary conversation', time:'Wed, Nov 11, 2026, 1:18 PM', summary:'Sender 2', labels:['Inbox'], unread:true });
 const batch = () => createBatch(conn, { query:'in:inbox', page:1, next_page:null, rows:[row()] });
+const plan = (b, changes, fresh) => createPlan(b, normalizeChanges(b, changes), fresh);
 
 test('snapshots are account-bound, stable-ID based and numbered once', () => {
  const b=batch(); assert.equal(b.rows[0].n,1); assert.match(b.id,/^batch-/);
@@ -15,7 +16,7 @@ test('snapshots are account-bound, stable-ID based and numbered once', () => {
  assert.throws(()=>createBatch({...conn,base_path:'/mail/u/evil/'},{rows:[]}),/Connect/);
 });
 test('no classification or read/destination defaults are introduced', () => {
- const p=createPlan(batch(),[{n:1,add_labels:['Example']}],[row()]);
+ const p=plan(batch(),[{n:1,add_labels:['Example']}],[row()]);
  assert.deepEqual(p.entries[0].after,{unread:true,labels:['Example','Inbox']});
  assert.equal(p.entries[0].change.destination,undefined); assert.equal(p.entries[0].change.read,undefined);
 });
@@ -28,16 +29,16 @@ test('reject duplicate numbers, empty changes and conflicting/system labels', ()
  }
 });
 test('reply/identity change is not silently reinterpreted', () => {
- assert.throws(()=>createPlan(batch(),[{n:1,read:true}],[{...row(),time:'Thu, Nov 12, 2026, 1:18 PM'}]),/changed/);
- assert.throws(()=>createPlan(batch(),[{n:1,read:true}],[row(),row()]),/Duplicate/);
+ assert.throws(()=>plan(batch(),[{n:1,read:true}],[{...row(),time:'Thu, Nov 12, 2026, 1:18 PM'}]),/changed/);
+ assert.throws(()=>plan(batch(),[{n:1,read:true}],[row(),row()]),/Duplicate/);
 });
 test('manual state updates before preparation are rebased, not repeated blindly', () => {
  const fresh={...row(),labels:[],unread:false};
- const p=createPlan(batch(),[{n:1,read:true,destination:'archive'}],[fresh]);
+ const p=plan(batch(),[{n:1,read:true,destination:'archive'}],[fresh]);
  assert.deepEqual(p.entries[0].before,p.entries[0].after);
 });
 test('digest binds exact account, plan and operations; plans are single attempt', () => {
- const p=createPlan(batch(),[{n:1,read:true,destination:'archive'}],[row()]);
+ const p=plan(batch(),[{n:1,read:true,destination:'archive'}],[row()]);
  validatePlan(p,p.digest,conn.account);
  assert.throws(()=>validatePlan(p,p.digest,'other@example.com'),/mismatch/);
  const changed=clone(p); changed.entries[0].after.labels.push('Other');
@@ -58,7 +59,7 @@ test('snapshots/plans retain a subject fingerprint, not raw numeric codes or sni
  const b=createBatch(conn,{rows:[raw],query:'in:inbox',page:1});
  assert.ok(!b.rows[0].subject.includes('123456'));assert.ok(!JSON.stringify(b).includes('private body excerpt'));
  assert.match(b.rows[0].subject_hash,/^[a-f0-9]{64}$/);
- const p=createPlan(b,[{n:1,read:true}],[raw]);
+ const p=plan(b,[{n:1,read:true}],[raw]);
  assert.ok(!p.entries[0].row.subject.includes('123456'));
  validatePlan(p,p.digest,conn.account);
 });

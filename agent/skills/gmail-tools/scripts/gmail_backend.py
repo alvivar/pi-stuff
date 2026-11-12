@@ -314,7 +314,11 @@ def apply_plan(ui, entries):
         final = {r['id']: r for r in ui.collect(refs)}
         report = [{'n': e['change']['n'], 'ok': identity(final[e['row']['id']]) == identity(e['row'])
                    and state(final[e['row']['id']]) == e['after']} for e in entries]
-        return {'ok': all(r['ok'] for r in report), 'results': report, 'journal': journal}
+        if not all(r['ok'] for r in report):
+            return {'ok': False, 'error': 'final_state_mismatch',
+                    'message': 'Some conversations do not show the intended final state. Verify; do not repeat the plan.',
+                    'report': {'results': report, 'journal': journal}}
+        return {'ok': True, 'results': report, 'journal': journal}
     except Exception as exc:
         return {'ok': False, 'error': exc.code if isinstance(exc, GmailError) else 'apply_interrupted',
                 'message': 'Execution stopped. Some steps may have completed; verify before preparing a new plan.',

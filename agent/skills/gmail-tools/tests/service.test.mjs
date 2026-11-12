@@ -11,7 +11,7 @@ import { Readable } from 'node:stream';
 import { parseArgs, stdinObject } from '../scripts/gmail.mjs';
 import { parseBrowserResult, pythonValue, safeEnv } from '../scripts/bridge.mjs';
 import { withState, statePaths } from '../scripts/store.mjs';
-import { clone, createBatch, createPlan, emptyState } from '../scripts/core.mjs';
+import { clone, createBatch, createPlan, emptyState, normalizeChanges } from '../scripts/core.mjs';
 
 const connection = { account:'person@example.com',tab_id:'abc123',base_path:'/mail/u/0/' };
 const row = { id:'abcdef0123456789',sender:'sender@example.org',senders:['sender@example.org'],
@@ -75,7 +75,7 @@ test('interrupted apply is durably uncertain and cannot replay',async()=>{
 test('loading running state recovers uncertain, never prepared',()=>{
  const s=emptyState();s.connection=connection;
  const b=createBatch(connection,{rows:[row],query:'in:inbox',page:1});
- const p=createPlan(b,[{n:1,read:true}],[row]);p.status='running';s.batches[b.id]=b;s.plans[p.id]=p;
+ const p=createPlan(b,normalizeChanges(b,[{n:1,read:true}]),[row]);p.status='running';s.batches[b.id]=b;s.plans[p.id]=p;
  const restored=new GmailService({state:s,browser:async()=>{throw Error('not called');}});
  assert.equal(restored.getPlan(p.id).status,'uncertain');
 });
@@ -182,4 +182,15 @@ test('large apply error keeps its recovery fields and shortens the journal',()=>
  assert.ok(out.report.journal.length>0&&out.report.journal.length<1000);
  assert.equal(out.report.journal.at(-1).status,'attempting');
  assert.match(out.notice,/verify/);
+});
+test('apply checkpoints running before the browser call; a later save failure does not mask its error',async()=>{
+ const h=harness(),{p}=await prepared(h);
+ let failSave=false;
+ h.service.save=async s=>{if(failSave)throw Error('disk full');h.saved.push(clone(s));};
+ h.service.browser=async()=>{
+  assert.equal(h.saved.at(-1).plans[p.plan_id].status,'running');
+  failSave=true;throw Error('simulated disconnect');
+ };
+ await assert.rejects(h.service.run('apply',{plan_id:p.plan_id,digest:p.digest},{confirmation:p.digest}),
+  e=>/simulated disconnect/.test(e.message)&&/could not be saved: disk full/.test(e.message));
 });

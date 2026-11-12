@@ -53,11 +53,8 @@ export async function main(args = process.argv.slice(2), env = process.env, inpu
   const abort = () => controller.abort();
   process.on('SIGINT', abort); process.on('SIGTERM', abort);
   try {
-    const result = await withState(options.session, async (state, save) => {
-      const service = new GmailService({ state, save });
-      try { return await service.run(options.command, params, { confirmation: options.confirmation, signal: controller.signal }); }
-      finally { await save(service.state); }
-    });
+    const result = await withState(options.session, (state, save) =>
+      new GmailService({ state, save }).run(options.command, params, { confirmation: options.confirmation, signal: controller.signal }));
     process.stdout.write(outputText(result));
     if (result.ok === false) process.exitCode = 1;
   } finally {

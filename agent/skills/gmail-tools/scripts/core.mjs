@@ -25,7 +25,6 @@ export function snapshotRow(row) {
 }
 export const revision = row => digest(identity(row));
 export const mailState = row => ({ unread: row.unread, labels: [...row.labels].sort() });
-export const sameState = (a, b) => digest(mailState(a)) === digest(mailState(b));
 
 export function createBatch(connection, scan) {
   assertConnection(connection);
@@ -86,10 +85,11 @@ export function desiredState(row, change) {
   return { unread: change.read === undefined ? row.unread : !change.read, labels: [...labels].sort() };
 }
 
+// changes come from normalizeChanges(batch, ...).
 export function createPlan(batch, changes, freshRows) {
   const byId = new Map(freshRows.map(r => [r.id, r]));
   if (byId.size !== freshRows.length) throw new Error('Duplicate lookup identities.');
-  const entries = normalizeChanges(batch, changes).map(change => {
+  const entries = changes.map(change => {
     const original = batch.rows.find(r => r.id === change.id), fresh = byId.get(change.id);
     if (!fresh || revision(fresh) !== original.revision) throw new Error(`Conversation #${change.n} changed or cannot be uniquely located. Scan a new batch.`);
     const before = mailState(fresh), after = desiredState(fresh, change);
@@ -101,7 +101,7 @@ export function createPlan(batch, changes, freshRows) {
 }
 
 export function validatePlan(plan, expectedDigest, account) {
-  const { digest: savedDigest, status, report, approved, ...payload } = plan;
+  const { digest: savedDigest, status, report, ...payload } = plan;
   if (account !== plan.account || expectedDigest !== savedDigest || digest(payload) !== savedDigest) throw new Error('Plan/account/digest mismatch. Prepare a new plan.');
   if (status !== 'prepared') throw new Error('This plan has already been attempted. Verify it; prepare a new plan for outstanding changes.');
 }
@@ -116,12 +116,11 @@ export function redact(text) {
     .replace(/([?&](?:token|code|key|secret|signature|otp|password)=)[^&\s]+/ig, '$1[omitted]');
 }
 
-export function publicBatch(batch, snippets = false) {
+export function publicBatch(batch) {
   return { batch_id: batch.id, account: batch.account, query: batch.query, page: batch.page,
     next_page: batch.next_page, unit: 'conversation', count: batch.rows.length,
     rows: batch.rows.map(r => ({ n: r.n, ref: r.id, sender: r.sender, subject: redact(r.subject),
-      time: r.time, unread: r.unread, labels: r.labels,
-      ...(snippets ? { snippet: redact(r.snippet ?? '') } : {}) })) };
+      time: r.time, unread: r.unread, labels: r.labels })) };
 }
 
 export function publicPlan(plan) {

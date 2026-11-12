@@ -112,6 +112,21 @@ class BackendTests(unittest.TestCase):
         report = apply_plan(fake, [entry(r, 1, read=True)])
         self.assertEqual(report['error'], 'apply_interrupted')
 
+    def test_final_state_mismatch_is_an_explicit_failure_with_results(self):
+        r = row()
+        ui = FakeUI([r])
+        collect = ui.collect
+        calls = []
+        def stale_final(refs, max_pages=20):
+            calls.append(refs)
+            rows = collect(refs)
+            if len(calls) > 1: rows[0]['unread'] = True  # final refresh contradicts the mutation
+            return rows
+        ui.collect = stale_final
+        report = apply_plan(ui, [entry(r, 1, read=True)])
+        self.assertEqual(report['error'], 'final_state_mismatch')
+        self.assertEqual(report['report']['results'], [{'n': 1, 'ok': False}])
+
     def test_read_and_labels_are_not_implicit(self):
         r = row()
         ui = FakeUI([r])
