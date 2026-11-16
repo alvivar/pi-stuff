@@ -10,6 +10,8 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ### Fixed
 
+- **Warn once when the link can neither join nor host.** The first double failure of an outage shows the listen error and says pi-link keeps retrying. Further failed retries stay quiet until a connection is established or `/link-disconnect` is used. Cancelled or superseded attempts show no warning; retry timing and election order are unchanged.
+
 - **Disconnect keeps a running remote compaction's inbox held.** `/link-disconnect` no longer clears `compactRunning` before the compaction reports its result, so a held batch cannot start a turn during the window before `session_before_compact`. Waiting requests are still dropped on disconnect; session shutdown still discards the inbox.
 
 ---

@@ -78,27 +78,6 @@ documented. pi-link's own client sends no `Origin` (`ws` adds the header only wh
 asked), which is what a refusal can key on. CORS on `GET /status` is not a defense
 for the WebSocket. No tokens and no handshake extensions.
 
-### BL-15 — Failing to join or host the link is silent
-
-**Priority:** 4. **Status:** Open.
-
-When the dial fails and the listen fails — port 9900 held by something that is not a
-hub — both errors are discarded (`connectAsClient`, `startHub`), the attempt
-schedules a retry, and nothing is shown. In two independent isolated probes, startup
-followed by `/link-connect` produced no notification. The footer says `link: offline`
-with no cause, indefinitely. Each retry comes after a 2–5 second backoff, plus up to
-5 seconds of handshake timeout.
-
-*Outcome sought:* the user learns that the terminal could neither join nor host, with
-the listen error, and without one notification per retry.
-
-*Revisit when:* the owner authorizes it; no further evidence is needed.
-
-*Constraints:* keep the retry and the client-then-hub election. A listen error does
-not prove another hub exists, so the message must not claim one. The ordinary
-election race, where two terminals bind at once and the loser joins on its retry,
-must stay quiet.
-
 ### BL-1 — Routing failure visible to the sending agent
 
 **Priority:** 5. **Status:** Open, no design pinned.

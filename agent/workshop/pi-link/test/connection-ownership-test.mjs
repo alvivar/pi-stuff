@@ -196,6 +196,7 @@ function boot({ link = false } = {}) {
   const commands = new Map();
   const tools = new Map();
   const notes = [];
+  const warnings = [];
   const entries = [];
   const delivered = [];
   let statusLine = "";
@@ -220,7 +221,10 @@ function boot({ link = false } = {}) {
     cwd: "C:/probe",
     ui: {
       theme: { fg: (_role, text) => text, bold: (text) => text },
-      notify: (message) => notes.push(message),
+      notify: (message, level) => {
+        notes.push(message);
+        if (level === "warning") warnings.push(message);
+      },
       setStatus: (_key, text) => { statusLine = text; },
     },
     sessionManager: { getEntries: () => [] },
@@ -236,6 +240,7 @@ function boot({ link = false } = {}) {
 
   const t = {
     notes,
+    warnings,
     entries,
     delivered,
     status: () => statusLine,
@@ -281,12 +286,12 @@ function failDial(socket) {
 // teardown check below, which asserts it closes everything it does still hold.
 const peerEnded = new Set();
 
-function failBind(server) {
+function failBind(server, error = new Error("EADDRINUSE")) {
   peerEnded.add(server);
   // A bind that never listened holds no port, so pi-link has nothing to close on
   // the http server either — `settle` releases the handle and the object is done.
   if (server.providedServer) peerEnded.add(server.providedServer);
-  server.emit("error", new Error("EADDRINUSE"));
+  server.emit("error", error);
 }
 
 function peerClose(socket) {
@@ -1299,6 +1304,117 @@ async function bootClientNamed(name, terminals, extra = {}) {
         `[Link: 2 message(s) received]\n\nlink_compact "a" [${id}]: compacted\n\n` +
           `link_compact "b" [${leftId}]: left the link before answering; result unknown`,
     JSON.stringify(linkBatches));
+}
+
+// ── 16. One establishment warning per outage ───────────────────────────────
+
+const establishmentWarnings = (t) =>
+  t.warnings.filter((message) => message.startsWith("Could neither join nor host"));
+
+{
+  const t = await boot({ link: true }).start();
+  await until(() => t.sockets().length === 1, "the startup dial");
+  const first = t.cmd("link-connect"); // observe the same startup attempt
+  failDial(t.sockets()[0]);
+  await until(() => t.servers().length === 1, "the first bind");
+  const error = new Error("listen EACCES: permission denied 127.0.0.1:9900");
+  failBind(t.servers()[0], error);
+  await first;
+  const warnings = establishmentWarnings(t);
+  check("16a: a double failure warns once with the port, listen error and retry",
+    t.notes.length === 1 && warnings.length === 1 && warnings[0].includes(":9900") &&
+      warnings[0].includes(error.message) && /retry/i.test(warnings[0]),
+    JSON.stringify(t.notes));
+
+  await until(() => t.sockets().length === 2, "the automatic retry", RECONNECT_CEILING_MS);
+  failDial(t.sockets()[1]);
+  await until(() => t.servers().length === 2, "the retry bind");
+  failBind(t.servers()[1]);
+  await tick();
+  check("16a: another failed retry does not repeat the warning",
+    t.notes.length === 1 && establishmentWarnings(t).length === 1, JSON.stringify(t.notes));
+
+  await until(() => t.sockets().length === 3, "the recovery dial", RECONNECT_CEILING_MS);
+  const recovered = t.sockets()[2];
+  recovered.emit("open");
+  recovered.emit("message", Buffer.from(JSON.stringify({
+    type: "welcome", name: "recovered", terminals: ["recovered"],
+  })));
+  await tick();
+  check("16a: a retry can still establish the client",
+    (await t.role()) === "client" && noteCount(t, "Joined the link") === 1,
+    JSON.stringify(t.notes));
+  // A late error from an old failed listener must not use up the next outage's warning.
+  t.servers()[0].emit("error", new Error("stale bind error"));
+  await tick();
+  check("16a: a stale bind error after recovery stays silent",
+    establishmentWarnings(t).length === 1, JSON.stringify(t.notes));
+
+  peerClose(recovered);
+  await until(() => t.sockets().length === 4, "the new outage's dial", RECONNECT_CEILING_MS);
+  failDial(t.sockets()[3]);
+  await until(() => t.servers().length === 3, "the new outage's bind");
+  const nextError = new Error("listen EADDRINUSE: address already in use 127.0.0.1:9900");
+  failBind(t.servers()[2], nextError);
+  await tick();
+  check("16a: establishment resets the warning for a new outage",
+    establishmentWarnings(t).length === 2 && establishmentWarnings(t)[1].includes(nextError.message),
+    JSON.stringify(t.notes));
+  await t.emit("session_shutdown", { reason: "quit" });
+}
+
+{
+  const t = await boot().start();
+  const first = t.cmd("link-connect");
+  failDial(t.sockets()[0]);
+  await until(() => t.servers().length === 1, "the manual connect bind");
+  failBind(t.servers()[0]);
+  await first;
+  check("16b: a manual connect double failure warns once",
+    establishmentWarnings(t).length === 1, JSON.stringify(t.notes));
+
+  await t.cmd("link-disconnect");
+  const next = t.cmd("link-connect");
+  failDial(t.sockets()[1]);
+  await until(() => t.servers().length === 2, "the next manual connect bind");
+  failBind(t.servers()[1]);
+  await next;
+  check("16b: explicit disconnect resets the warning even while the port stays unavailable",
+    establishmentWarnings(t).length === 2, JSON.stringify(t.notes));
+  await t.emit("session_shutdown", { reason: "quit" });
+}
+
+{
+  // Cancel both before the listen error and after it, before runAttempt resumes.
+  // Neither the cancelled result nor a stale callback may warn for its successor.
+  for (const timing of ["before error", "after error"]) {
+    const t = await boot().start();
+    const first = t.cmd("link-connect");
+    failDial(t.sockets()[0]);
+    await until(() => t.servers().length === 1, "the cancellable bind");
+    const stale = t.servers()[0];
+    if (timing === "after error") failBind(stale);
+    const cancelled = t.cmd("link-disconnect");
+    if (timing === "before error") stale.emit("error", new Error("cancelled bind error"));
+    await Promise.all([first, cancelled]);
+    check(`16c: cancelling ${timing} suppresses the failed attempt's warning`,
+      establishmentWarnings(t).length === 0, JSON.stringify(t.notes));
+
+    const next = t.cmd("link-connect");
+    failDial(t.sockets()[1]);
+    await until(() => t.servers().length === 2, "the successor bind");
+    stale.emit("error", new Error("superseded bind error"));
+    await tick();
+    check(`16c: ${timing}: the superseded listener stays silent`,
+      establishmentWarnings(t).length === 0, JSON.stringify(t.notes));
+    const error = new Error("listen EACCES: successor cannot bind");
+    failBind(t.servers()[1], error);
+    await next;
+    check(`16c: ${timing}: only the current attempt warns with its own error`,
+      establishmentWarnings(t).length === 1 && establishmentWarnings(t)[0].includes(error.message),
+      JSON.stringify(t.notes));
+    await t.emit("session_shutdown", { reason: "quit" });
+  }
 }
 
 // ── Teardown: every instance closes its own transports and timers ───────────
