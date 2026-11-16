@@ -23,8 +23,7 @@ const INDEX_URL = pathToFileURL(
 // The values the extension ships with; asserted against, never redefined.
 const FLUSH_DELAY_MS = 200;
 const BATCH_MAX_ITEMS = 20;
-const COMPACT_TIMEOUT_MS = 300_000;
-const OLD_COMPACT_TIMEOUT_MS = 180_000; // the deadline these budgets replaced
+const COMPACT_IDLE_CHECK_MS = 500;
 
 // ── Stubs for the modules Pi provides ───────────────────────────────────────
 
@@ -54,7 +53,7 @@ const HTTP_STUB = `
 `;
 
 const STUBS = {
-  "@earendil-works/pi-coding-agent": `export const VERSION = "0.84.2";
+  "@earendil-works/pi-coding-agent": `export const VERSION = "0.85.0";
     export const keyHint = (id, description) => description;
     // app.tools.expand is bound here; the unbound fallback is exercised in the renderer suite.
     export const keyText = () => "ctrl+e";`,
@@ -348,12 +347,13 @@ const bodies = (delivery) => blocks(delivery).map((b) => b.split("\n").slice(1).
 {
   const t = await establishedClient();
   t.chat("peer", "held");
+  t.ctx.isIdle = () => false;
   await t.emit("session_before_compact", { reason: "manual" }); // raise the gate
   await advance(FLUSH_DELAY_MS);
   check("4: a window that fires while gated delivers nothing", t.delivered.length === 0,
     JSON.stringify(t.delivered));
   await advance(FLUSH_DELAY_MS * 5);
-  check("4: and it does not poll while the gate stands", t.delivered.length === 0,
+  check("4: later windows do not deliver while the gate stands", t.delivered.length === 0,
     `deliveries=${t.delivered.length}`);
 
   await t.emit("session_compact", { reason: "manual" }); // release
@@ -370,40 +370,52 @@ const bodies = (delivery) => blocks(delivery).map((b) => b.split("\n").slice(1).
     JSON.stringify(t.delivered.map((d) => bodies(d))));
 }
 
-// ── 5. The gate's fallback deadline is five minutes ───────────────────────
+// ── 5. Idle recovers a failed gate; elapsed time never releases a busy one ──
 
 {
-  // A manual compaction with no observable ending: the gate stands well past the
-  // three-minute deadline it used to have, and only its own fallback clears it.
-  // Held messages alone cannot date the release — delivery is a separate 200ms
-  // window — so the gate itself is read from the status the terminal publishes,
-  // which `compactionGated()` decides.
+  // No success event or new run: Pi becoming idle is the only ending observed.
   const t = await establishedClient();
-  t.chat("peer", "held");
+  let idle = false;
+  t.ctx.isIdle = () => idle;
   await t.emit("session_before_compact", { reason: "manual" });
-  const raised = clockNow;
-  check("5: raising the gate publishes `compacting`",
-    gateStatus(t) === "compacting", JSON.stringify(t.socket.sent));
-
-  await advance(OLD_COMPACT_TIMEOUT_MS);
-  check("5: the gate still holds at the old three-minute deadline",
-    gateStatus(t) === "compacting" && t.delivered.length === 0 &&
-      clockNow - raised === OLD_COMPACT_TIMEOUT_MS,
-    `status=${gateStatus(t)} delivered=${t.delivered.length} elapsed=${clockNow - raised}`);
-
-  await advance(COMPACT_TIMEOUT_MS - OLD_COMPACT_TIMEOUT_MS - 1); // one tick short of 300s
-  check("5: and one millisecond before the new one",
-    gateStatus(t) === "compacting" && t.delivered.length === 0 &&
-      clockNow - raised === COMPACT_TIMEOUT_MS - 1,
-    `status=${gateStatus(t)} delivered=${t.delivered.length} elapsed=${clockNow - raised}`);
-
-  await advance(1); // the fallback fires
-  check("5: the fallback clears the gate exactly at five minutes, delivering nothing yet",
-    gateStatus(t) === "idle" && t.delivered.length === 0,
-    `status=${gateStatus(t)} delivered=${JSON.stringify(t.delivered)}`);
+  t.chat("peer", "after failure");
   await advance(FLUSH_DELAY_MS);
-  check("5: the held message then goes out through a normal batching window",
-    t.delivered.length === 1 && bodies(t.delivered[0]).join(",") === "held",
+  idle = true;
+  await advance(COMPACT_IDLE_CHECK_MS - FLUSH_DELAY_MS - 1);
+  check("5a: the failed compaction stays held until the next idle check",
+    gateStatus(t) === "compacting" && t.delivered.length === 0);
+
+  await advance(1);
+  check("5a: the idle check clears the status without synchronous delivery",
+    gateStatus(t) === "idle" && t.delivered.length === 0);
+  await advance(FLUSH_DELAY_MS - 1);
+  check("5a: release still respects the inbox window", t.delivered.length === 0);
+  await advance(1);
+  check("5a: idle without session_compact delivers within one check plus the window",
+    t.delivered.length === 1 && bodies(t.delivered[0]).join(",") === "after failure" &&
+      t.delivered[0].options.triggerTurn === true,
+    JSON.stringify(t.delivered));
+  await advance(COMPACT_IDLE_CHECK_MS * 2);
+  check("5a: recovery stops checking and delivers only once",
+    t.delivered.length === 1 && pending.size === 0);
+}
+
+{
+  const t = await establishedClient();
+  let idle = false;
+  t.ctx.isIdle = () => idle;
+  await t.emit("session_before_compact", { reason: "manual" });
+  t.chat("peer", "long compaction");
+  await advance(10 * 60_000); // twice the removed five-minute deadline
+  check("5b: a busy compaction still holds status and inbox after ten minutes",
+    gateStatus(t) === "compacting" && t.delivered.length === 0,
+    `status=${gateStatus(t)} delivered=${t.delivered.length}`);
+  idle = true;
+  await advance(COMPACT_IDLE_CHECK_MS + FLUSH_DELAY_MS);
+  check("5b: only idle releases that long hold",
+    gateStatus(t) === "idle" && t.delivered.length === 1 &&
+      bodies(t.delivered[0]).join(",") === "long compaction" &&
+      t.delivered[0].options.triggerTurn === true,
     JSON.stringify(t.delivered));
 }
 
@@ -537,6 +549,7 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
   // The requester's own compaction gate holds an outcome like any message.
   const t = await requester();
   const { id } = await request(t, "peer");
+  t.ctx.isIdle = () => false;
   await t.emit("session_before_compact", { reason: "manual" });
   respond(t, id, "peer", true);
   await advance(FLUSH_DELAY_MS * 3);
@@ -577,7 +590,7 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
     contents(t).join("|") ===
       `[Link: 2 message(s) received]\n\n${lineFor("peer", id, outcome)}\n\n${lineFor("other", otherId, outcome)}`,
     JSON.stringify(contents(t)));
-  await advance(COMPACT_TIMEOUT_MS);
+  await advance(5 * 60_000);
   check("6h: and nothing else follows", t.delivered.length === 1,
     JSON.stringify(contents(t)));
 }
@@ -598,7 +611,7 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
       `[Link: 2 message(s) received]\n\n${lineFor("peer", id, outcome)}\n\n${lineFor("other", otherId, outcome)}`,
     JSON.stringify(contents(t)));
   const reported = contents(t).join("|");
-  await advance(COMPACT_TIMEOUT_MS);
+  await advance(5 * 60_000);
   check("6h: and no reconnect or later report follows",
     contents(t).join("|") === reported && t.sockets().length === 1, JSON.stringify(contents(t)));
 }
@@ -644,7 +657,7 @@ const lineFor = (to, id, outcome) => `link_compact "${to}" [${id}]: ${outcome}`;
   const t = await requester();
   await request(t, "peer");
   await t.emit("session_shutdown", { reason: "quit" });
-  await advance(COMPACT_TIMEOUT_MS + FLUSH_DELAY_MS);
+  await advance(5 * 60_000 + FLUSH_DELAY_MS);
   check("6j: shutdown with a pending request delivers nothing", t.delivered.length === 0,
     JSON.stringify(contents(t)));
 }
@@ -741,6 +754,7 @@ const answers = (t) =>
   // A human /compact holds the gate. Its success event fires before Pi clears its
   // own state, so the request is picked up by a later check, not by the event.
   const t = await target();
+  t.ctx.isIdle = () => false;
   await t.emit("session_before_compact", { reason: "manual" });
   ask(t, "r1");
   ask(t, "r2");
@@ -749,6 +763,7 @@ const answers = (t) =>
     t.compactCalls.length === 0 && answers(t).join("|") === "r2:false:already_requested",
     JSON.stringify(answers(t)));
   await t.emit("session_compact", { reason: "manual" });
+  t.ctx.isIdle = () => true;
   await advance(COMPACT_WAIT_CHECK_MS);
   check("8b: the manual compaction's end is picked up within one check",
     t.compactCalls.length === 1, JSON.stringify(t.compactCalls));
@@ -826,6 +841,99 @@ const answers = (t) =>
         t.delivered[0].options.triggerTurn === true,
       JSON.stringify(t.delivered));
   }
+}
+
+{
+  // Both gates were raised. Either the callback or the idle check can run first;
+  // neither alone may deliver, and only finish() may answer the requester.
+  for (const order of ["callback-first", "check-first"]) {
+    const t = await target();
+    ask(t, "r1");
+    t.ctx.isIdle = () => false;
+    await t.emit("session_before_compact", { reason: "manual" });
+    t.chat("peer", "failed remote");
+    await advance(FLUSH_DELAY_MS);
+    t.ctx.isIdle = () => true;
+    if (order === "callback-first") {
+      t.compactCalls[0].onError(new Error("summary failed"));
+      check(`8f: ${order}: the callback answers but the local gate still holds`,
+        answers(t).join("|") === "r1:false:summary failed" &&
+          gateStatus(t) === "compacting" && t.delivered.length === 0);
+      await advance(COMPACT_IDLE_CHECK_MS - FLUSH_DELAY_MS);
+    } else {
+      await advance(COMPACT_IDLE_CHECK_MS);
+      check(`8f: ${order}: the idle check neither answers nor releases the remote gate`,
+        answers(t).length === 0 && gateStatus(t) === "compacting" &&
+          t.delivered.length === 0);
+      t.compactCalls[0].onError(new Error("summary failed"));
+    }
+    await advance(FLUSH_DELAY_MS);
+    check(`8f: ${order}: both endings give one answer and one triggered delivery`,
+      answers(t).join("|") === "r1:false:summary failed" && gateStatus(t) === "idle" &&
+        t.delivered.length === 1 && bodies(t.delivered[0]).join(",") === "failed remote" &&
+        t.delivered[0].options.triggerTurn === true,
+      JSON.stringify({ answers: answers(t), delivered: t.delivered }));
+    t.compactCalls[0].onError(new Error("late"));
+    await advance(COMPACT_IDLE_CHECK_MS * 2);
+    check(`8f: ${order}: neither the result nor the delivery repeats`,
+      answers(t).length === 1 && t.delivered.length === 1);
+    await t.emit("session_shutdown", { reason: "quit" });
+  }
+}
+
+{
+  // Disconnect drops the remote waiting timer, but not local-gate recovery.
+  const t = await target();
+  t.ctx.isIdle = () => false;
+  await t.emit("session_before_compact", { reason: "manual" });
+  ask(t, "waiting");
+  t.chat("peer", "held across disconnect");
+  await advance(FLUSH_DELAY_MS);
+  await t.cmd("link-disconnect");
+  await advance(COMPACT_IDLE_CHECK_MS * 2);
+  check("8g: disconnect keeps the busy manual compaction's inbox held",
+    t.delivered.length === 0);
+  t.ctx.isIdle = () => true;
+  await advance(COMPACT_IDLE_CHECK_MS + FLUSH_DELAY_MS);
+  check("8g: local recovery survives disconnect, without starting the dropped request",
+    t.compactCalls.length === 0 && t.delivered.length === 1 &&
+      bodies(t.delivered[0]).join(",") === "held across disconnect" &&
+      t.delivered[0].options.triggerTurn === true,
+    JSON.stringify(t.delivered));
+  await t.emit("session_shutdown", { reason: "quit" });
+}
+
+{
+  const t = await establishedClient();
+  t.ctx.isIdle = () => false;
+  await t.emit("session_before_compact", { reason: "manual" });
+  t.chat("peer", "discard on shutdown");
+  await advance(COMPACT_IDLE_CHECK_MS * 2);
+  check("8h: a busy local gate has a check pending", pending.size === 1);
+  await t.emit("session_shutdown", { reason: "quit" });
+  check("8h: shutdown cancels the local gate's check", pending.size === 0);
+  t.ctx.isIdle = () => true;
+  await advance(COMPACT_IDLE_CHECK_MS + FLUSH_DELAY_MS);
+  check("8h: shutdown discards the held message", t.delivered.length === 0);
+}
+
+{
+  // Pi can finish awaiting abort() and emit the manual hook after this instance
+  // has shut down. That late hook must not rearm a check against its cleared ctx.
+  const t = await establishedClient();
+  t.chat("peer", "discard before late hook");
+  await t.emit("session_shutdown", { reason: "new" });
+  await t.emit("session_before_compact", { reason: "manual" });
+  check("8i: a manual hook after shutdown arms no timer", pending.size === 0);
+  let error;
+  try {
+    await advance(COMPACT_IDLE_CHECK_MS + FLUSH_DELAY_MS);
+  } catch (e) {
+    error = e;
+  }
+  check("8i: the late hook neither crashes nor delivers after shutdown",
+    error === undefined && pending.size === 0 && t.delivered.length === 0,
+    `error=${error?.message ?? "none"} pending=${pending.size} delivered=${t.delivered.length}`);
 }
 
 // ── Teardown: every instance releases its timers and transports ─────────────

@@ -97,7 +97,7 @@ export class Box {
 
 const STUBS = {
   "@earendil-works/pi-coding-agent": `
-    export const VERSION = "0.84.2";
+    export const VERSION = "0.85.0";
     // Mirrors the installed keyHint, which is theme.fg("dim", keys) + theme.fg("muted",
     // description); every installed theme.fg span opens a FOREGROUND SELECTOR and closes
     // it with a bare foreground reset (\`\${ansi}\${text}\\x1b[39m\`). 90m stands in for the

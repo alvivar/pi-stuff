@@ -133,6 +133,8 @@ Caveats to verify during implementation:
   overlap a remote request, and that is exactly the window `ctx.isIdle()` closes.
 - Bonus observation for SKILL.md accuracy: the skill's "(3 min ceiling …)" note
   was correct then — this race produces an immediate error, not a timeout. The
-  limit has been five minutes (300 s) since 0.5.0. Its
+  gate fallback became five minutes in 0.5.0 and is now removed: the gate instead
+  checks Pi's idle state. The decision not to register `session_compact_failed`,
+  based on Pi 1.5.2 probes of the controller race, lives in `BACKLOG.md`. The skill's
   busy-decline wording was correct for the guard of the time and was rewritten in
   0.3.0, when the guard became "idle by Pi, and ungated".

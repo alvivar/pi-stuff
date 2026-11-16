@@ -48,7 +48,7 @@ const HTTP_STUB = `
 
 const STUBS = {
   "@earendil-works/pi-coding-agent": `
-    export let VERSION = "0.84.2";
+    export let VERSION = "0.85.0";
     export function __setVersion(v) { VERSION = v; }
     export const keyHint = (id, description) => description;
     // app.tools.expand is bound here; the unbound fallback is exercised in the renderer suite.
@@ -221,14 +221,12 @@ const responses = (frames) => frameOf(frames, "compact_response");
 // ── A. Compatibility floor ──────────────────────────────────────────────────
 
 for (const [version, supported] of [
-  ["0.84.2", true],
-  ["0.84.3", true],
   ["0.85.0", true],
   ["1.0.0", true],
-  ["0.84.1", false],
+  ["0.84.4", false],
   ["0.83.9", false],
   ["0.85.0-beta.1", false], // stable releases only: a prerelease is not a release
-  ["0.84.2+build.1", false], // nor is a build suffix, whatever it labels
+  ["0.85.0+build.1", false], // nor is a build suffix, whatever it labels
   ["not.a.version", false],
   ["", false],
 ]) {
@@ -244,12 +242,12 @@ for (const [version, supported] of [
   if (!supported && error) {
     check(
       `A: Pi ${version || "(empty)"} error names floor and detected version`,
-      error.message.includes("0.84.2") && error.message.includes(version || "unknown"),
+      error.message.includes("0.85.0") && error.message.includes(version || "unknown"),
       error.message,
     );
   }
 }
-piStub.__setVersion("0.84.2");
+piStub.__setVersion("0.85.0");
 
 // ── B. Remote compaction guard matrix ───────────────────────────────────────
 
@@ -275,10 +273,8 @@ const compactRequest = ({ client, self }, id = "r1") =>
 }
 
 {
-  // 3. Idle but a manual compaction holds the gate -> waits. This raises the real
-  // gate, including its 300s deadline; the shutdown at the end of the file is what
-  // clears it and the waiting request's check, and the process exiting on its own
-  // is the proof.
+  // 3. Idle but a manual compaction still holds the gate -> waits on arrival,
+  // before the local gate's next idle check can clear it.
   let calls = 0;
   const hub = await boot({ compact: () => { calls++; } });
   await hub.api.emit("session_before_compact", { reason: "manual" }, hub.ctx);
@@ -382,9 +378,8 @@ const compactRequest = ({ client, self }, id = "r1") =>
   );
 }
 
-// Shut every booted instance down through the real lifecycle. Without this the
-// manual gate raised in B3 holds a 300-second deadline, and the process only exits
-// on its own once every instance has cleaned up its timers and sockets.
+// Shut every booted instance down through the real lifecycle. The process exits
+// on its own only once every instance has cleaned up its timers and sockets.
 for (const { api, ctx } of booted) await api.emit("session_shutdown", {}, ctx);
 
 console.log(`\n\nPassed: ${pass}`);

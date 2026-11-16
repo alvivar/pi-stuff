@@ -71,7 +71,7 @@ const HTTP_STUB = `
 `;
 
 const STUBS = {
-  "@earendil-works/pi-coding-agent": `export const VERSION = "0.84.2";
+  "@earendil-works/pi-coding-agent": `export const VERSION = "0.85.0";
     export const keyHint = (id, description) => description;
     // app.tools.expand is bound here; the unbound fallback is exercised in the renderer suite.
     export const keyText = () => "ctrl+e";`,

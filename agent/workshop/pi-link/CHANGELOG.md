@@ -8,7 +8,13 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ## Unreleased
 
+### Changed
+
+- **Pi 0.85.0 or later is required.** The local compaction gate now relies on `ctx.isIdle()` covering Pi's own compactions, which earlier versions did not. There is no compatibility fallback; on Pi 0.84.2–0.84.4, pin `pi-link@0.6.1`.
+
 ### Fixed
+
+- **Failed or cancelled manual compactions release held messages when Pi becomes idle.** A separate 500 ms check clears the local gate once Pi reports idle; status and normal inbox batching recover when no remote gate remains. The five-minute fallback is removed: elapsed time no longer releases a compaction that still reports busy. The check survives `/link-disconnect` and stops at shutdown; remote outcomes still come only from their result callbacks. See the README's Inbox section for the known Pi 1.5.2 limitation when another extension handles compaction failures.
 
 - **Warn once when the link can neither join nor host.** The first double failure of an outage shows the listen error and says pi-link keeps retrying. Further failed retries stay quiet until a connection is established or `/link-disconnect` is used. Cancelled or superseded attempts show no warning; retry timing and election order are unchanged.
 

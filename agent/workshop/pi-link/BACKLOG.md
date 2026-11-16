@@ -186,28 +186,6 @@ live OMP check authorized by the owner.
 *Constraints:* no retries, arbitrary timeouts or heuristics. The evidence is
 reported source reading, not runtime: none of the three gaps was reproduced.
 
-### BL-6 — Release the inbox when a compaction fails
-
-**Priority:** 9 — the cost is a delay, not a loss. **Status:** Open, no design pinned.
-
-Pi 0.84.3+ emits `session_compact_failed` to extensions when a compaction fails
-or is cancelled. pi-link does not handle it: a `localCompacting` gate raised by
-`session_before_compact` stays up until the next agent run, a later successful
-compaction, or the five-minute deadline, so messages to that terminal wait that
-long after a compaction that already failed. `REPORT-session-compact-failed.md`
-holds the earlier analysis; it was not re-assessed here.
-
-*Outcome sought:* a failed or cancelled compaction releases held messages promptly.
-
-*Revisit when:* a cancelled `/compact` is seen holding a terminal's inbox for
-minutes in practice, or the floor moves to 0.84.3+ for another reason.
-
-*Constraints:* the release must be correlated with the compaction that raised the
-gate — the event carries no id, and a release on the wrong failure reopens
-delivery into a compaction still running. Chosen policy, not a runtime need: ship
-it with `MIN_PI_VERSION` raised to 0.84.3 and no compatibility branch for the
-floor below it. A handler is runtime-safe on 0.84.2, but its typings lack the event.
-
 ### BL-11 — Session paths resolved differently from Pi
 
 **Priority:** 10. **Status:** Open.
@@ -444,6 +422,12 @@ grow into one.
 These were decided against, and each parked candidate above has a plausible path
 back into one of them. Rejecting them again is not free; do not re-derive.
 
+- **Do not register `session_compact_failed`** — on Pi 1.5.2, SDK probes showed
+  that even a no-op handler makes a second `compact()` during a manual compaction
+  fail with an undefined-controller `.signal` error; a delayed handler can leave
+  the second compaction running while Pi reports idle. The host clears a newer
+  attempt's controller without checking ownership. Use the local gate's idle
+  check instead, with the cross-extension limitation documented in the README.
 - **No script or run orchestration layer** — pi-link's orchestrator is an LLM, not
   code: no script-as-orchestrator, saved `/command` runs, cached or resumable agent
   results, concurrency caps or approval-before-launch UX.
