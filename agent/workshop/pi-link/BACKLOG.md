@@ -78,31 +78,6 @@ documented. pi-link's own client sends no `Origin` (`ws` adds the header only wh
 asked), which is what a refusal can key on. CORS on `GET /status` is not a defense
 for the WebSocket. No tokens and no handshake extensions.
 
-### BL-14 — `/link-disconnect` lowers the gate under a running remote compaction
-
-**Priority:** 3. **Status:** Open.
-
-`disconnect()` sets `compactRunning = false` even while a remote compaction is
-running, although `finish()` is what clears that flag when the compaction ends. The
-flag exists to hold delivery in the window before `session_before_compact` raises
-`localCompacting`. Two independent isolated probes reproduced the effect: with
-`ctx.compact()` started and neither the hook nor a callback yet, `/link-disconnect`
-let a held inbox batch through with `triggerTurn`. The comment at that site describes
-the clearing but gives no reason for it, and the existing test (inbox 8d) covers the
-disconnect of a waiting request, not a running one. Once the hook has fired,
-`localCompacting` still holds, so the exposure is that window only.
-
-*Outcome sought:* a running remote compaction keeps delivery held until it reports
-its outcome, whether or not the terminal disconnects meanwhile.
-
-*Revisit when:* the owner authorizes it; no further evidence is needed.
-
-*Constraints:* no remote cancel. Session teardown still clears everything, and a
-waiting request is still dropped on disconnect, as today. Under the BL-9 gaps a
-compaction may never report an outcome; `/link-disconnect` is today the only thing
-short of a reload that lowers a `compactRunning` gate stuck that way, so the two
-candidates interact.
-
 ### BL-15 — Failing to join or host the link is silent
 
 **Priority:** 4. **Status:** Open.
@@ -215,6 +190,9 @@ under OMP:
 - *Resolve without a callback.* In OMP's interactive TUI a failure can resolve
   the promise without calling `onError` or `onComplete`, with the same effect.
   A resolve is not proof of success.
+
+`/link-disconnect` does not lower that stuck `compactRunning` gate either; without
+an outcome, it remains until session teardown.
 
 *Outcome sought:* under OMP, `link_compact` instructions reach the compaction,
 and every request gets exactly one outcome that matches what happened.

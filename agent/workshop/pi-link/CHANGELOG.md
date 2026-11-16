@@ -6,6 +6,14 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Disconnect keeps a running remote compaction's inbox held.** `/link-disconnect` no longer clears `compactRunning` before the compaction reports its result, so a held batch cannot start a turn during the window before `session_before_compact`. Waiting requests are still dropped on disconnect; session shutdown still discards the inbox.
+
+---
+
 ## 0.6.1 — 2026-11-02
 
 ### Fixed

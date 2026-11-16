@@ -801,6 +801,33 @@ const answers = (t) =>
   }
 }
 
+{
+  // A running request owns its gate even after disconnect, including the window
+  // before session_before_compact raises the other gate. Either result releases it.
+  for (const outcome of ["success", "error"]) {
+    const t = await target();
+    ask(t, "r1");
+    check(`8e: ${outcome}: the remote compaction has started`, t.compactCalls.length === 1);
+    t.chat("peer", "held before the hook");
+    await advance(FLUSH_DELAY_MS);
+    check(`8e: ${outcome}: delivery is held before disconnect`, t.delivered.length === 0,
+      JSON.stringify(contents(t)));
+
+    await t.cmd("link-disconnect");
+    await advance(FLUSH_DELAY_MS * 2);
+    check(`8e: ${outcome}: disconnect does not release the running compaction's inbox`,
+      t.delivered.length === 0, JSON.stringify(contents(t)));
+
+    if (outcome === "success") t.compactCalls[0]?.onComplete({});
+    else t.compactCalls[0]?.onError(new Error("preparation failed"));
+    await advance(FLUSH_DELAY_MS);
+    check(`8e: ${outcome}: the result releases the held message after disconnect`,
+      t.delivered.length === 1 && bodies(t.delivered[0]).join(",") === "held before the hook" &&
+        t.delivered[0].options.triggerTurn === true,
+      JSON.stringify(t.delivered));
+  }
+}
+
 // ── Teardown: every instance releases its timers and transports ─────────────
 
 for (const t of booted) await t.emit("session_shutdown", { reason: "quit" });

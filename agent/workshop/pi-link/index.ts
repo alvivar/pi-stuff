@@ -1367,13 +1367,10 @@ export default function (pi: ExtensionAPI) {
 
     // A remote request still waiting is dropped unanswered: the link it would answer
     // over is closing, and its requester sees this terminal leave. A running one
-    // keeps its slot until it finishes. Clear the remote-request gate; the
-    // manual-reason hook's gate survives disconnect.
+    // keeps its slot and gate until finish() handles the result, even before the
+    // manual-reason hook raises its own gate. Disconnect cancels neither compaction
+    // nor its inbox hold.
     dropWaitingRemoteCompact();
-    compactRunning = false;
-    // Runs before role is cleared, so peers still get a final status; more to the
-    // point, the local gate record stays honest for the reconnect.
-    syncCompactionStatus();
     // A response could only arrive over the link being closed. The inbox survives
     // disconnect, so these are delivered once no gate holds it; on shutdown,
     // cleanup() clears them with the rest of the inbox.
@@ -1408,7 +1405,7 @@ export default function (pi: ExtensionAPI) {
     lastPushedStatus = null;
     updateStatus();
 
-    // Inbox survives disconnect; schedule delivery unless localCompacting still holds it.
+    // Inbox survives disconnect; schedule delivery only when neither gate holds it.
     releaseInbox();
   }
 
