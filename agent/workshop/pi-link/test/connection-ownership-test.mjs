@@ -248,6 +248,7 @@ function boot({ link = false } = {}) {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
     cmd: (name, args = "") => commands.get(name).handler(args, ctx),
+    complete: (name, args) => commands.get(name).getArgumentCompletions?.(args),
     tool: (name, params = {}) => tools.get(name).execute("probe", params),
     sockets: () => wsStub.sockets.slice(socketBase),
     servers: () => wsStub.servers.slice(serverBase),
@@ -1112,6 +1113,36 @@ async function bootClientNamed(name, terminals, extra = {}) {
   check("12: a plain name sees only the plain group",
     JSON.stringify((await plain.tool("link_list")).details.terminals) === JSON.stringify(["d"]),
     JSON.stringify((await plain.tool("link_list")).details.terminals));
+}
+
+{
+  const roster = ["a@zebra", "b@alpha", "c@alpine", "d@alpha", "plain", "empty@", "e@g@h"];
+  const t = await bootClientNamed("a@zebra", roster);
+  const all = t.complete("link-name", "x@");
+  check("12: link-name completes every explicit group once, sorted, with the local part",
+    JSON.stringify(all) === JSON.stringify([
+      { value: "x@alpha", label: "alpha" },
+      { value: "x@alpine", label: "alpine" },
+      { value: "x@g@h", label: "g@h" },
+      { value: "x@zebra", label: "zebra" },
+    ]), JSON.stringify(all));
+  const filtered = t.complete("link-name", "x@al");
+  check("12: link-name narrows groups by the typed prefix",
+    JSON.stringify(filtered) === JSON.stringify([
+      { value: "x@alpha", label: "alpha" },
+      { value: "x@alpine", label: "alpine" },
+    ]), JSON.stringify(filtered));
+  const nested = t.complete("link-name", "build lead@g@");
+  check("12: link-name uses the first @ and preserves the typed local part",
+    JSON.stringify(nested) === JSON.stringify([{ value: "build lead@g@h", label: "g@h" }]),
+    JSON.stringify(nested));
+  check("12: link-name returns null for no matches, with exact case",
+    t.complete("link-name", "x@AL") === null);
+  check("12: link-name offers nothing before @",
+    t.complete("link-name", "x") === null);
+  await t.cmd("link-disconnect");
+  check("12: link-name offers no groups after disconnect",
+    t.complete("link-name", "x@") === null);
 }
 
 {

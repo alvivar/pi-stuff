@@ -1951,6 +1951,22 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("link-name", {
     description: "Change link name (without an argument, use the session name)",
+    // Wait for @: Pi's open completion list makes Enter select instead of submit,
+    // so earlier suggestions would prevent entering a plain name without Esc.
+    // Offer all groups on the link, unlike visibleTerminals, so users can join one.
+    getArgumentCompletions: (prefix) => {
+      const at = prefix.indexOf("@");
+      if (at === -1) return null;
+      const groupPrefix = prefix.slice(at + 1);
+      const groups = [...new Set(connectedTerminals.map(groupOf))]
+        .filter((group) => group !== "" && group.startsWith(groupPrefix))
+        .sort();
+      const items = groups.map((group) => ({
+        value: prefix.slice(0, at + 1) + group,
+        label: group,
+      }));
+      return items.length > 0 ? items : null;
+    },
     handler: async (args, _ctx) => {
       let newName = normalizeName(args) ?? "";
       if (!newName) {

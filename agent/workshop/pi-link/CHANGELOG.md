@@ -8,6 +8,10 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ## Unreleased
 
+### Added
+
+- **Tab completion for `/link-name` groups.** While connected, press Tab after `@` to choose from every group with a terminal currently on the link, excluding the implicit group of plain names. Choices are sorted and narrowed by the group prefix you type; the local part of your name is preserved.
+
 ### Changed
 
 - **Pi 0.85.0 or later is required.** The local compaction gate now relies on `ctx.isIdle()` covering Pi's own compactions, which earlier versions did not. There is no compatibility fallback; on Pi 0.84.2–0.84.4, pin `pi-link@0.6.1`.
