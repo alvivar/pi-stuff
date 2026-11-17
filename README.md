@@ -109,7 +109,7 @@ The `pi-link-tools` and `pi-dock` skills are bundled with their workshop package
 | [/alone](agent/prompts/alone.md)                     | Solo work with user-managed Git.                                  |
 | [/pair](agent/prompts/pair.md)                       | Coordinate with another agent: one implements, the other reviews. |
 | [/goal](agent/prompts/goal.md)                       | Invoke the goal-loop skill.                                       |
-| [/review](agent/prompts/review.md)                   | Report concrete review findings.                                  |
+| [/review](agent/prompts/review.md)                   | Review work for unjustified complexity.                           |
 | [/research-prompt](agent/prompts/research-prompt.md) | Prepare a self-contained prompt for an internet research agent.   |
 
 The directory also includes decision, explanation, minimal-implementation, commit, and compaction prompts.
