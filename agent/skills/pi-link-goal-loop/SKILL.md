@@ -32,6 +32,10 @@ Roles limit what each may act on and own, not what it may think about.
   or index is not what it expected. Separate from the reviewer so the commit is
   a check, not a formality.
 
+Roles are separate by default, but the user may give several to one terminal:
+each message goes to whoever holds that role, and you do the step yourself
+when it is you.
+
 ## The loop
 
 ```
