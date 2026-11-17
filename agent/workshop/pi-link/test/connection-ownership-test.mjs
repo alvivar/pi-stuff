@@ -200,6 +200,7 @@ function boot({ link = false } = {}) {
   const entries = [];
   const delivered = [];
   let statusLine = "";
+  let autocomplete = (current) => current;
 
   const api = {
     registerFlag() {},
@@ -226,6 +227,7 @@ function boot({ link = false } = {}) {
         if (level === "warning") warnings.push(message);
       },
       setStatus: (_key, text) => { statusLine = text; },
+      addAutocompleteProvider(factory) { autocomplete = factory; },
     },
     sessionManager: { getEntries: () => [] },
     isIdle: () => true,
@@ -248,7 +250,8 @@ function boot({ link = false } = {}) {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
     cmd: (name, args = "") => commands.get(name).handler(args, ctx),
-    complete: (name, args) => commands.get(name).getArgumentCompletions?.(args),
+    commands,
+    wrapAutocomplete: (current) => autocomplete(current),
     tool: (name, params = {}) => tools.get(name).execute("probe", params),
     sockets: () => wsStub.sockets.slice(socketBase),
     servers: () => wsStub.servers.slice(serverBase),
@@ -1118,31 +1121,75 @@ async function bootClientNamed(name, terminals, extra = {}) {
 {
   const roster = ["a@zebra", "b@alpha", "c@alpine", "d@alpha", "plain", "empty@", "e@g@h"];
   const t = await bootClientNamed("a@zebra", roster);
-  const all = t.complete("link-name", "x@");
-  check("12: link-name completes every explicit group once, sorted, with the local part",
-    JSON.stringify(all) === JSON.stringify([
-      { value: "x@alpha", label: "alpha" },
-      { value: "x@alpine", label: "alpine" },
-      { value: "x@g@h", label: "g@h" },
-      { value: "x@zebra", label: "zebra" },
-    ]), JSON.stringify(all));
-  const filtered = t.complete("link-name", "x@al");
-  check("12: link-name narrows groups by the typed prefix",
-    JSON.stringify(filtered) === JSON.stringify([
-      { value: "x@alpha", label: "alpha" },
-      { value: "x@alpine", label: "alpine" },
-    ]), JSON.stringify(filtered));
-  const nested = t.complete("link-name", "build lead@g@");
-  check("12: link-name uses the first @ and preserves the typed local part",
-    JSON.stringify(nested) === JSON.stringify([{ value: "build lead@g@h", label: "g@h" }]),
-    JSON.stringify(nested));
-  check("12: link-name returns null for no matches, with exact case",
-    t.complete("link-name", "x@AL") === null);
-  check("12: link-name offers nothing before @",
-    t.complete("link-name", "x") === null);
+  const signal = new AbortController().signal;
+  const fallback = { items: [{ value: "wrapped", label: "wrapped" }], prefix: "wrapped" };
+  const calls = [];
+  let appliedArgs;
+  let triggerArgs;
+  const applied = { lines: ["applied"], cursorLine: 0, cursorCol: 7 };
+  const current = {
+    getSuggestions(...args) { calls.push(args); return fallback; },
+    applyCompletion(...args) { appliedArgs = args; return applied; },
+    shouldTriggerFileCompletion(...args) { triggerArgs = args; return false; },
+  };
+  const provider = t.wrapAutocomplete(current);
+  const suggest = (text, options = { signal }) =>
+    provider.getSuggestions([text], 0, text.length, options);
+
+  for (const options of [{ signal }, { signal, force: true }]) {
+    const all = await suggest("/link-name x@", options);
+    check(`12: group provider returns every explicit group once, sorted, force=${options.force ?? false}`,
+      JSON.stringify(all) === JSON.stringify({
+        items: [
+          { value: "x@alpha", label: "alpha" },
+          { value: "x@alpine", label: "alpine" },
+          { value: "x@g@h", label: "g@h" },
+          { value: "x@zebra", label: "zebra" },
+        ],
+        prefix: "x@",
+      }), JSON.stringify(all));
+  }
+  const filtered = await suggest("/link-name x@al");
+  check("12: group provider narrows by the typed prefix",
+    JSON.stringify(filtered) === JSON.stringify({
+      items: [{ value: "x@alpha", label: "alpha" }, { value: "x@alpine", label: "alpine" }],
+      prefix: "x@al",
+    }), JSON.stringify(filtered));
+
+  // Pi trims before the command, but keeps argument text after its first space.
+  // Only the cursor line before the cursor participates in completion.
+  const line = "  /link-name  build lead@g@ignored";
+  const nested = await provider.getSuggestions(["/other", line], 1, line.indexOf("ignored"), { signal });
+  check("12: group provider uses the first @ and preserves Pi's argument as prefix",
+    JSON.stringify(nested) === JSON.stringify({
+      items: [{ value: " build lead@g@h", label: "g@h" }],
+      prefix: " build lead@g@",
+    }), JSON.stringify(nested));
+
+  async function checkDelegation(label, text) {
+    calls.length = 0;
+    const args = [[text], 0, text.length, { signal, force: true }];
+    const result = await provider.getSuggestions(...args);
+    check(`12: group provider delegates ${label} unchanged`,
+      result === fallback && calls.length === 1 && calls[0].length === args.length &&
+        calls[0].every((arg, i) => arg === args[i]));
+  }
+  await checkDelegation("no matching group (exact case)", "/link-name x@AL");
+  await checkDelegation("an argument without @", "/link-name plain");
+  await checkDelegation("another command", "/other x@");
   await t.cmd("link-disconnect");
-  check("12: link-name offers no groups after disconnect",
-    t.complete("link-name", "x@") === null);
+  await checkDelegation("a disconnected terminal", "/link-name x@");
+
+  const applyArgs = [["/link-name x@"], 0, 13, { value: "x@alpha", label: "alpha" }, "x@"];
+  check("12: group provider delegates applyCompletion unchanged",
+    provider.applyCompletion(...applyArgs) === applied && appliedArgs.length === applyArgs.length &&
+      appliedArgs.every((arg, i) => arg === applyArgs[i]));
+  const trigger = [["/link-name x@"], 0, 13];
+  check("12: group provider delegates shouldTriggerFileCompletion unchanged",
+    provider.shouldTriggerFileCompletion(...trigger) === false && triggerArgs.length === trigger.length &&
+      triggerArgs.every((arg, i) => arg === trigger[i]));
+  check("12: link-name has no redundant command argument completion",
+    t.commands.get("link-name").getArgumentCompletions === undefined);
 }
 
 {

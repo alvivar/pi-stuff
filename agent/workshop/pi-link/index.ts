@@ -1450,6 +1450,37 @@ export default function (pi: ExtensionAPI) {
     ctx = _ctx;
     currentCwd = _ctx.cwd;
 
+    // Tab forces completion, and Pi skips getArgumentCompletions when forced,
+    // so use a provider for both Tab and typing. Wait for @: an open list makes
+    // Enter select instead of submit, blocking plain names without Esc.
+    // Offer all groups on the link, unlike visibleTerminals, so users can join one.
+    _ctx.ui.addAutocompleteProvider((current) => ({
+      getSuggestions(lines, cursorLine, cursorCol, options) {
+        const beforeCursor = lines[cursorLine].slice(0, cursorCol).trimStart();
+        const match = beforeCursor.match(/^\/link-name (.*@.*)$/);
+        if (match) {
+          const prefix = match[1];
+          const at = prefix.indexOf("@");
+          const groupPrefix = prefix.slice(at + 1);
+          const groups = [...new Set(connectedTerminals.map(groupOf))]
+            .filter((group) => group !== "" && group.startsWith(groupPrefix))
+            .sort();
+          const items = groups.map((group) => ({
+            value: prefix.slice(0, at + 1) + group,
+            label: group,
+          }));
+          if (items.length > 0) return { items, prefix };
+        }
+        return current.getSuggestions(lines, cursorLine, cursorCol, options);
+      },
+      applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+        return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+      },
+      shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+        return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+      },
+    }));
+
     // Resolve terminal name. Precedence:
     //   --link-name flag  >  PI_LINK_NAME env  >  saved link-name  >  session name  >  random
     //
@@ -1951,22 +1982,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("link-name", {
     description: "Change link name (without an argument, use the session name)",
-    // Wait for @: Pi's open completion list makes Enter select instead of submit,
-    // so earlier suggestions would prevent entering a plain name without Esc.
-    // Offer all groups on the link, unlike visibleTerminals, so users can join one.
-    getArgumentCompletions: (prefix) => {
-      const at = prefix.indexOf("@");
-      if (at === -1) return null;
-      const groupPrefix = prefix.slice(at + 1);
-      const groups = [...new Set(connectedTerminals.map(groupOf))]
-        .filter((group) => group !== "" && group.startsWith(groupPrefix))
-        .sort();
-      const items = groups.map((group) => ({
-        value: prefix.slice(0, at + 1) + group,
-        label: group,
-      }));
-      return items.length > 0 ? items : null;
-    },
     handler: async (args, _ctx) => {
       let newName = normalizeName(args) ?? "";
       if (!newName) {

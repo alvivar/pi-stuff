@@ -163,6 +163,7 @@ function fakeCtx(overrides = {}) {
       theme: { fg: (_role, text) => text, bold: (text) => text },
       notify(message) { notes.push(message); },
       setStatus() {},
+      addAutocompleteProvider() {},
     },
     sessionManager: { getEntries: () => [] },
     isIdle: () => true,
