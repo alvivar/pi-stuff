@@ -1,5 +1,5 @@
 ---
-description: Deepen a task the way a top professional would
+description: Rewrite a task as a deeper prompt, the way a top professional would
 argument-hint: "[task]"
 ---
 

@@ -1,5 +1,5 @@
 ---
-description: Work on a task together with another agent
+description: Work on a task with another agent
 argument-hint: "[task]"
 ---
 

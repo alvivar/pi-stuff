@@ -1,5 +1,5 @@
 ---
-description: Commit uncommitted changes
+description: Commit uncommitted changes as focused commits
 argument-hint: "[scope]"
 ---
 

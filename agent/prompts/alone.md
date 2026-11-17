@@ -1,5 +1,5 @@
 ---
-description: Work on a task alone, without other agents
+description: Work on a task without other agents
 argument-hint: "[task]"
 ---
 

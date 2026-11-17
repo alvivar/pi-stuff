@@ -1,5 +1,5 @@
 ---
-description: Explain a topic clearly
+description: "Explain a topic: what, why, how, and consequences"
 argument-hint: "[topic]"
 ---
 

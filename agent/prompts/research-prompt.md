@@ -1,5 +1,5 @@
 ---
-description: Give me a prompt for an internet research agent
+description: Write a prompt for an internet research agent
 argument-hint: "[questions]"
 ---
 
