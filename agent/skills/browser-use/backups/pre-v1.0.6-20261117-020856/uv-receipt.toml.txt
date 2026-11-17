@@ -1,0 +1,14 @@
+[tool]
+requirements = [{ name = "browser-use" }]
+python = "3.12"
+entrypoints = [
+    { name = "browser", install-path = "C:/Users/andre/.local/bin/browser.exe", from = "browser-use" },
+    { name = "browser-use", install-path = "C:/Users/andre/.local/bin/browser-use.exe", from = "browser-use" },
+    { name = "browser-use-tui", install-path = "C:/Users/andre/.local/bin/browser-use-tui.exe", from = "browser-use" },
+    { name = "browseruse", install-path = "C:/Users/andre/.local/bin/browseruse.exe", from = "browser-use" },
+    { name = "bu", install-path = "C:/Users/andre/.local/bin/bu.exe", from = "browser-use" },
+]
+
+[tool.options]
+index = [{ url = "https://pypi.org/simple", explicit = false, default = true, format = "simple", authenticate = "auto" }, { url = "https://pypi.org/simple", explicit = false, default = true, format = "simple", authenticate = "auto" }]
+no-sources = true

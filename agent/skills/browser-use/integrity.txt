@@ -1,78 +1,136 @@
 browser-use skill - local vendor-boundary integrity record
 ==========================================================
-Installed         : browser-use 0.13.14 / browser-harness 0.1.13
-Recorded          : 2026-11-04
+Installed         : browser-use 1.0.6 / browser-harness 0.1.13
+Recorded          : 2026-11-17
 Maintainer        : PI agent only
-Current upstream  : upstream-pristine-v0.13.14.txt
-Previous upstream : upstream-pristine-v0.13.10.txt, upstream-pristine-v0.13.7.txt
-Pre-upgrade backup: backups/pre-v0.13.14-20261104-103331/
+Current upstream  : upstream-pristine-v1.0.6.txt
+Previous upstream : upstream-pristine-v0.13.14.txt, upstream-pristine-v0.13.10.txt,
+                    upstream-pristine-v0.13.7.txt
+Pre-upgrade backup: backups/pre-v1.0.6-20261117-020856/
+Older backup      : backups/pre-v0.13.14-20261104-103331/
 
 POLICY
 The ONLY restriction is WHO RECEIVES data, not browser capability.
 Forbidden: Browser Use/PostHog cloud, telemetry, hosted remote daemons/live views,
-profile-sync/cloud cookie sync, vendor promotion, and vendor self-update commands.
+profile-sync/cloud cookie sync, vendor promotion, vendor feedback/issue reports,
+and vendor self-update commands. Do not use SDK defaults that contact the vendor.
 Allowed: full local browser/cookie/session capability and sending any data to destinations
 the USER selects, including their own servers and named third-party services.
 User-selected remote CDP through BU_CDP_URL/BU_CDP_WS is explicitly allowed.
 Do not introduce capability restrictions or a local-disk-only rule.
 
 INSTALL
-uv tool upgrade browser-use==0.13.14 --no-sources --default-index https://pypi.org/simple
-The declared dependency pins browser-harness==0.1.13. Other dependencies were resolved
-by uv; this is not a fully locked environment. uv pip check passed for 106 packages.
-No vendor updater or skill installer was run.
+uv tool upgrade browser-use==1.0.6 --no-sources --default-index https://pypi.org/simple
+Upgraded from 0.13.14. The dependency still pins browser-harness==0.1.13.
+Other dependencies were resolved by uv; this is not a fully locked environment.
+uv pip check passed for 61 packages (previous environment had 106).
+New package shims: browser-use, browseruse, browser-use-tui. The distribution no longer
+publishes the old browser and bu shims. browser-use-tui delegates to the CLI.
+No vendor updater or skill installer was run; installed library sources were not patched.
+
+PRE-INSTALL REVIEW
+Fetched the pinned 1.0.6 wheel from PyPI, verified its PyPI SHA-256 and inspected sources
+without importing them. Wheel SHA-256:
+a883eafad01fae091264b46c93a43073e30a989e0332c5e0955ff8f575bfe173
+Review directory: C:/Users/andre/AppData/Local/Temp/bu-review-1.0.6/
+After installing, all browser_use package files matched the reviewed wheel byte-for-byte.
+The backup includes the prior skill, integrity files, harness telemetry source/config,
+uv receipt and installed-package inventory; it is not a complete environment snapshot.
 
 SKILL REVIEW
-Current skill incorporates local operational changes from upstream 0.13.14:
-- Task-created tab cleanup and reuse of one default local daemon across tasks/sites.
-- Shared current-tab race explanation and local recovery guidance.
-- Background focus emulation with cleanup; foreground/CDP/JS alternatives remain allowed.
-- OS-specific Chrome approval handling and keyword CDP parameter instructions.
-The diff against upstream 0.13.14 has 8 hunks:
-- Preserve the local description; remove hosted-cloud expansion, vendor homepage and
-  unpinned OpenClaw installer metadata; retain the vendor boundary near the top.
-- Remove new restrictions on foreground activation and raw CDP/JS scroll alternatives.
-- Replace cloud-based concurrency recommendations with serialized local work or
-  user-selected remote endpoints.
-- Clarify that mac-approve applies only to macOS.
-- Replace the vendor Remote Browsers section and mark profile-sync prohibited.
-- Remove vendor daemon/live-view orchestration and cloud shutdown/API instructions.
+Saved the untouched packaged 1.0.6 skill alongside all older pristine copies.
+The current diff against upstream 1.0.6 has 6 hunks (supersedes 0.13.14's 8 hunks).
+Preserved approved operational guidance even where new upstream removed it:
+- Task-created tab cleanup, one default daemon across sites/tasks and race awareness.
+- Recovery before daemon replacement, OS-specific approval handling.
+- Focus emulation with finally cleanup and keyword CDP parameters.
+Foreground activation and raw CDP/Runtime.evaluate/cross-frame JS remain available.
+Removed/overrode vendor installer metadata, cloud promotion/auth/live views,
+profile-sync/cloud cookie sync and cloud shutdown instructions as before.
+Did not import the new upstream instruction to run browser-use feedback on errors.
+Changes versus the previous reviewed skill:
+- Use --doctor for connection diagnostics under the local policy; maintainer owns updates.
+- Explicitly include the new browser-use login spelling in the existing vendor boundary.
+- Prohibit CLI/Python/MCP/agent vendor feedback, including opt-out-bypassing paths.
+- Explain SDK Browser()/Agent defaults versus explicit local/user-selected choices.
+- Explain CLI fallback to its own local Chromium and retain real-Chrome session awareness.
+No new restriction on capabilities, cookie/session work or user-selected recipients.
+
+1.x BEHAVIOR AND NETWORK REVIEW
+This is a substantial SDK rewrite on Pydantic AI; direct Python CLI use still delegates
+to the same pinned browser-harness. Reviewed CLI dispatch/imports, cloud routing gates,
+product telemetry service, feedback paths, configuration and update-check behavior.
+Bare SDK Browser() defaults to vendor cloud; default Agent model is ChatBrowserUse.
+Those defaults are prohibited here. Browser('chrome'), Browser('chromium') and browser/
+model endpoints selected by the user remain allowed. SDK agents were not run in tests.
+The CLI uses an existing local daemon when healthy; otherwise it may fall back to its
+own local Chromium if Chrome cannot attach. That fallback is not the user's logged-in
+Chrome. Tests asserted the default daemon and attached the actual user's Chrome.
+Cloud routing is not automatically selected for an ordinary local CLI call: vendor
+markers/cloud daemon state or explicit cloud calls are required. No cloud auth exists.
+The CLI now replaces harness http_get with direct HTTP rather than the harness's
+vendor fetch proxy branch. User-selected HTTP/CDP endpoints remain allowed.
+A failed browser attach can check PyPI for update hints; this is not vendor telemetry.
+Never follow floating-install, vendor cloud/login or feedback suggestions in output.
 
 TELEMETRY RE-AUDIT
-browser-harness telemetry.py is byte-identical to the pre-upgrade copy (SHA-256
+browser-harness telemetry.py remains unchanged (SHA-256
 8d48b95afe4b149c2be115e0df18dd9f62496148a194277702d74829455cfa94).
-The capture_cli_event() sanitizer bypass remains in 0.1.13.
-Reviewed the browser-use CLI dispatch, ProductTelemetry opt-out and CloudSync event gate.
-The product now includes a persisted UUID device-id path with a hardware fallback;
-ProductTelemetry creates no PostHog client when ANONYMIZED_TELEMETRY=false.
-Synthetic opt-out tests confirmed neither harness capture function called its sender.
-CONFIG.ANONYMIZED_TELEMETRY and CONFIG.BROWSER_USE_CLOUD_SYNC both evaluated false.
-CLI telemetry status before/after browser tests: enabled=false, disabled_by_env=true,
-disabled_by_config=true, install_id=null. telemetry.json remains disabled=true.
-No auth.json exists in browser-harness configuration.
-These checks validate opt-outs; they are not a network packet capture or firewall rule.
+Its standalone capture_cli_event sanitizer bypass remains in 0.1.13. The browser-use
+1.x CLI now wraps harness capture with a scrubbed sender and product telemetry gate.
+The 1.x product sender uses its own urllib/gzip queue, background thread, outbox,
+crash markers and detached exit sender, rather than the former PostHog SDK client.
+ProductTelemetry.enabled checks ANONYMIZED_TELEMETRY and harness env/config opt-outs.
+The SDK cloud-sync module/config flag was removed; its old environment opt-out remains
+exported for compatibility, not relied on as a 1.x enforcement mechanism.
+Device IDs are now persisted UUIDs with a random process fallback, not a hardware hash.
+
+IMPORTANT: feedback CLI/Python calls mark consent=True and can bypass telemetry opt-outs.
+This install MUST NOT invoke them; the library's assumed consent is not user consent to
+our vendor boundary. MCP/agent automatic feedback honors the opt-outs. No source patch
+or firewall rule was introduced: these controls include an advisory skill prohibition.
+
+SYNTHETIC TESTS
+All four opt-out environment variables were false throughout.
+PASS: raw harness capture/capture_cli_event invoked no sender.
+PASS: CLI wrapper, product capture_run/run_started and direct scrubbed sender path with
+synthetic data created no telemetry thread, pending jobs, device ID or exit sender.
+Thread start, POST, ID creation and exit subprocess paths were mocked to fail if reached.
+PASS: automatic agent/MCP feedback returned off and queued nothing.
+CONFIRMED: explicit feedback consent bypass using a FAKE capture queue only; no network,
+actual sender, thread or telemetry files were used for that test.
+Before/after CLI status: enabled=false, disabled_by_env=true, disabled_by_config=true,
+install_id=null. Harness telemetry.json remains disabled=true; no stored install_id.
+Before and after: auth.json absent, browseruse/device_id absent, browseruse/telemetry absent.
+These checks validate opt-outs and selected paths, NOT packet-level/network enforcement.
 
 ENVIRONMENT
-Persisted user variables: ANONYMIZED_TELEMETRY=false, BH_TELEMETRY=false,
-BROWSER_USE_CLOUD_SYNC=false. BROWSER_HARNESS_TELEMETRY is not persisted.
-Export all four false for every browser-use invocation, plus PYTHONIOENCODING=utf-8.
+Persisted user variables previously verified: ANONYMIZED_TELEMETRY=false,
+BH_TELEMETRY=false, BROWSER_USE_CLOUD_SYNC=false.
+BROWSER_HARNESS_TELEMETRY is not persisted. Export all four false for every browser-use
+invocation, plus PYTHONIOENCODING=utf-8. This update did not modify persisted settings.
 
-FUNCTIONAL TESTS (Chrome/156.0.8078.80, real local Chrome connection)
-PASS: isolated data-URL navigation, JS, coordinate click, focus emulation enable/disable,
-Input.insertText keyword parameters, accessibility tree, screenshot capture.
+FUNCTIONAL TESTS (Chrome/157.0.8103.79, real local default daemon)
+The first immediate background coordinate-click assertion failed; finally closed the
+temporary tab and switched back. No other operation was reported passed by that run.
+The second test rendered a screenshot first and used focus emulation in a finally block:
+PASS: isolated data-URL navigation, DOM JS, coordinate click, CDP Unicode text insertion,
+focus emulation enable/disable, accessibility tree, screenshot capture and page_info.
 PASS: temporary tab closed, original attached tab restored, original tab set unchanged.
+No foreground activation was needed in the successful test.
 These are smoke tests, not exhaustive tests of uploads, downloads, dialogs or auth flows.
 
 DO NOT RUN
 - browser-use skill install
 - browser-use --update
-They can overwrite the hardened skill and restore vendor defaults.
+- browser-use feedback (or library/MCP/agent vendor-reporting equivalents)
+Keep the reviewed skill and vendor boundary; no implicit consent for vendor reports.
 
 VERIFY
   sha256sum -c integrity.sha256
-The manifest covers the hardened SKILL.md and all three pristine upstream copies.
-A SKILL.md mismatch means stop browser work, inspect the diff and restore the approved
-vendor boundary before proceeding. Update the manifest only after reviewing changes.
+The manifest covers the hardened SKILL.md and all FOUR pristine upstream copies.
+A mismatch means stop browser work, inspect the diff and restore the approved vendor
+boundary before proceeding. Update the manifest only after reviewing changes.
 
 LICENSE
 Both upstream packages are MIT licensed; upstream license terms remain applicable.
