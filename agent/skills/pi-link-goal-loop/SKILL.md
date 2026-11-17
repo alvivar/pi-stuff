@@ -1,15 +1,15 @@
 ---
 name: pi-link-goal-loop
-description: Goal-driven implement→review→fix→commit loop across PI terminals over pi-link. For the ORCHESTRATOR — hold the goal, hand work to a builder, get every change reviewed by an independent reviewer, relay findings until approved, then have a committer commit it. Leaves how to build, verify and review to the models. Requires pi-link-tools for transport.
+description: Goal-driven implement→review→fix→commit loop across PI terminals over pi-link, run by the orchestrator. Use only when the user asks for it.
 ---
 
 # Goal loop
 
 Even a capable model cannot see its own blind spots; an independent reviewer
-has different ones. This skill is the smallest structure that keeps that loop
+has different ones. This skill is the smallest structure that keeps the loop
 working: direction, review, convergence. Everything else is judgment.
 
-Read **pi-link-tools** first for how messages, callbacks and remote compaction
+Read **pi-link-tools** first for how messages, replies and remote compaction
 actually behave.
 
 ## Roles
@@ -17,11 +17,11 @@ actually behave.
 Roles limit what each may act on and own, not what it may think about.
 
 - **Orchestrator** (you): understands the goal, keeps it, splits it into tasks if
-  needed, shows the user the task split before the first TASK, and decides when
-  the goal, not only each task, is done. Does not implement, and does not own
-  the verdict on the code; reading it to judge the goal is fine. Not owning the
-  verdict keeps the review independent; not implementing keeps your context free
-  for the whole goal.
+  needed, agrees the task split with the user before the first TASK, and decides
+  when the goal, not only each task, is done. Does not implement, and does not
+  own the verdict on the code; reading it to judge the goal is fine. Not owning
+  the verdict keeps the review independent; not implementing keeps your context
+  free for the whole goal.
 - **Builder**: does the task with its own judgment and verifies its own work.
   Does not stage or commit.
 - **Reviewer**: a different terminal from the builder. Reads the actual change,
@@ -35,18 +35,18 @@ Roles limit what each may act on and own, not what it may think about.
 ## The loop
 
 ```
-TASK      → builder   goal, why, boundaries, where, what "done" looks like
-DONE      ← builder   what changed, how it was verified, decisions affecting
+TASK      → builder       goal, why, boundaries, where, what "done" looks like
+DONE      ← builder       what changed, how it was verified, decisions affecting
                           goal, scope or behavior (or BLOCKED: what is missing)
 REVIEW    → reviewer      the goal, where to see the change, the DONE report verbatim
 APPROVE   ← reviewer      or CHANGES: concrete findings (what, where, why, how to fix)
-FIX       → builder   the findings verbatim, your dissent alongside if any;
+FIX       → builder       the findings verbatim, your dissent alongside if any;
                           then REVIEW again
 COMMIT    → committer     paths, branch, message; the hash goes to your task list
 COMMITTED ← committer     or BLOCKED: what the worktree looked like
 ```
 
-After dispatching work, end your turn; the callback resumes you. Replies carry
+After dispatching work, end your turn; the reply resumes you. Replies carry
 the task id and reach you by `link_send`. Each task is one coherent, reviewable
 change. Commit a task before starting the next: this loop does not track which
 uncommitted change belongs to which task.
@@ -59,7 +59,8 @@ Goal: HTTP client retries idempotent requests on 502/503/504, up to 3 times,
       exponential backoff. Non-idempotent requests must never retry.
 Why: flaky upstream during deploys; callers currently fail on the first 503.
 Boundaries: src/http/client.ts and its tests only; no new dependencies.
-Done when: existing tests pass, new tests cover retry and the no-retry case.
+Done when: existing tests pass; a test proves a non-idempotent request is
+           never retried.
 Do not stage or commit.
 Send "add-retry DONE" (what changed, how verified, decisions affecting goal,
 scope or behavior) or "add-retry BLOCKED" via link_send to designer@pi-link.
@@ -67,8 +68,8 @@ scope or behavior) or "add-retry BLOCKED" via link_send to designer@pi-link.
 
 ## What makes it work
 
-- **Point the reviewer at the change, not the summary.** Give it the diff command
-  and name new files; `git diff` does not show untracked ones.
+- **Point the reviewer at the change.** Give it the diff command and name new
+  files; `git diff` does not show untracked ones.
 - **Unverified is not done.** The builder says how it verified; the reviewer
   checks that the verification actually exercises the change.
 - **Bounded convergence.** Two fix rounds usually suffice. A round that resolves
@@ -77,8 +78,8 @@ scope or behavior) or "add-retry BLOCKED" via link_send to designer@pi-link.
 - **Compaction can come at any time,** yours or a worker's. Keep the goal, the
   task list and what is pending in a small untracked file at the repo root,
   `GOAL-<name>.md`, and delete it when the goal is done. Do not repeat a step
-  just because a summary lost its callback. Check a worker's context (`link_list`)
-  before a task and compact it then if needed, never mid-task.
+  just because your summary no longer shows its reply. Check a worker's context
+  (`link_list`) before a task and compact it then if needed, never mid-task.
 
 ## Outside the loop
 
