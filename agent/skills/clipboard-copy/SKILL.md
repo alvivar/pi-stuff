@@ -23,4 +23,4 @@ if (result.exit_code !== 0) throw new Error(result.output);
 text(result.output.trim());
 ```
 
-Report the script's result. On failure, report the error without trying another route. Do not claim the copy is verified.
+Report the script's result. On failure, report the error without trying another route.
