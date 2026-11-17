@@ -6,7 +6,7 @@ This changelog is based on the git history from `2026-03-21` (initial commit) th
 
 ---
 
-## Unreleased
+## 0.7.0 — 2026-11-16
 
 ### Added
 
