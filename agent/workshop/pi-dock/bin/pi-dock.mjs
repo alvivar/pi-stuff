@@ -329,8 +329,8 @@ async function preflightSpawn(cwd, modelSpec, forkFile) {
   const modelRuntime = await ModelRuntime.create();
 
   if (modelSpec !== undefined) {
-    const slash = modelSpec.indexOf('/');
-    const model = slash === -1 ? null : modelRuntime.getModel(modelSpec.slice(0, slash), modelSpec.slice(slash + 1));
+    // The whole ref, not a split at the first slash: provider ids may contain one.
+    const model = modelRuntime.getModels().find((candidate) => modelRef(candidate) === modelSpec);
     if (!model) {
       const matches = (await matchingModels(modelRuntime, modelSpec)).map(modelRef);
       const hint = matches.length === 0
@@ -719,8 +719,9 @@ async function logsCommand(argv) {
   }
 
   validateAgentName(name);
-  await requireManifest(name);
+  // The log alone, so a spawn that failed before it wrote the manifest can still be read.
   if (!existsSync(logPath(name))) {
+    await requireManifest(name);
     fail(`no log for agent: ${name}`);
   }
 

@@ -1065,6 +1065,13 @@ async function main() {
             },
           ],
         },
+        // A provider id with a slash, as Pi derives from a URL.
+        'local/llama': {
+          baseUrl: provider.baseUrl,
+          api: 'openai-completions',
+          apiKey: 'local',
+          models: [{ ...regressModel, id: 'tiny', contextWindow: 200000, maxTokens: 500 }],
+        },
       },
     }));
     await fs.writeFile(path.join(sandbox, 'agent', 'settings.json'), JSON.stringify({ retry: { enabled: true, maxRetries: 1, baseDelayMs: 1, provider: { maxRetries: 0 } } }));
@@ -1541,12 +1548,13 @@ async function main() {
     const thinkerName = `thinker-${randomUUID()}`;
     const forkPathName = `fork-path-${randomUUID()}`;
     const forkIdName = `fork-id-${randomUUID()}`;
+    const slashName = `slash-${randomUUID()}`;
     // The CLI launches these runners, so main's cleanup does not know them. As for the other
     // CLI-launched agents in this suite, a failed stop is reported, not recovered: it fails the
     // suite, and every name is still tried. A name never created has nothing to stop.
     const stopConfigAgents = async () => {
       const failures = [];
-      for (const name of [readerName, writerName, thinkerName, forkPathName, forkIdName]) {
+      for (const name of [readerName, writerName, thinkerName, forkPathName, forkIdName, slashName]) {
         try {
           const result = await runOwnedNode(sandbox, cli, ['stop', name]);
           if (result.code !== 0 && result.stderr !== `no such agent: ${name}\n`) {
@@ -1567,6 +1575,8 @@ async function main() {
       ]) {
         assert.deepEqual(await runOwnedNode(sandbox, cli, ['spawn', '--name', name, '--model', 'regress/alpha-2', ...options], configCwd), exited(0, `${name} idle regress/alpha-2\n`, ''), `spawn ${options.join(' ')}`);
       }
+      // Preflight and runner both match the whole ref; a split at the first slash finds no `local`.
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['spawn', '--name', slashName, '--model', 'local/llama/tiny'], configCwd), exited(0, `${slashName} idle local/llama/tiny\n`, ''), 'spawn takes a model whose provider id has a slash');
       assertConfigured(await ask(readerName), 'reader role prompt', ['fixture_tool', 'read'], 'a relative prompt file and a tool list with an extension tool');
       assertConfigured(await ask(writerName), 'writer role prompt\n', ['grep'], 'an absolute prompt file (BOM dropped) and a tool list without the extension tool');
       assertConfigured(await ask(thinkerName), 'folder prompt', [], '--no-tools, without a prompt of its own');
@@ -1613,6 +1623,9 @@ async function main() {
       const typoName = `typo-${randomUUID()}`;
       await assertFailsFast(['spawn', '--name', typoName, '--model', 'regress/alpha-2', '--tools', 'read,nope'], typoName, 'a spawn with an unknown tool fails fast');
       await assert.rejects(fs.access(manifestPath(typoName)), { code: 'ENOENT' }, 'a spawn with an unknown tool creates no agent');
+      const typoLog = await runOwnedNode(sandbox, cli, ['logs', typoName]);
+      assert.equal(typoLog.code, 0, typoLog.stderr);
+      assert.match(typoLog.stdout, / failed reason=tools not found: nope$/m, 'logs prints the log of a spawn that created no agent');
       assert.equal((await runOwnedNode(sandbox, cli, ['stop', readerName])).stdout, `${readerName} stopped\n`);
       assert.equal((await runOwnedNode(sandbox, cli, ['set', readerName, '--tools', 'grep,nope'])).code, 0);
       await assertFailsFast(['start', readerName], readerName, 'a wake with an unknown tool fails fast');

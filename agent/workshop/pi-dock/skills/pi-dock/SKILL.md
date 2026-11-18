@@ -33,8 +33,9 @@ of every command.
 ## Workflow
 
 1. `pi-dock models [filter]` — when you need to choose a model: lists the `provider/id` refs
-   that have configured credentials. The filter is a case-insensitive substring of
-   `provider/id`, or `provider-part/id-part`.
+   that have configured credentials. Matching is case-insensitive. Without `/`, the filter
+   searches the whole ref; otherwise the first `/` separates a provider substring from a
+   model-id substring.
 2. `pi-dock spawn --name <name> [--fork <path|id>] [--model <provider/id>] [--thinking <level>]
    [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...`
    — create the agent in the current directory. It takes no prompt and prints
@@ -204,7 +205,8 @@ diagnostic type message        at boot, a problem Pi reported while loading, e.g
   `already stopped`/`already failed`, while that process is still shutting down.
 - `handshake failed for <name>`: a spawned or woken runner exited with an error, or did not
   answer status within 20 s.
-  Read the printed manifest and log diagnostics and the `last log` line, if present. A
+  Read the printed manifest and log diagnostics and the `last log` line, if present;
+  `pi-dock logs <name>` prints the whole log, even when the spawn created no agent. A
   `lock: <path> exists` line (Unix) means a runner is acquiring the socket, or one was killed
   while it did or could not remove it; the agent cannot start until it is removed. Remove that
   directory only after no process whose command line contains `runner.mjs --name <name>` is

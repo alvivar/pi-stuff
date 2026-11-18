@@ -279,15 +279,9 @@ function runCompact(instructions) {
   return task;
 }
 
+// The whole ref, not a split at the first slash: provider ids may contain one.
 function findModel(modelRuntime, spec) {
-  const slash = spec.indexOf('/');
-  if (slash === -1) {
-    throw new Error(`model not found: ${spec}`);
-  }
-
-  const provider = spec.slice(0, slash);
-  const id = spec.slice(slash + 1);
-  const model = modelRuntime.getModel(provider, id);
+  const model = modelRuntime.getModels().find(({ provider, id }) => `${provider}/${id}` === spec);
   if (!model) {
     throw new Error(`model not found: ${spec}`);
   }

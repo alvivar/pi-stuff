@@ -31,6 +31,13 @@ their version is cut, so a new entry may not have one yet.
   runner can be saving a refreshed login, and killing it then can invalidate that login.
   `did not exit within 5s; terminate PID <pid> externally` is now
   `did not exit within 5s; PID <pid> is still shutting down`. The 5 s and the exit code 1 stay.
+- **`logs` reads the log of a spawn that created no agent.** A spawn that fails after its
+  runner starts (e.g. `tools not found`) leaves a log but no manifest, and `logs` answered
+  `no such agent`. It now prints any log there is. `no such agent` (no log and no manifest) and
+  `no log for agent` (a manifest but no log) are unchanged.
+- **`--model` takes models whose provider id contains `/`.** `spawn`, `set` and the agent
+  itself split the ref at its first slash, so such a provider, as Pi derives from a URL, was not
+  found although `pi-dock models` listed it. They now match the whole `provider/id` ref.
 
 ## 0.7.0 — 2026-11-18
 
