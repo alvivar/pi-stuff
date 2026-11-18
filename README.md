@@ -2,7 +2,7 @@
 
 My personal [Pi](https://pi.dev) configuration: scrappy and opinionated. This repository tracks local extensions, skills, prompt templates, workshop projects, and curated notes.
 
-**Contents:** [Extensions](#-extensions) · [Workshop](#-workshop) · [Skills](#-skills) · [Prompt templates](#-prompt-templates) · [Archived skills](#-archived-skills) · [Documentation](#-documentation) · [Keybindings](#-keybindings) · [README maintenance](#-readme-maintenance)
+**Contents:** [Extensions](#-extensions) · [Workshop](#-workshop) · [Skills](#-skills) · [Prompt templates](#-prompt-templates) · [Archived skills](#-archived-skills) · [Documentation](#-documentation) · [Keybindings](#-keybindings)
 
 ---
 
@@ -40,16 +40,14 @@ node agent/extensions/uppercase-pi/test.mjs
 
 ## 🛠️ Workshop
 
-| Package                            | Version   | Purpose                                         |
-| ---------------------------------- | --------- | ----------------------------------------------- |
-| [pi-link](agent/workshop/pi-link/) | **0.6.0** | Local WebSocket network between Pi terminals.   |
-| [pi-dock](agent/workshop/pi-dock/) | **0.4.2** | Named Pi agents as detached resident processes. |
-
-Versions come from each package's `package.json`.
+| Package                            | Purpose                                         |
+| ---------------------------------- | ----------------------------------------------- |
+| [pi-link](agent/workshop/pi-link/) | Local WebSocket network between Pi terminals.   |
+| [pi-dock](agent/workshop/pi-dock/) | Named Pi agents as detached resident processes. |
 
 ### [pi-link](agent/workshop/pi-link/)
 
-Hub-spoke network on `127.0.0.1:9900` with auto-discovery, the `link_send`, `link_list`, and `link_compact` tools, and `/link` commands. Requires stable Pi **0.84.2+**, as enforced by the [extension](agent/workshop/pi-link/index.ts).
+Hub-spoke network on `127.0.0.1:9900` with auto-discovery, the `link_send`, `link_list`, and `link_compact` tools, and `/link` commands.
 
 Install the npm package for Pi:
 
@@ -71,7 +69,7 @@ The Pi install enables the extension and bundled skill; the global install puts 
 
 ### [pi-dock](agent/workshop/pi-dock/)
 
-Requires Node.js **22.19+** and depends on Pi SDK **1.4.0**. An agent retains its session after `stop`; `start` or `send` wakes it again.
+An agent retains its session after `stop`; `start` or `send` wakes it again.
 
 The [CLI](agent/workshop/pi-dock/bin/pi-dock.mjs) provides:
 
@@ -84,17 +82,18 @@ The [CLI](agent/workshop/pi-dock/bin/pi-dock.mjs) provides:
 
 Read the [operating skill](agent/workshop/pi-dock/skills/pi-dock/SKILL.md) before using the CLI.
 
-📖 [README](agent/workshop/pi-dock/README.md) (installation, platform limits) · [DESIGN.md](agent/workshop/pi-dock/DESIGN.md) (contracts) · [tests](agent/workshop/pi-dock/test/) (regression and paid smoke)
+📖 [README](agent/workshop/pi-dock/README.md) (installation, platform limits) · [tests](agent/workshop/pi-dock/test/) (regression and paid smoke)
 
 ---
 
 ## 🎓 Skills
 
-| Skill                                                        | Purpose                                                                                                                                                                                                        |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [browser-use](agent/skills/browser-use/SKILL.md)             | Direct CDP browser interaction.                                                                                                                                                                                |
-| [clipboard-copy](agent/skills/clipboard-copy/SKILL.md)       | Copies text using PowerShell on Windows or OSC 52 on Termux.                                                                                                                                                   |
-| [pi-link-goal-loop](agent/skills/pi-link-goal-loop/SKILL.md) | Goal-driven implement → independent review → fix → commit orchestration with separate roles. Requires the [pi-link-tools skill](agent/workshop/pi-link/skills/pi-link-tools/SKILL.md) for transport mechanics. |
+| Skill                                                        | Purpose                                                                                                                                                                                    |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [browser-use](agent/skills/browser-use/SKILL.md)             | Direct CDP browser interaction.                                                                                                                                                            |
+| [clipboard-copy](agent/skills/clipboard-copy/SKILL.md)       | Copies text using PowerShell on Windows or OSC 52 on Termux.                                                                                                                               |
+| [gmail-tools](agent/skills/gmail-tools/SKILL.md)             | Operates Gmail through bundled scripts over browser-use.                                                                                                                                   |
+| [pi-link-goal-loop](agent/skills/pi-link-goal-loop/SKILL.md) | Goal-driven implement → independent review → fix → commit orchestration. Requires the [pi-link-tools skill](agent/workshop/pi-link/skills/pi-link-tools/SKILL.md) for transport mechanics. |
 
 The `pi-link-tools` and `pi-dock` skills are bundled with their workshop packages.
 
