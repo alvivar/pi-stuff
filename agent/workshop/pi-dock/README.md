@@ -21,9 +21,10 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 > crashes, and work that extensions deliver while it is idle (e.g. pi-link messages) is
 > unbounded too. Even an idle agent that gets no prompt can make billable requests: Pi keeps its
 > prompt cache warm for up to 30 minutes after its last real request, and its log shows a
-> completed refresh as `cache_warmed`. To prevent that, set
-> `"cacheWarming": "streaming"` in Pi's global settings before the agent starts. Stop agents you
-> no longer need.
+> completed refresh as `cache_warmed`. Setting `"cacheWarming": "streaming"` in Pi's global
+> settings before the agent starts prevents these idle refreshes. Pi can still refresh the cache
+> during a run while the next request is slow to come (e.g. a long tool call); `"off"` prevents
+> those too. Stop agents you no longer need.
 
 ---
 
@@ -179,6 +180,8 @@ Long prompts are easier with `--file prompt.md`. Prompts run one at a time, in o
 - `--model provider/id` takes a ref from `pi-dock models`. Without it, Pi's default model is
   used, or with `--fork` the source's model if it has credentials. An unknown model (the error
   suggests matches) or one without credentials fails before an agent or a copy is created.
+  `ls` and `show` print this stored model, which every wake reapplies. `spawn` and `start` print
+  the model in use, including any change an extension has already made.
 - `--thinking off|minimal|low|medium|high|xhigh|max` is applied on every wake. Without it, Pi
   restores the session's saved level or uses its configured default; levels the model does not
   support are clamped by Pi.

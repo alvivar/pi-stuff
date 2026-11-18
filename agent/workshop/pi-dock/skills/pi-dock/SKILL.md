@@ -28,7 +28,9 @@ of every command.
   idle agent that gets no prompt can make billable requests: Pi keeps its prompt cache warm for
   up to 30 minutes after its last real request (a completed refresh logs `cache_warmed`);
   `"cacheWarming": "streaming"` in Pi's global settings, set before the agent starts, prevents
-  that. Stop agents you no longer need.
+  these idle refreshes. Pi can still refresh the cache during a run while the next request is
+  slow to come (e.g. a long tool call); `"off"` prevents those too. Stop agents you no longer
+  need.
 
 ## Workflow
 
@@ -96,6 +98,8 @@ of every command.
 - `pi-dock ls` lists the agents and their states. `pi-dock show <name>` prints one agent's state,
   stored configuration and exact session file; there `-` means unset, tools `none` means
   `--no-tools`, and the system prompt appears only as its size. Neither wakes the agent.
+- `ls` and `show` print the stored model, which every wake reapplies. `spawn` and `start` print
+  the model in use, including any change an extension has already made.
 - Agents are resident: a runner never exits because work finished, only on stop or a crash.
 - `start`, `send` and `compact` wake a stopped or failed agent with its memory intact. `start`
   prints `<name> <state> <provider/id>`; on an agent that is already on it just prints that.

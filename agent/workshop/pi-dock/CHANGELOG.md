@@ -17,9 +17,19 @@ their version is cut, so a new entry may not have one yet.
 ### Added
 
 - **The log shows when Pi keeps an agent's prompt cache warm.** Each completed refresh, a
-  billable request that Pi 1.5.2 can make while the agent is idle, logs a `cache_warmed` event,
-  with the run id if a run is on. It carries no cost: Pi prices it at API rates, which a
-  subscription does not pay. A cancelled, failed or outdated refresh logs nothing.
+  billable request that Pi 1.5.2 can make while the agent is idle or during a run, logs a
+  `cache_warmed` event, with the run id if a run is on. It carries no cost: Pi prices it at API
+  rates, which a subscription does not pay. A cancelled, failed or outdated refresh logs
+  nothing.
+
+### Changed
+
+- **The docs say how to prevent every cache refresh.** `"cacheWarming": "streaming"` prevents
+  only the refreshes while the agent is idle. Pi can still refresh the cache during a run while
+  the next request is slow to come, and `"off"` prevents those too.
+- **The docs say which model `ls` and `show` print.** It is the stored model, which every wake
+  reapplies. `spawn` and `start` print the model in use, including any change an extension has
+  already made.
 
 ### Fixed
 
