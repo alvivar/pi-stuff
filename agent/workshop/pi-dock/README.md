@@ -19,7 +19,10 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 >
 > **No limits.** There is no turn, time or cost cap. An agent runs until you stop it or it
 > crashes, and work that extensions deliver while it is idle (e.g. pi-link messages) is
-> unbounded too. Stop agents you no longer need.
+> unbounded too. Even an idle agent that gets no prompt can make billable requests: Pi keeps its
+> prompt cache warm for up to 30 minutes after its last real request. To prevent that, set
+> `"cacheWarming": "streaming"` in Pi's global settings before the agent starts. Stop agents you
+> no longer need.
 
 ---
 
@@ -41,7 +44,7 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 
 - Node.js **22.19 or later** (required by the Pi SDK).
 - Pi set up with credentials for at least one model. pi-dock runs agents with its own copy of the
-  Pi SDK (`@earendil-works/pi-coding-agent` 1.5.0) but uses your Pi agent directory
+  Pi SDK (`@earendil-works/pi-coding-agent` 1.5.2) but uses your Pi agent directory
   (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`) for credentials, settings, models and extensions.
   `pi-dock models` lists only the models whose credentials are configured.
 - The `pi` command is needed to set up credentials and to install pi-dock for Pi (below).
@@ -286,9 +289,11 @@ itself starts.
   `pi-dock start <name>`.
 - **`agent <name> did not exit within 5s; terminate PID <pid> externally`**: `stop` asked the
   agent to exit and it did not, e.g. because an extension's `session_shutdown` handler, which
-  the agent waits for as Pi does on quit, never finished. Check that the PID's command line
-  contains `runner.mjs --name <name>` (PIDs are reused), terminate that process, and confirm it
-  has exited before starting the agent again or deleting its files: while it shuts down,
+  the agent waits for as Pi does on quit, never finished, or because it is still saving a
+  refreshed login. Check again whether the PID has exited before terminating it: terminating it
+  while it saves the login can invalidate that login. If it is still running, check that its
+  command line contains `runner.mjs --name <name>` (PIDs are reused), terminate it, and confirm
+  it has exited before starting the agent again or deleting its files: while it shuts down,
   `pi-dock ls` can show `failed` and `pi-dock stop` can print `already stopped` or
   `already failed`.
 - **`handshake failed for <name>`**: a spawned or woken agent's runner exited with an error, or

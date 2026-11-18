@@ -116,7 +116,7 @@ async function shutdown(event, details, code) {
   // Read before abort's await, during which a pending bindExtensions could still complete.
   const extensionsBound = bound;
   unsubscribe();
-  // Not expected to reject: in SDK 1.5.0, abort() signals the run, retry and compaction to stop,
+  // Not expected to reject: in SDK 1.5.2, abort() signals the run, retry and compaction to stop,
   // then awaits idle, which only resolves. Should it reject, shutdown still ends in its terminal
   // event, which would not mention the failed abort.
   await session?.abort().catch(() => {});
@@ -128,6 +128,9 @@ async function shutdown(event, details, code) {
     await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
   }
   session?.dispose();
+  // As Pi does on exit: an OAuth refresh in progress may already have spent the old refresh token,
+  // so exiting before the new one is saved would lose the login. Waits without a limit.
+  await session?.modelRuntime.settleCredentialWrites();
   if (dropped.length > 0) {
     appendLog({ event: 'dropped', ids: dropped });
   }

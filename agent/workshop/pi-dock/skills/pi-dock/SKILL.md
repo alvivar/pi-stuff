@@ -24,8 +24,10 @@ of every command.
 - Agents load `<cwd>/.pi` config and extensions WITHOUT asking for project trust. Spawn only in
   directories you trust.
 - There are NO limits: no turn, time or cost cap. An agent runs until stop or a crash, and work
-  that extensions deliver while it is idle (e.g. pi-link messages) is unbounded too. Stop agents
-  you no longer need.
+  that extensions deliver while it is idle (e.g. pi-link messages) is unbounded too. Even an
+  idle agent that gets no prompt can make billable requests: Pi keeps its prompt cache warm for
+  up to 30 minutes after its last real request; `"cacheWarming": "streaming"` in Pi's global
+  settings, set before the agent starts, prevents that. Stop agents you no longer need.
 
 ## Workflow
 
@@ -188,7 +190,9 @@ diagnostic type message        at boot, a problem Pi reported while loading, e.g
   `pi-dock logs <name>`, check that PID's command line contains `runner.mjs --name <name>`
   (PIDs are reused), terminate it externally, then run `pi-dock start <name>`. Do not retry in
   a loop.
-- `agent <name> did not exit within 5s; terminate PID <pid> externally`: check that PID's
+- `agent <name> did not exit within 5s; terminate PID <pid> externally`: the runner may still
+  be saving a refreshed login, so check again whether that PID has exited before terminating
+  it; terminating it then can invalidate the login. If it is still running, check that its
   command line contains `runner.mjs --name <name>` (PIDs are reused), terminate it, and confirm
   that process has exited before starting the agent again or deleting its files: `pi-dock ls`
   can show `failed`, and `pi-dock stop` can print `already stopped`/`already failed`, while that
