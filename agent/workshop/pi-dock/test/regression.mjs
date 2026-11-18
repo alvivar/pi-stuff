@@ -1006,6 +1006,11 @@ async function main() {
         assert.deepEqual(unknownSet, { code: 1, signal: null, stdout: '', stderr: `agent ${unknownSetName} is running — stop it first\n` }, `set refuses on status reply ${JSON.stringify(unknownReply)}`);
       }
       assert.deepEqual(await fs.readFile(unknownSetFile), beforeUnknownSet, 'unknown status refusal preserves manifest bytes');
+      unknownReply = { ok: false, error: 'terminal' };
+      const stoppingLs = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['ls']);
+      assert.equal(stateFromLs(stoppingLs.stdout, unknownSetName), 'stopping', 'ls shows a runner that answers terminal as stopping');
+      const stoppingShow = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['show', unknownSetName]);
+      assert.match(stoppingShow.stdout, /^state stopping$/m, 'show shows a runner that answers terminal as stopping');
     });
 
     const malformedSetName = `set-malformed-${randomUUID()}`;
@@ -1024,6 +1029,8 @@ async function main() {
       // Not a reply: the raw parse error is reported, as stop does.
       assert.deepEqual(malformedSet, { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} liveness check failed: Unexpected token 'M', "MALFORMED_"... is not valid JSON\n` });
       assert.deepEqual(await fs.readFile(malformedSetFile), beforeMalformedSet, 'malformed status refusal preserves manifest bytes');
+      const malformedLs = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['ls']);
+      assert.equal(stateFromLs(malformedLs.stdout, malformedSetName), 'not-responding', 'ls shows a runner whose reply is not JSON as not-responding');
       assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', malformedSetName]), { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} Unexpected token 'M', "MALFORMED_"... is not valid JSON\n` }, 'a non-JSON stop reply is a failure, not already stopped');
     });
 
@@ -1409,7 +1416,7 @@ async function main() {
         1,
         `${corrName} stopped\n${multiName} stopped\n${idleName} already stopped\n`,
         `agent ${badPidName} The "pid" argument must be of type number. Received type string ('nope')\n`
-          + `agent ${lingeringName} did not exit within 5s; terminate PID ${process.pid} externally\n`,
+          + `agent ${lingeringName} did not exit within 5s; PID ${process.pid} is still shutting down\n`,
       ), 'stop names every failed agent, continues past failures and exits 1');
     }));
     for (const child of [corrWoken, multi]) {

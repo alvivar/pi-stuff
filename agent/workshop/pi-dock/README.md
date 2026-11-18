@@ -141,9 +141,10 @@ message and rule) is in `pi-dock skill`.
 ### Resident agents
 
 An agent is resident: its process never exits because work finished, only on `stop` or a crash.
-`ls` and `show` report its state: `idle`, `running` or `compacting` while it is on; `stopped`
-after a stop; `failed` after a crash; `not-responding` when its process did not answer in time,
-which does not tell whether it is alive. Neither wakes it.
+`ls` and `show` report its state: `idle`, `running` or `compacting` while it is on; `stopping`
+while the runner is shutting down, after a stop or a fatal error; `stopped` after a stop;
+`failed` after a crash; `not-responding` when its process did not answer, which does not tell
+whether it is alive. Neither wakes it.
 
 `stop` is a power-off, not a delete. The name, configuration, log and session survive, and
 `start`, `send` and `compact` wake the agent with its memory. pi-dock has no command that
@@ -290,15 +291,16 @@ itself starts.
 - **`agent <name> is not responding`**: a request to the agent timed out. Find the latest
   `spawned pid=<pid>` line in `pi-dock logs <name>`, terminate that process, then run
   `pi-dock start <name>`.
-- **`agent <name> did not exit within 5s; terminate PID <pid> externally`**: `stop` asked the
+- **`agent <name> did not exit within 5s; PID <pid> is still shutting down`**: `stop` asked the
   agent to exit and it did not, e.g. because an extension's `session_shutdown` handler, which
   the agent waits for as Pi does on quit, never finished, or because it is still saving a
   refreshed login. Check again whether the PID has exited before terminating it: terminating it
   while it saves the login can invalidate that login. If it is still running, check that its
   command line contains `runner.mjs --name <name>` (PIDs are reused), terminate it, and confirm
   it has exited before starting the agent again or deleting its files: while it shuts down,
-  `pi-dock ls` can show `failed` and `pi-dock stop` can print `already stopped` or
-  `already failed`.
+  `pi-dock ls` shows `stopping`, but once it has closed its pipe `ls` can show `stopped` or
+  `failed` and `pi-dock stop` can print `already stopped` or `already failed` while the
+  process is still there.
 - **`handshake failed for <name>`**: a spawned or woken agent's runner exited with an error, or
   the agent did not answer within 20 s. The printed diagnostics include the last log line, if
   any.

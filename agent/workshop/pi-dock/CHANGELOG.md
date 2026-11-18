@@ -21,6 +21,17 @@ their version is cut, so a new entry may not have one yet.
   with the run id if a run is on. It carries no cost: Pi prices it at API rates, which a
   subscription does not pay. A cancelled, failed or outdated refresh logs nothing.
 
+### Fixed
+
+- **`ls` and `show` report `stopping` when the runner answers that it is shutting down**, after
+  a stop or a fatal error, instead of the `stopped` or `failed` in the log. `not-responding` now
+  covers any failed status request, such as a reply that is not JSON, not only a timeout; they
+  read the state from the log only when no runner is listening.
+- **`stop` no longer tells you to kill a runner that is slow to exit.** Since Pi SDK 1.5.2 the
+  runner can be saving a refreshed login, and killing it then can invalidate that login.
+  `did not exit within 5s; terminate PID <pid> externally` is now
+  `did not exit within 5s; PID <pid> is still shutting down`. The 5 s and the exit code 1 stay.
+
 ## 0.7.0 — 2026-11-18
 
 ### Breaking changes

@@ -22,12 +22,10 @@ ships.
        spawn/set can reject a valid model. Only matters with extension providers.
 3. [ ] **ls uptime** — time since the current runner booted (latest `spawned`), next to age.
        `logs` and `show` already tell restarts apart.
-4. [ ] **Narrow a catch** (low) — `agentState` falls back to the log's state on any
-       non-timeout error, even one that doesn't prove the agent is off.
 
 ## Release
 
-5. [ ] **Publish 0.7.0** — the owner publishes by hand.
+4. [ ] **Publish 0.7.0** — the owner publishes by hand.
 
 ## Decide later
 

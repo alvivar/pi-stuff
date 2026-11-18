@@ -406,19 +406,16 @@ function formatAge(startedAt) {
   return `${seconds}s`;
 }
 
-// A timeout means the runner did not answer in time; whether it is alive is unknown.
+// Only consult the log when no runner is listening. Any other failure, a timeout included,
+// leaves unknown whether it is alive. Our runner refuses status only once it is shutting down.
 async function agentState(manifest) {
+  let status;
   try {
-    const status = await request(manifest.pipe, { cmd: 'status' }, 200);
-    if (status.ok) {
-      return status.state;
-    }
+    status = await request(manifest.pipe, { cmd: 'status' }, 200);
   } catch (error) {
-    if (isTimeout(error)) {
-      return 'not-responding';
-    }
+    return pipeAbsent(error) ? stateFromLog(manifest.name) : 'not-responding';
   }
-  return stateFromLog(manifest.name);
+  return status.ok ? status.state : 'stopping';
 }
 
 function renderEvent(line) {
@@ -839,7 +836,7 @@ async function stopAgent({ name, pipe }) {
   const deadline = Date.now() + STOP_EXIT_TIMEOUT_MS;
   while (processAlive(reply.pid)) {
     if (Date.now() > deadline) {
-      throw new Error(`did not exit within ${STOP_EXIT_TIMEOUT_MS / 1000}s; terminate PID ${reply.pid} externally`);
+      throw new Error(`did not exit within ${STOP_EXIT_TIMEOUT_MS / 1000}s; PID ${reply.pid} is still shutting down`);
     }
     await sleep(50);
   }
@@ -898,8 +895,8 @@ Essentials:
   Agents are resident. spawn creates an idle agent in the current directory; send queues a prompt
   and prints its id; wait <name> <id>, or send --wait, prints the run's final text. stop powers the
   agent off and keeps its memory; start, send and compact wake it again. ls and show report the
-  state (idle, running, compacting, stopped, failed or not-responding), logs the event log. Every
-  command exits 0 on success and 1 on error.
+  state (idle, running, compacting, stopping, stopped, failed or not-responding), logs the event
+  log. Every command exits 0 on success and 1 on error.
 
 Warnings:
   Agents load <cwd>/.pi config and extensions WITHOUT asking for project trust.

@@ -88,9 +88,10 @@ of every command.
 
 ## States and waking
 
-- `idle`, `running` or `compacting` while the runner answers; otherwise `stopped` after a stop,
-  or `failed` after a crash or fatal error. `not-responding` means the runner did not answer in
-  time: whether it is alive is unknown.
+- `idle`, `running` or `compacting` while the runner answers; `stopping` while the runner is
+  shutting down, after a stop or a fatal error; otherwise `stopped` after a stop, or `failed`
+  after a crash or fatal error. `not-responding` means the runner did not answer: whether it is
+  alive is unknown.
 - `pi-dock ls` lists the agents and their states. `pi-dock show <name>` prints one agent's state,
   stored configuration and exact session file; there `-` means unset, tools `none` means
   `--no-tools`, and the system prompt appears only as its size. Neither wakes the agent.
@@ -194,13 +195,13 @@ diagnostic type message        at boot, a problem Pi reported while loading, e.g
   `pi-dock logs <name>`, check that PID's command line contains `runner.mjs --name <name>`
   (PIDs are reused), terminate it externally, then run `pi-dock start <name>`. Do not retry in
   a loop.
-- `agent <name> did not exit within 5s; terminate PID <pid> externally`: the runner may still
+- `agent <name> did not exit within 5s; PID <pid> is still shutting down`: the runner may still
   be saving a refreshed login, so check again whether that PID has exited before terminating
   it; terminating it then can invalidate the login. If it is still running, check that its
   command line contains `runner.mjs --name <name>` (PIDs are reused), terminate it, and confirm
-  that process has exited before starting the agent again or deleting its files: `pi-dock ls`
-  can show `failed`, and `pi-dock stop` can print `already stopped`/`already failed`, while that
-  process is still shutting down.
+  that process has exited before starting the agent again or deleting its files: once it has
+  closed its pipe, `pi-dock ls` can show `stopped` or `failed`, and `pi-dock stop` can print
+  `already stopped`/`already failed`, while that process is still shutting down.
 - `handshake failed for <name>`: a spawned or woken runner exited with an error, or did not
   answer status within 20 s.
   Read the printed manifest and log diagnostics and the `last log` line, if present. A
