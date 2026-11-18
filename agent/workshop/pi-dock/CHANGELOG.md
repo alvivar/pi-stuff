@@ -12,20 +12,21 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.7.0 — 2026-11-18
 
 ### Breaking changes
 
 - **Agents run Pi SDK 1.5.2.** The dependency moves from exactly `1.5.0` to exactly `1.5.2`.
   Agents and their extensions get the changes in Pi's changelog for 1.5.1 and 1.5.2, including
   its breaking ones: OpenAI-compatible models no longer send `"tools": []` when all tools are
-  disabled in a session that has used tools (a proxy that requires it needs `compat.requiresToolsWithToolHistory: true` in
-  `models.json`), and the grep tool no longer calls `GrepOperations.readFile` for context
-  lines. Pi now keeps eligible prompt caches warm for up to 30 minutes between runs, so an idle
-  agent can make billable requests; `"cacheWarming": "streaming"` in Pi's global settings
-  restores the previous behavior. When no `--model` is given, several providers default to newer
-  models, e.g. `anthropic` to `claude-opus-5-5`. `stop` now lets the agent finish saving an OAuth
-  login it is refreshing before it exits, as Pi does.
+  disabled in a session that has used tools (a proxy that requires it needs
+  `compat.requiresToolsWithToolHistory: true` in `models.json`), and the grep tool no longer
+  calls `GrepOperations.readFile` for context lines. Pi now keeps eligible prompt caches warm
+  for up to 30 minutes between runs, so an idle agent can make billable requests;
+  `"cacheWarming": "streaming"` in Pi's global settings restores the previous behavior. When no
+  `--model` is given, several providers default to newer models, e.g. `anthropic` to
+  `claude-opus-5-5`. `stop` now lets the agent finish saving an OAuth login it is refreshing
+  before it exits, as Pi does. (`ccfdcb4`)
 
 ## 0.6.0 — 2026-11-07
 
