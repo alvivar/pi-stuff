@@ -167,6 +167,12 @@ function subscribeToSession() {
       appendLog({ event: 'external', ...(current && { id: current }), type: event.entry.customType });
       return;
     }
+    // Pi re-sent the last request to keep its prompt cache warm, a billable request. Not the
+    // cost: Pi prices it at API rates, which a subscription does not pay.
+    if (event.type === 'entry_appended' && event.entry.type === 'usage' && event.entry.kind === 'cache_warm') {
+      appendLog({ event: 'cache_warmed', ...(current && { id: current }) });
+      return;
+    }
 
     if (event.type === 'turn_end') {
       if (current) {

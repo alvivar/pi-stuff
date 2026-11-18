@@ -20,7 +20,8 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 > **No limits.** There is no turn, time or cost cap. An agent runs until you stop it or it
 > crashes, and work that extensions deliver while it is idle (e.g. pi-link messages) is
 > unbounded too. Even an idle agent that gets no prompt can make billable requests: Pi keeps its
-> prompt cache warm for up to 30 minutes after its last real request. To prevent that, set
+> prompt cache warm for up to 30 minutes after its last real request, and its log shows a
+> completed refresh as `cache_warmed`. To prevent that, set
 > `"cacheWarming": "streaming"` in Pi's global settings before the agent starts. Stop agents you
 > no longer need.
 
@@ -166,7 +167,9 @@ stopped, and the exit code is 1. There is no `--all` and no pattern.
   `wait` exits 1 with the reason.
 - `pi-dock logs <name>` shows lifecycle and assistant-turn events (`queued`, `run`, `turn`,
   `text`, `done`, …); tool calls and the full conversation are in the session file. `--follow`
-  keeps watching, and `--raw` prints the stored NDJSON.
+  keeps watching, and `--raw` prints the stored NDJSON. `cache_warmed` means Pi re-sent the
+  last request to keep its prompt cache warm, a billable request; a cancelled, failed or
+  outdated refresh logs nothing, so the log is not a full record of spending.
 
 Long prompts are easier with `--file prompt.md`. Prompts run one at a time, in order.
 

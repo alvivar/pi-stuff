@@ -1040,6 +1040,24 @@ async function main() {
             { ...regressModel, id: 'alpha-10', contextWindow: 200000, maxTokens: 8192, reasoning: true, input: ['text', 'image'] },
           ],
         },
+        // Its own provider, so `models regress/` and the default model stay as they are. A 13 s
+        // cache lifetime, for either retention (PI_CACHE_RETENTION may pick long), has Pi warm 3 s
+        // after a request; a prompt's input costs enough that it does.
+        warm: {
+          baseUrl: provider.baseUrl,
+          api: 'openai-completions',
+          apiKey: 'warm',
+          models: [
+            {
+              ...regressModel,
+              id: 'cached',
+              contextWindow: 200000,
+              maxTokens: 500,
+              cost: { input: 1000000, output: 0, cacheRead: 0, cacheWrite: 0 },
+              promptCache: { short: 13, long: 13 },
+            },
+          ],
+        },
       },
     }));
     await fs.writeFile(path.join(sandbox, 'agent', 'settings.json'), JSON.stringify({ retry: { enabled: true, maxRetries: 1, baseDelayMs: 1, provider: { maxRetries: 0 } } }));
@@ -1435,6 +1453,26 @@ async function main() {
       { event: 'done', id: boundaryId },
     ], 'a boundary custom_message entry logs external exactly once');
     await stop(extName, ext);
+
+    // Pi re-sends the last request every 3 s while warming pays off; the second refresh is held
+    // unanswered so that no further one is sent before the stop cancels it.
+    const warmName = `warm-${randomUUID()}`;
+    const secondWarm = held(textReply('second warm'));
+    provider.replies.push(
+      sse([{ delta: { content: 'warm reply' } }, { delta: {}, finish_reason: 'stop', usage: { prompt_tokens: 10, completion_tokens: 1 } }]),
+      textReply('first warm'),
+      secondWarm.reply,
+    );
+    const warm = own(launchRunner(sandbox, ['--name', warmName, '--cwd', corrCwd, '--model', 'warm/cached', '--create']), warmName);
+    assert(await waitForStatus(pipePath(warmName)), 'cache-warming runner starts');
+    const warmId = await send(warmName, 'warm me');
+    assert.deepEqual(await wait(warmName, warmId), exited(0, 'warm reply\n', ''));
+    assert.equal(await Promise.race([secondWarm.arrived.then(() => 'arrived'), pause(15000).then(() => 'timed out')]), 'arrived', 'Pi sends a second cache refresh');
+    assert.deepEqual(withoutTimes(await logEvents(dock, warmName)).filter((event) => event.id === undefined), [
+      { event: 'cache_warmed' },
+    ], 'an idle cache refresh logs cache_warmed without an id');
+    await stop(warmName, warm);
+    secondWarm.release();
 
     // Flags no extension defines are what the SDK reports as a diagnostic: logged, not fatal.
     const unknownFlagsName = `unknown-flags-${randomUUID()}`;

@@ -26,8 +26,9 @@ of every command.
 - There are NO limits: no turn, time or cost cap. An agent runs until stop or a crash, and work
   that extensions deliver while it is idle (e.g. pi-link messages) is unbounded too. Even an
   idle agent that gets no prompt can make billable requests: Pi keeps its prompt cache warm for
-  up to 30 minutes after its last real request; `"cacheWarming": "streaming"` in Pi's global
-  settings, set before the agent starts, prevents that. Stop agents you no longer need.
+  up to 30 minutes after its last real request (a completed refresh logs `cache_warmed`);
+  `"cacheWarming": "streaming"` in Pi's global settings, set before the agent starts, prevents
+  that. Stop agents you no longer need.
 
 ## Workflow
 
@@ -165,6 +166,9 @@ compacted / compact_failed reason / compact_cancelled   (all id?)
                                a compaction ended, whoever started it; it never ends the run
 external id? type              a custom extension message of this type entered the context
                                (pi-link: link)
+cache_warmed id?               Pi re-sent the last request to keep its prompt cache warm, a
+                               billable request; a cancelled, failed or outdated refresh logs
+                               nothing, so this is not a full record of spending
 extension_error extension on reason
                                an extension handler for event `on` threw, or (on load) the
                                extension failed to load and the agent runs without it
