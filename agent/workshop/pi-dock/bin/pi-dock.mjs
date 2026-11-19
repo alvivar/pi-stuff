@@ -52,7 +52,7 @@ function parseCommand(argv, options, maxPositionals) {
     failUsage(`Unexpected argument '${parsed.positionals[maxPositionals]}'`);
   }
   // An explicit empty value is likely an unset variable in a script, never "use the default".
-  for (const option of ['fork', 'model', 'thinking', 'system-prompt', 'tools']) {
+  for (const option of ['fork', 'model', 'thinking', 'system-prompt', 'tools', 'file']) {
     if (parsed.values[option] === '') {
       failUsage(`Option '--${option}' must not be empty`);
     }
@@ -112,9 +112,18 @@ function processAlive(pid) {
   }
 }
 
+// An invalid name is a mistake in what the user typed, so it fails with the usage line.
+function validateName(name) {
+  try {
+    return validateAgentName(name);
+  } catch (error) {
+    failUsage(error.message);
+  }
+}
+
 function validateThinking(level) {
   if (level !== undefined && !VALID_THINKING_LEVELS.has(level)) {
-    fail(`invalid thinking level: ${level}`);
+    failUsage(`invalid thinking level: ${level}`);
   }
 }
 
@@ -436,7 +445,7 @@ async function spawnCommand(argv) {
   if (values.name === undefined) {
     failUsage();
   }
-  const name = validateAgentName(values.name);
+  const name = validateName(values.name);
 
   validateThinking(values.thinking);
   const tools = parseTools(values);
@@ -488,11 +497,12 @@ async function wake(manifest) {
   return result;
 }
 
-function failRequest(name, cmd, error) {
+// Names the command the user ran, not the request it sent.
+function failRequest(name, error) {
   if (isTimeout(error)) {
     failNotResponding(name);
   }
-  fail(`agent ${name} stopped or crashed during ${cmd}`);
+  fail(`agent ${name} stopped or crashed during ${command}`);
 }
 
 async function deliver(manifest, msg, timeoutMs) {
@@ -501,16 +511,30 @@ async function deliver(manifest, msg, timeoutMs) {
     reply = await request(manifest.pipe, msg, timeoutMs);
   } catch (error) {
     if (!pipeAbsent(error)) {
-      failRequest(manifest.name, msg.cmd, error);
+      failRequest(manifest.name, error);
     }
   }
 
   if (reply === undefined || reply.error === 'terminal') {
     const { manifest: woken } = await wake(manifest);
-    reply = await request(woken.pipe, msg, timeoutMs).catch((error) => failRequest(manifest.name, msg.cmd, error));
+    reply = await request(woken.pipe, msg, timeoutMs).catch((error) => failRequest(manifest.name, error));
   }
 
   return reply;
+}
+
+// The --file contents. An empty file is only known once read, so it fails without the usage line.
+function readPromptFile(file) {
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (error) {
+    fail(`cannot read prompt file ${file}: ${error.message}`);
+  }
+  if (text.length === 0) {
+    fail('empty prompt');
+  }
+  return text;
 }
 
 async function sendCommand(argv) {
@@ -522,8 +546,8 @@ async function sendCommand(argv) {
     failUsage();
   }
 
-  validateAgentName(name);
-  const text = values.file === undefined ? words.join(' ') : readFileSync(values.file, 'utf8');
+  validateName(name);
+  const text = values.file === undefined ? words.join(' ') : readPromptFile(values.file);
   if (text.length === 0) {
     failUsage('empty prompt');
   }
@@ -531,7 +555,7 @@ async function sendCommand(argv) {
   const manifest = await requireManifest(name);
   const reply = await deliver(manifest, { cmd: 'prompt', text }, PIPE_REQUEST_TIMEOUT_MS);
   if (!reply.ok) {
-    fail(JSON.stringify(reply));
+    fail(`agent ${name} refused send: ${JSON.stringify(reply)}`);
   }
   if (!values.wait) {
     console.log(reply.id);
@@ -609,7 +633,7 @@ async function waitCommand(argv) {
     failUsage();
   }
 
-  validateAgentName(name);
+  validateName(name);
   await waitForPrompt(await requireManifest(name), id);
 }
 
@@ -619,10 +643,10 @@ async function startCommand(argv) {
     failUsage();
   }
 
-  validateAgentName(name);
+  validateName(name);
   const status = await deliver(await requireManifest(name), { cmd: 'status' }, PIPE_REQUEST_TIMEOUT_MS);
   if (!status.ok) {
-    fail(`agent ${name} refused status: ${JSON.stringify(status)}`);
+    fail(`agent ${name} refused start: ${JSON.stringify(status)}`);
   }
   console.log(`${name} ${status.state} ${status.model}`);
 }
@@ -683,7 +707,7 @@ async function showCommand(argv) {
     failUsage();
   }
 
-  validateAgentName(name);
+  validateName(name);
   const manifest = await requireManifest(name);
   console.log([
     `name ${manifest.name}`,
@@ -718,7 +742,7 @@ async function logsCommand(argv) {
     failUsage(`Option '--tail' must be a positive integer, got '${values.tail}'`);
   }
 
-  validateAgentName(name);
+  validateName(name);
   // The log alone, so a spawn that failed before it wrote the manifest can still be read.
   if (!existsSync(logPath(name))) {
     await requireManifest(name);
@@ -762,7 +786,7 @@ async function setCommand(argv) {
     failUsage();
   }
 
-  validateAgentName(name);
+  validateName(name);
   validateThinking(values.thinking);
   const tools = parseTools(values);
   const systemPrompt = await readSystemPromptOption(values);
@@ -801,14 +825,14 @@ async function compactCommand(argv) {
   }
 
   const instructions = words.join(' ');
-  validateAgentName(name);
+  validateName(name);
   const msg = instructions.length > 0 ? { cmd: 'compact', instructions } : { cmd: 'compact' };
   const reply = await deliver(await requireManifest(name), msg, null);
   if (!reply.ok) {
     if (reply.error === 'busy') {
       fail(`agent ${name} is busy`);
     }
-    fail(reply.error);
+    fail(`agent ${name} compaction failed: ${reply.error}`);
   }
 
   console.log(`${name} compacted`);
@@ -853,9 +877,9 @@ async function stopCommand(argv) {
   // The whole list is checked before anything is stopped, so a typo cannot cause a partial power-off.
   const manifests = [];
   for (const [index, name] of names.entries()) {
-    validateAgentName(name);
+    validateName(name);
     if (names.indexOf(name) !== index) {
-      fail(`duplicate agent name: ${name}`);
+      failUsage(`duplicate agent name: ${name}`);
     }
     manifests.push(await requireManifest(name));
   }

@@ -637,7 +637,7 @@ async function main() {
       assert.equal(result.code, 1, `${commandArgs[0]} invalid-name exit`);
       assert.equal(result.signal, null);
       assert.equal(result.stdout, '');
-      assert.equal(result.stderr.trim(), `invalid agent name: ${traversalName}`, `${commandArgs[0]} invalid-name error`);
+      assert(result.stderr.startsWith(`invalid agent name: ${traversalName}\nusage: pi-dock ${commandArgs[0]} `), `${commandArgs[0]} invalid-name error: ${result.stderr}`);
     }
     assert.equal(await fs.readFile(sentinelManifest, 'utf8'), 'manifest sentinel');
     assert.equal(await fs.readFile(sentinelLog, 'utf8'), 'log sentinel');
@@ -776,7 +776,7 @@ async function main() {
       [['send', 'v1', '--wait-for', 'x'], "Unknown option '--wait-for'"],
       [['send', 'v1', 'text', '--file'], "Option '--file <value>' argument missing"],
       [['send', 'v1', ''], 'empty prompt'],
-      [['send', 'v1', '--file', emptyPrompt], 'empty prompt'],
+      [['send', 'v1', '--file', ''], "Option '--file' must not be empty"],
       [['send', 'v1'], undefined],
       [['send', 'v1', '--file', emptyPrompt, 'text'], undefined],
       [['wait', 'v1'], undefined],
@@ -793,6 +793,10 @@ async function main() {
       assert.equal(result.stdout, '');
       assert.equal(result.stderr, `${reason ? `${reason}\n` : ''}usage: ${usage[commandArgs[0]]}\n`, commandArgs.join(' '));
     }
+
+    const missingPromptFile = path.join(sandbox, 'missing-prompt.txt');
+    assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['send', 'v1', '--file', missingPromptFile]), { code: 1, signal: null, stdout: '', stderr: `cannot read prompt file ${missingPromptFile}: ENOENT: no such file or directory, open '${missingPromptFile}'\n` }, 'send names a prompt file it cannot read, without the usage line');
+    assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['send', 'v1', '--file', emptyPrompt]), { code: 1, signal: null, stdout: '', stderr: 'empty prompt\n' }, 'an empty prompt file fails without the usage line');
 
     const skill = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['skill']);
     assert.equal(skill.code, 0, skill.stderr);
@@ -1139,7 +1143,7 @@ async function main() {
     assert.equal(noRegress.code, 1);
     assert.equal(noRegress.stderr.trim(), 'no available models match regress/zzz');
     const badThinking = await runOwnedNode(sandbox, cli, ['spawn', '--name', 'thinking-max', '--thinking', 'maximum']);
-    assert.equal(badThinking.stderr.trim(), 'invalid thinking level: maximum');
+    assert(badThinking.stderr.startsWith('invalid thinking level: maximum\nusage: pi-dock spawn '), badThinking.stderr);
     const hinted = await runOwnedNode(sandbox, cli, ['spawn', '--name', 'thinking-max', '--thinking', 'max', '--model', 'regress/alpha']);
     assert.equal(hinted.code, 1);
     assert.equal(hinted.stderr.trim(), 'preflight failed: model regress/alpha not found (did you mean: regress/alpha-10, regress/alpha-2; see: pi-dock models regress/alpha); no agent was created');
@@ -1165,12 +1169,12 @@ async function main() {
     });
     closedServer.listen(pipePath(closedName));
     await withOwnedServer(closedServer, closedSockets, async () => {
-      for (const [commandArgs, cmd] of [[['compact', closedName], 'compact'], [['send', closedName, 'text'], 'prompt'], [['start', closedName], 'status']]) {
+      for (const commandArgs of [['compact', closedName], ['send', closedName, 'text'], ['start', closedName]]) {
         closedAccepted = 0;
         const closed = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
         assert.equal(closed.code, 1);
-        assert.equal(closed.stderr.trim(), `agent ${closedName} stopped or crashed during ${cmd}`);
-        assert.equal(closedAccepted, 1, `${cmd} mid-request close is not retried`);
+        assert.equal(closed.stderr.trim(), `agent ${closedName} stopped or crashed during ${commandArgs[0]}`);
+        assert.equal(closedAccepted, 1, `${commandArgs[0]} mid-request close is not retried`);
       }
       await assert.rejects(fs.access(path.join(dock, `${closedName}.log`)), { code: 'ENOENT' }, 'mid-request close does not wake a runner');
       assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', closedName]), { code: 1, signal: null, stdout: '', stderr: `agent ${closedName} pipe closed before reply\n` }, 'a stop closed before its reply is a failure, not already stopped');
@@ -1403,8 +1407,8 @@ async function main() {
     assert(await waitForStatus(pipePath(corrName)), 'correlation runner wakes for a multi-name stop');
     const absentStopName = `stop-absent-${randomUUID()}`;
     for (const [names, stderr] of [
-      [[corrName, '../bad', multiName], 'invalid agent name: ../bad\n'],
-      [[corrName, multiName, corrName], `duplicate agent name: ${corrName}\n`],
+      [[corrName, '../bad', multiName], 'invalid agent name: ../bad\nusage: pi-dock stop <name>...\n'],
+      [[corrName, multiName, corrName], `duplicate agent name: ${corrName}\nusage: pi-dock stop <name>...\n`],
       [[corrName, absentStopName, multiName], `no such agent: ${absentStopName}\n`],
     ]) {
       assert.deepEqual(await runOwnedNode(sandbox, cli, ['stop', ...names]), exited(1, '', stderr), `stop ${names.join(' ')} rejects the whole list`);
@@ -1820,7 +1824,8 @@ async function main() {
     await writeSetFixture(dock, busyName);
     const busyServer = await serve(pipePath(busyName), () => ({ ok: false, error: 'busy' }));
     await withOwnedServer(busyServer, new Set(), async () => {
-      assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', busyName]), exited(1, '', `agent ${busyName} refused status: {"ok":false,"error":"busy"}\n`), 'start fails on a non-terminal refusal instead of waking');
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['start', busyName]), exited(1, '', `agent ${busyName} refused start: {"ok":false,"error":"busy"}\n`), 'start fails on a non-terminal refusal instead of waking');
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['stop', busyName]), exited(1, '', `agent ${busyName} refused stop: {"ok":false,"error":"busy"}\n`), 'stop reports a refusal with the whole reply');
     });
 
     // The runner start wakes finds the pipe owned and exits 0; the handshake keeps waiting for
@@ -1955,7 +1960,7 @@ async function main() {
     // Bounded, because a compact accepted here would wait behind the held one.
     assert.deepEqual(await request(pipePath(compactName), { cmd: 'compact' }, 5000), { ok: false, error: 'busy' }, 'compact is busy until the pending CLI compaction settles');
     await fs.rm(compactHold);
-    assert.deepEqual(await failingCompact, exited(1, '', 'Already compacted\n'), 'the pending CLI compaction fails with its reason');
+    assert.deepEqual(await failingCompact, exited(1, '', `agent ${compactName} compaction failed: Already compacted\n`), 'the pending CLI compaction fails with its reason');
     assert.deepEqual(withoutTimes((await logEvents(dock, compactName)).slice(since)), [alreadyCompacted, hookBroke], 'the failed CLI compaction logs one outcome');
 
     // Stop while a failure hook is held: the runner logs stopped and waits for the pending
@@ -1969,7 +1974,7 @@ async function main() {
     await waitForLog(dock, compactName, (all) => all.at(-1).event === 'stopped');
     await fs.rm(compactHold);
     assert.deepEqual(await stopping, exited(0, `${compactName} stopped\n`, ''));
-    assert.deepEqual(await lateCompact, exited(1, '', 'Already compacted\n'), 'the compact pending at stop still gets its reply');
+    assert.deepEqual(await lateCompact, exited(1, '', `agent ${compactName} compaction failed: Already compacted\n`), 'the compact pending at stop still gets its reply');
     await waitForExit(compactor);
     assert.deepEqual(withoutTimes((await logEvents(dock, compactName)).slice(since)), [alreadyCompacted, { event: 'stopped' }], 'an extension error during shutdown does not follow the terminal event');
     assert.equal(stateFromLs((await runOwnedNode(sandbox, cli, ['ls'])).stdout, compactName), 'stopped', 'ls still shows the agent stopped');
@@ -2080,7 +2085,7 @@ async function main() {
     await fs.chmod(unloggedLog, 0o444);
     try {
       const refused = { ok: false, error: `EPERM: operation not permitted, open '${unloggedLog}'` };
-      assert.deepEqual(await runOwnedNode(sandbox, cli, ['send', unloggedName, 'unqueued']), exited(1, '', `${JSON.stringify(refused)}\n`), 'a prompt whose queued event cannot be logged is refused');
+      assert.deepEqual(await runOwnedNode(sandbox, cli, ['send', unloggedName, 'unqueued']), exited(1, '', `agent ${unloggedName} refused send: ${JSON.stringify(refused)}\n`), 'a prompt whose queued event cannot be logged is refused');
     } finally {
       await fs.chmod(unloggedLog, 0o644);
     }
@@ -2158,7 +2163,7 @@ async function main() {
     assert.deepEqual(await tempFiles(dock), [], 'real runner race leaves no manifest temp files');
     const compactResult = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['compact', runnerName]);
     assert.equal(compactResult.code, 1);
-    assert.equal(compactResult.stderr.trim(), 'Nothing to compact (session too small)');
+    assert.equal(compactResult.stderr.trim(), `agent ${runnerName} compaction failed: Nothing to compact (session too small)`);
     const compactEvents = (await fs.readFile(path.join(dock, `${runnerName}.log`), 'utf8')).trim().split('\n').map(JSON.parse);
     // The CLI prints the error; the log keeps the SDK's message for the same failure.
     assert.deepEqual(compactEvents.at(-1), { ts: compactEvents.at(-1).ts, event: 'compact_failed', reason: 'Compaction failed: Nothing to compact (session too small)' });

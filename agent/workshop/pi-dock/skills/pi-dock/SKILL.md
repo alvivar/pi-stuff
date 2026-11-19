@@ -14,9 +14,12 @@ Commands here are written as `pi-dock …`. If `pi-dock` is not on your PATH (Pi
 packages without putting their commands there), run the package's `bin/pi-dock.mjs` with Node
 and the same arguments instead: `node "<this skill's directory>/../../bin/pi-dock.mjs" …`.
 
-Every command exits 0 on success and 1 on error, with the reason on stderr. Arguments are strict:
-unknown options and extra arguments fail with the command's usage line. Run `pi-dock --help` for
-the usage of every command.
+Every command exits 0 on success and 1 on error, with the reason on stderr. The arguments of a
+command are strict: an argument error (an unknown option, an extra or missing argument, an
+invalid name or value) prints the command's usage line, sometimes on its own. Errors met while
+running the command print no usage line. When the agent refuses `start`, `send` or `stop`, the
+error is `agent <name> refused <command>: <reply>`. Run `pi-dock --help` for the usage of every
+command.
 
 ## Warnings
 
@@ -103,7 +106,8 @@ the usage of every command.
 - `start`, `send` and `compact` wake a stopped or failed agent with its memory intact. `start`
   prints `<name> <state> <provider/id>`; on an agent that is already on it just prints that.
 - If the agent stops or crashes mid-request, `start`, `send` and `compact` report
-  `agent <name> stopped or crashed during <cmd>` instead of waking or retrying.
+  `agent <name> stopped or crashed during <command>`, naming the command, instead of waking or
+  retrying.
 - `pi-dock stop <name>...` checks the whole list first: an invalid, unknown or repeated name
   fails and stops nothing. Then it stops the agents one after another and prints one line per
   name: `<name> stopped` only once its runner process has exited, or `<name> already stopped` /
@@ -130,8 +134,8 @@ the usage of every command.
   options, so they may start with `-`. It requires an idle agent with
   no queued prompts and no compaction in progress, including one an extension started (`agent
   <name> is busy` otherwise). It wakes an off agent and leaves it on, and waits without a
-  timeout; Ctrl-C only stops waiting, not the compaction. A failed compaction exits 1 with its
-  reason.
+  timeout; Ctrl-C only stops waiting, not the compaction. A failed compaction exits 1 with
+  `agent <name> compaction failed: <reason>`.
 
 ## Role and tools
 

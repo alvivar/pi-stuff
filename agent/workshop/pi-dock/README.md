@@ -110,10 +110,13 @@ pi-dock stop w1
 - `stop` powers the agent off and prints `w1 stopped`. `pi-dock send w1 "…"` or
   `pi-dock start w1` wakes it again, with the conversation intact.
 
-Every command exits 0 on success and 1 on error, with the reason on stderr. Options and
-arguments are strict: anything unknown fails with the command's usage line. In `send` and
-`compact`, `--` ends the options, so text or instructions may start with `-`. For usage, run
-the top-level `pi-dock --help`.
+Every command exits 0 on success and 1 on error, with the reason on stderr. The arguments of a
+command are strict: an argument error (an unknown option, an extra or missing argument, an
+invalid name or value) prints the command's usage line, sometimes on its own. Errors met while
+running the command print no usage line. When the agent refuses `start`, `send` or `stop`, the
+error is `agent <name> refused <command>: <reply>`. In `send` and `compact`, `--` ends the
+options, so text or instructions may start with `-`. For usage, run the top-level
+`pi-dock --help`.
 
 ## Commands
 
@@ -284,8 +287,9 @@ turns appear in the agent's log, and they fall under the "no limits" warning abo
 
 `pi-dock compact <name> [--] [instructions...]` compacts the agent's session and prints
 `<name> compacted`. The agent must be idle (no run, no queued prompts); a stopped agent is woken
-first and stays on. It waits without a timeout for the result and exits 1 with the reason when
-compaction fails (e.g. `Nothing to compact (session too small)`). The log records the outcome
+first and stays on. It waits without a timeout for the result; when compaction fails it exits 1
+with `agent <name> compaction failed: <reason>` (e.g. `Nothing to compact (session too
+small)`). The log records the outcome
 of every compaction (`compacted`, `compact_failed` or `compact_cancelled`), including those an
 extension or Pi itself starts.
 

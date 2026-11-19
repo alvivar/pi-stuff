@@ -21,6 +21,12 @@ their version is cut, so a new entry may not have one yet.
   before, `pi-dock compact w1 --help` compacted `w1` with the instructions `--help`.
   Instructions that start with `-` now follow `--`: `pi-dock compact w1 -- --help`.
 - **`compact` prints `<name> compacted`**, like `<name> stopped`, instead of `compacted`.
+- **A connection cut mid-request names the command you ran.** `start`, `send` and `compact` say
+  `agent <name> stopped or crashed during start|send|compact`, not the request they sent
+  (`status`, `prompt`).
+- **Refusals name the agent and the command.** `agent <name> refused start|send|stop: <reply>`:
+  `start` said `refused status`, and `send` printed the bare JSON reply. A failed compaction
+  prints `agent <name> compaction failed: <reason>` instead of the bare reason.
 
 ### Added
 
@@ -41,6 +47,13 @@ their version is cut, so a new entry may not have one yet.
 
 ### Fixed
 
+- **A mistake in what you typed prints the usage line.** An invalid `--thinking` level, an
+  invalid agent name and a name repeated in `stop` now print the reason and the command's usage
+  line, like an unknown option; errors from running the command print no usage line.
+- **`send --file` names a file it cannot read**: `cannot read prompt file <file>: <error>`,
+  instead of Node's bare error. An empty file fails with `empty prompt` and no longer prints the
+  usage line: that is only known once the file is read. `--file ''` fails with
+  `Option '--file' must not be empty` and the usage line, like the other options.
 - **`ls` and `show` report `stopping` when the runner answers that it is shutting down**, after
   a stop or a fatal error, instead of the `stopped` or `failed` in the log. `not-responding` now
   covers any failed status request, such as a reply that is not JSON, not only a timeout; they
