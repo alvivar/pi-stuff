@@ -1029,12 +1029,15 @@ async function main() {
     await withOwnedServer(malformedServer, malformedSockets, async () => {
       const beforeMalformedSet = await fs.readFile(malformedSetFile);
       const malformedSet = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['set', malformedSetName, '--thinking', 'low']);
-      // Not a reply: the raw parse error is reported, as stop does.
-      assert.deepEqual(malformedSet, { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} liveness check failed: Unexpected token 'M', "MALFORMED_"... is not valid JSON\n` });
+      const parseError = `Unexpected token 'M', "MALFORMED_"... is not valid JSON`;
+      assert.deepEqual(malformedSet, { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} liveness check failed: ${parseError}\n` });
       assert.deepEqual(await fs.readFile(malformedSetFile), beforeMalformedSet, 'malformed status refusal preserves manifest bytes');
       const malformedLs = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['ls']);
       assert.equal(stateFromLs(malformedLs.stdout, malformedSetName), 'not-responding', 'ls shows a runner whose reply is not JSON as not-responding');
-      assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', malformedSetName]), { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} Unexpected token 'M', "MALFORMED_"... is not valid JSON\n` }, 'a non-JSON stop reply is a failure, not already stopped');
+      for (const command of ['start', 'stop']) {
+        const result = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), [command, malformedSetName]);
+        assert.deepEqual(result, { code: 1, signal: null, stdout: '', stderr: `agent ${malformedSetName} ${command} request failed: ${parseError}\n` }, `${command} reports the unreadable reply`);
+      }
     });
 
     const regressModel = { reasoning: false, input: ['text'] };
@@ -1174,11 +1177,11 @@ async function main() {
         closedAccepted = 0;
         const closed = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
         assert.equal(closed.code, 1);
-        assert.equal(closed.stderr.trim(), `agent ${closedName} stopped or crashed during ${commandArgs[0]}`);
+        assert.equal(closed.stderr.trim(), `agent ${closedName} ${commandArgs[0]} request failed: pipe closed before reply`);
         assert.equal(closedAccepted, 1, `${commandArgs[0]} mid-request close is not retried`);
       }
       await assert.rejects(fs.access(path.join(dock, `${closedName}.log`)), { code: 'ENOENT' }, 'mid-request close does not wake a runner');
-      assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', closedName]), { code: 1, signal: null, stdout: '', stderr: `agent ${closedName} pipe closed before reply\n` }, 'a stop closed before its reply is a failure, not already stopped');
+      assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['stop', closedName]), { code: 1, signal: null, stdout: '', stderr: `agent ${closedName} stop request failed: pipe closed before reply\n` }, 'a stop closed before its reply is a failure, not already stopped');
     });
 
     const own = (child, name) => {
@@ -1677,7 +1680,7 @@ async function main() {
       const sessionsTree = () => treeEntries(path.join(sandbox, 'agent', 'sessions'));
       const beforeRefusedForks = await sessionsTree();
       for (const [fork, stderr] of [
-        ['missing.jsonl', `ENOENT: no such file or directory, access '${path.join(forkCwd, 'missing.jsonl')}'\n`],
+        ['missing.jsonl', `cannot access fork source missing.jsonl: ENOENT: no such file or directory, access '${path.join(forkCwd, 'missing.jsonl')}'\n`],
         [sourceId.slice(0, 8), `no session found with id: ${sourceId.slice(0, 8)}\n`],
       ]) {
         const refusedName = `fork-refused-${randomUUID()}`;

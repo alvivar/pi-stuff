@@ -247,7 +247,8 @@ pi-dock spawn --name w2 --fork <session id>
 - The source is a path if it contains `/` or `\`, or ends in `.jsonl`, relative to where you
   run the command; otherwise an exact session id, looked up in Pi's session directory, this
   directory's sessions first, then every project's. A prefix of an id is not enough. A path or
-  id that is not found fails before an agent or a copy is created.
+  id that is not found fails before an agent or a copy is created. If the path cannot be
+  accessed, `spawn` reports `cannot access fork source <path>: <error>`.
 - The copy is a new session in the current directory: every entry of the source, under a new
   id, with a header that names the source as `parentSession`. The source is only read, so the
   agent or Pi that runs it may go on; the copy holds the complete entries the file held at
@@ -294,6 +295,9 @@ extension or Pi itself starts.
 
 ### Recovery
 
+- **`agent <name> <command> request failed: <error>`**: `start`, `send`, `compact` or `stop`
+  could not get a valid reply. The failure does not tell you whether the runner received the
+  request or exited. Check the log before sending the same work again.
 - **`agent <name> is not responding`**: a request to the agent timed out. Find the latest
   `spawned pid=<pid>` line in `pi-dock logs <name>`, terminate that process, then run
   `pi-dock start <name>`.

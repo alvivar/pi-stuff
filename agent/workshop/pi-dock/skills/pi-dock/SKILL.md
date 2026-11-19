@@ -105,9 +105,11 @@ command.
 - Agents are resident: a runner never exits because work finished, only on stop or a crash.
 - `start`, `send` and `compact` wake a stopped or failed agent with its memory intact. `start`
   prints `<name> <state> <provider/id>`; on an agent that is already on it just prints that.
-- If the agent stops or crashes mid-request, `start`, `send` and `compact` report
-  `agent <name> stopped or crashed during <command>`, naming the command, instead of waking or
-  retrying.
+- In `start`, `send`, `compact` or `stop`, `agent <name> <command> request failed: <error>`
+  means the request failed for a reason other than a timeout (e.g. the connection closed before
+  a reply, or the reply was not JSON). The CLI does not retry. The error does not tell you
+  whether the runner received the request or exited. Before repeating it, check `pi-dock ls`
+  and `pi-dock logs <name>`. For `send`, `queued` records the id of an accepted prompt.
 - `pi-dock stop <name>...` checks the whole list first: an invalid, unknown or repeated name
   fails and stops nothing. Then it stops the agents one after another and prints one line per
   name: `<name> stopped` only once its runner process has exited, or `<name> already stopped` /

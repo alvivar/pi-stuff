@@ -177,7 +177,11 @@ async function resolveForkSource(value) {
   if (value.includes('/') || value.includes('\\') || value.endsWith('.jsonl')) {
     const file = path.resolve(value);
     // A check for clear errors only: the runner reads the file when it forks.
-    await access(file);
+    try {
+      await access(file);
+    } catch (error) {
+      fail(`cannot access fork source ${value}: ${error.message}`);
+    }
     return file;
   }
   const { SessionManager } = await import('@earendil-works/pi-coding-agent');
@@ -506,7 +510,7 @@ function failRequest(name, error) {
   if (isTimeout(error)) {
     failNotResponding(name);
   }
-  fail(`agent ${name} stopped or crashed during ${command}`);
+  fail(`agent ${name} ${command} request failed: ${error.message}`);
 }
 
 async function deliver(manifest, msg, timeoutMs) {
@@ -856,7 +860,7 @@ async function stopAgent({ name, pipe }) {
     if (isTimeout(error)) {
       throw new Error('is not responding');
     }
-    throw error;
+    throw new Error(`stop request failed: ${error.message}`);
   }
   if (!reply.ok) {
     throw new Error(`refused stop: ${JSON.stringify(reply)}`);

@@ -21,9 +21,10 @@ their version is cut, so a new entry may not have one yet.
   before, `pi-dock compact w1 --help` compacted `w1` with the instructions `--help`.
   Instructions that start with `-` now follow `--`: `pi-dock compact w1 -- --help`.
 - **`compact` prints `<name> compacted`**, like `<name> stopped`, instead of `compacted`.
-- **A connection cut mid-request names the command you ran.** `start`, `send` and `compact` say
-  `agent <name> stopped or crashed during start|send|compact`, not the request they sent
-  (`status`, `prompt`).
+- **Failed runner requests name the command and report the underlying error.** `start`, `send`,
+  `compact` and `stop` report `agent <name> <command> request failed: <error>` for errors such
+  as a connection closed before a reply. The first three used to report a stop or crash during
+  `status`, `prompt` or `compact`; `stop` printed the agent name and the raw error.
 - **Refusals name the agent and the command.** `agent <name> refused start|send|stop: <reply>`:
   `start` said `refused status`, and `send` printed the bare JSON reply. A failed compaction
   prints `agent <name> compaction failed: <reason>` instead of the bare reason.
@@ -50,6 +51,8 @@ their version is cut, so a new entry may not have one yet.
 
 ### Fixed
 
+- **`spawn --fork` identifies a path it cannot access**: `cannot access fork source <path>:
+  <error>`, with the path as entered and the original error.
 - **The usage lines of `send` and `set` say what they require.** `send` takes the text or
   `--file`, exactly one: `pi-dock send <name> [--wait] (--file <path> | [--] <text>...)`.
   `set` takes at least one option: `pi-dock set <name> (--model <provider/id> | ...)...`.
