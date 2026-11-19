@@ -23,7 +23,7 @@ const USAGE = {
   logs: 'pi-dock logs <name> [--tail <n>] [--raw] [--follow]',
   show: 'pi-dock show <name>',
   set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
-  compact: 'pi-dock compact <name> [instructions]',
+  compact: 'pi-dock compact <name> [--] [instructions...]',
   models: 'pi-dock models [filter]',
   skill: 'pi-dock skill',
   '--help': 'pi-dock [--help | -h]',
@@ -795,12 +795,12 @@ async function setCommand(argv) {
 }
 
 async function compactCommand(argv) {
-  const [name, ...instructionParts] = argv;
+  const { positionals: [name, ...words] } = parseCommand(argv, {}, Infinity);
   if (name === undefined) {
     failUsage();
   }
 
-  const instructions = instructionParts.join(' ');
+  const instructions = words.join(' ');
   validateAgentName(name);
   const msg = instructions.length > 0 ? { cmd: 'compact', instructions } : { cmd: 'compact' };
   const reply = await deliver(await requireManifest(name), msg, null);
@@ -811,7 +811,7 @@ async function compactCommand(argv) {
     fail(reply.error);
   }
 
-  console.log('compacted');
+  console.log(`${name} compacted`);
 }
 
 // Returns the outcome to print after the name; throws on an operational failure, whose message

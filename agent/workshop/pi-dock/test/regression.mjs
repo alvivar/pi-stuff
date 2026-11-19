@@ -1933,8 +1933,17 @@ async function main() {
     await recorded('before_compact hold');
     assert.equal((await request(pipePath(compactName), { cmd: 'status' })).state, 'compacting', 'status reports a compaction the CLI started');
     await fs.rm(compactHold);
-    assert.deepEqual(await heldCompact, exited(0, 'compacted\n', ''), 'the CLI compaction completes');
+    assert.deepEqual(await heldCompact, exited(0, `${compactName} compacted\n`, ''), 'the CLI compaction completes');
     assert.deepEqual(withoutTimes((await logEvents(dock, compactName)).slice(since)), [{ event: 'compacted' }], 'the CLI compaction logs one outcome');
+
+    // Arguments are strict: an unknown option fails before it reaches the runner, which would
+    // record a compaction; after `--` it is an instruction.
+    const recordBefore = await recorded('before_compact hold');
+    assert.deepEqual(await runOwnedNode(sandbox, cli, ['compact', compactName, '--help']), exited(1, '', "Unknown option '--help'\nusage: pi-dock compact <name> [--] [instructions...]\n"), 'compact rejects an unknown option');
+    provider.replies.push(textReply('fourth'));
+    assert.equal((await wait(compactName, await send(compactName, 'fourth'))).stdout, 'fourth\n');
+    assert.deepEqual(await runOwnedNode(sandbox, cli, ['compact', compactName, '--', '--help']), exited(0, `${compactName} compacted\n`, ''), 'compact takes instructions after --');
+    assert.deepEqual(await recorded('before_compact --help'), [...recordBefore, 'before_compact --help'], 'only the compact after -- reached the session, with its instructions');
 
     // The SDK reports the failure before its failure hooks run, while the CLI's compact is pending.
     since = (await logEvents(dock, compactName)).length;

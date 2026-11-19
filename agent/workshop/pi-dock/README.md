@@ -111,9 +111,9 @@ pi-dock stop w1
   `pi-dock start w1` wakes it again, with the conversation intact.
 
 Every command exits 0 on success and 1 on error, with the reason on stderr. Options and
-arguments are strict: anything unknown fails with the command's usage line. The exception is
-`compact`, which takes all remaining arguments as instructions: `pi-dock compact w1 --help`
-compacts `w1` with the instructions `--help`. For usage, run the top-level `pi-dock --help`.
+arguments are strict: anything unknown fails with the command's usage line. In `send` and
+`compact`, `--` ends the options, so text or instructions may start with `-`. For usage, run
+the top-level `pi-dock --help`.
 
 ## Commands
 
@@ -128,7 +128,7 @@ compacts `w1` with the instructions `--help`. For usage, run the top-level `pi-d
 | `show <name>` | Print one agent's details, one key and value per line |
 | `logs <name> [--tail <n>] [--raw] [--follow]` | Print the agent's event log |
 | `set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> \| --no-tools] [--x key[=value]]...` | Change a powered-off (stopped or failed) agent's configuration |
-| `compact <name> [instructions]` | Compact an idle agent's session |
+| `compact <name> [--] [instructions...]` | Compact an idle agent's session |
 | `models [filter]` | List the models you can use |
 | `skill` | Print the operating guide for AI agents |
 
@@ -282,12 +282,12 @@ turns appear in the agent's log, and they fall under the "no limits" warning abo
 
 ### Compaction
 
-`pi-dock compact <name> [instructions]` compacts the agent's session. The agent must be idle
-(no run, no queued prompts); a stopped agent is woken first and stays on. It waits without a
-timeout for the result and exits 1 with the reason when compaction fails (e.g.
-`Nothing to compact (session too small)`). The log records the outcome of every compaction
-(`compacted`, `compact_failed` or `compact_cancelled`), including those an extension or Pi
-itself starts.
+`pi-dock compact <name> [--] [instructions...]` compacts the agent's session and prints
+`<name> compacted`. The agent must be idle (no run, no queued prompts); a stopped agent is woken
+first and stays on. It waits without a timeout for the result and exits 1 with the reason when
+compaction fails (e.g. `Nothing to compact (session too small)`). The log records the outcome
+of every compaction (`compacted`, `compact_failed` or `compact_cancelled`), including those an
+extension or Pi itself starts.
 
 ### Recovery
 

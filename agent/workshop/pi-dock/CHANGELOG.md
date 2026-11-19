@@ -14,6 +14,14 @@ their version is cut, so a new entry may not have one yet.
 
 ## Unreleased
 
+### Breaking changes
+
+- **`compact` takes strict arguments, like `send`.** An unknown option fails with the usage
+  line `pi-dock compact <name> [--] [instructions...]` before anything reaches the agent;
+  before, `pi-dock compact w1 --help` compacted `w1` with the instructions `--help`.
+  Instructions that start with `-` now follow `--`: `pi-dock compact w1 -- --help`.
+- **`compact` prints `<name> compacted`**, like `<name> stopped`, instead of `compacted`.
+
 ### Added
 
 - **The log shows when Pi keeps an agent's prompt cache warm.** Each completed refresh, a

@@ -15,9 +15,8 @@ packages without putting their commands there), run the package's `bin/pi-dock.m
 and the same arguments instead: `node "<this skill's directory>/../../bin/pi-dock.mjs" …`.
 
 Every command exits 0 on success and 1 on error, with the reason on stderr. Arguments are strict:
-unknown options and extra arguments fail with the command's usage line, except `compact`, which
-takes all remaining arguments (even `--help`) as instructions. Run `pi-dock --help` for the usage
-of every command.
+unknown options and extra arguments fail with the command's usage line. Run `pi-dock --help` for
+the usage of every command.
 
 ## Warnings
 
@@ -126,7 +125,9 @@ of every command.
 - `--x key[=value]` flags are passed opaquely to extensions and are inert without them. A flag
   no loaded extension defines, or a value flag without its value, is not applied and is logged
   as a `diagnostic` event.
-- `pi-dock compact <name> [instructions]` compacts the session. It requires an idle agent with
+- `pi-dock compact <name> [--] [instructions...]` compacts the session and prints
+  `<name> compacted`. The instructions are the remaining arguments joined by spaces; `--` ends
+  options, so they may start with `-`. It requires an idle agent with
   no queued prompts and no compaction in progress, including one an extension started (`agent
   <name> is busy` otherwise). It wakes an off agent and leaves it on, and waits without a
   timeout; Ctrl-C only stops waiting, not the compaction. A failed compaction exits 1 with its
