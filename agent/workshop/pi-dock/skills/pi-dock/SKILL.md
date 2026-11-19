@@ -37,9 +37,9 @@ command.
 ## Workflow
 
 1. `pi-dock models [filter]` — when you need to choose a model: lists the `provider/id` refs
-   that have configured credentials. Matching is case-insensitive. Without `/`, the filter
-   searches the whole ref; otherwise the first `/` separates a provider substring from a
-   model-id substring.
+   that have configured credentials. Matching is case-insensitive. A ref matches if it contains
+   the filter, so a whole ref works too. A filter with `/` also matches if the provider contains
+   the part before the first `/` and the model id the rest.
 2. `pi-dock spawn --name <name> [--fork <path|id>] [--model <provider/id>] [--thinking <level>]
    [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...`
    — create the agent in the current directory. It takes no prompt and prints
@@ -117,13 +117,13 @@ command.
 
 ## Changing an agent
 
-- `pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>]
-  [--tools <a,b> | --no-tools] [--x key[=value]]...` works only on a stopped or failed agent
-  (`agent <name> is running — stop it first` otherwise). The model is preflighted like
-  spawn's. Each option replaces its stored value, and `--x` replaces the entire flag list; an
-  option left out keeps it. There is no option to unset thinking, system prompt or tools, or to
-  clear the whole flag list. The next wake applies the change; name, session, cwd and creation
-  time never change.
+- `pi-dock set <name> (--model <provider/id> | --thinking <level> | --system-prompt <file> |
+  --tools <a,b> | --no-tools | --x key[=value])...` takes at least one option and works only on
+  a stopped or failed agent (`agent <name> is running — stop it first` otherwise). The model is
+  preflighted like spawn's. Each option replaces its stored value, and `--x` replaces the entire
+  flag list; an option left out keeps it. There is no option to unset thinking, system prompt or
+  tools, or to clear the whole flag list. The next wake applies the change; name, session, cwd
+  and creation time never change.
 - Serialize changes per agent: a successful `stop`, then `set`, then `start`. Do not overlap
   `set` with another `set`, or with `start`, `send` or `compact`, on the same agent.
 - `--x key[=value]` flags are passed opaquely to extensions and are inert without them. A flag

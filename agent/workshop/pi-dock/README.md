@@ -123,14 +123,14 @@ options, so text or instructions may start with `-`. For usage, run the top-leve
 | Command | What it does |
 | --- | --- |
 | `spawn --name <name> [--fork <path\|id>] [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> \| --no-tools] [--x key[=value]]...` | Create an idle agent in the current directory |
-| `send <name> [--wait] [--file <path>] [--] [text...]` | Queue a prompt and print its id; `--wait` also waits for the result |
+| `send <name> [--wait] (--file <path> \| [--] <text>...)` | Queue a prompt and print its id; `--wait` also waits for the result |
 | `wait <name> <id>` | Wait for a prompt's run and print its final text |
 | `start <name>` | Wake a stopped or failed agent |
 | `stop <name>...` | Power agents off and confirm their processes exited |
 | `ls` | List agents: `name state model age` |
 | `show <name>` | Print one agent's details, one key and value per line |
 | `logs <name> [--tail <n>] [--raw] [--follow]` | Print the agent's event log |
-| `set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> \| --no-tools] [--x key[=value]]...` | Change a powered-off (stopped or failed) agent's configuration |
+| `set <name> (--model <provider/id> \| --thinking <level> \| --system-prompt <file> \| --tools <a,b> \| --no-tools \| --x key[=value])...` | Change a powered-off (stopped or failed) agent's configuration |
 | `compact <name> [--] [instructions...]` | Compact an idle agent's session |
 | `models [filter]` | List the models you can use |
 | `skill` | Print the operating guide for AI agents |

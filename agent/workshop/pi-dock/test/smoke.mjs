@@ -152,7 +152,7 @@ try {
   expect('long help matches bare help', result.status === 0 && result.stdout === help, result.stderr || result.stdout);
 
   result = run(['-h']);
-  expect('short help matches bare help', result.status === 0 && result.stdout === help, result.stderr || result.stdout);
+  expect('there is no short help option', result.status === 1 && result.stderr.trim() === 'unknown command: -h; run pi-dock --help', result.stderr || result.stdout);
 
   result = run(['wat']);
   expect('unknown command is short and points to help', result.status === 1 && result.stderr.trim() === 'unknown command: wat; run pi-dock --help', result.stderr || result.stdout);

@@ -27,6 +27,9 @@ their version is cut, so a new entry may not have one yet.
 - **Refusals name the agent and the command.** `agent <name> refused start|send|stop: <reply>`:
   `start` said `refused status`, and `send` printed the bare JSON reply. A failed compaction
   prints `agent <name> compaction failed: <reason>` instead of the bare reason.
+- **No short options.** `pi-dock -h` fails with `unknown command: -h; run pi-dock --help`, and
+  `pi-dock logs <name> -f`, an undocumented alias, with `Unknown option '-f'`. Use `--help`
+  and `--follow`.
 
 ### Added
 
@@ -47,6 +50,13 @@ their version is cut, so a new entry may not have one yet.
 
 ### Fixed
 
+- **The usage lines of `send` and `set` say what they require.** `send` takes the text or
+  `--file`, exactly one: `pi-dock send <name> [--wait] (--file <path> | [--] <text>...)`.
+  `set` takes at least one option: `pi-dock set <name> (--model <provider/id> | ...)...`.
+- **`models` finds a pasted ref whose provider id has a slash**, such as
+  `pi-dock models local/llama/tiny`, which `--model` accepts. A ref matches if it contains the
+  filter; a filter with `/` still also matches the provider and the model id separately, as in
+  `pi-dock models anthropic/haiku`. The hints for an unknown `--model` use the same filter.
 - **A mistake in what you typed prints the usage line.** An invalid `--thinking` level, an
   invalid agent name and a name repeated in `stop` now print the reason and the command's usage
   line, like an unknown option; errors from running the command print no usage line.

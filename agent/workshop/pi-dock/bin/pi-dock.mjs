@@ -11,22 +11,22 @@ import { acquisitionLock, PIPE_REQUEST_TIMEOUT_MS, request } from '../src/pipe.m
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runner = path.join(root, 'src', 'runner.mjs');
-const command = process.argv[2] === '-h' ? '--help' : process.argv[2];
+const command = process.argv[2];
 const args = process.argv.slice(3);
 const USAGE = {
   spawn: 'pi-dock spawn --name <name> [--fork <path|id>] [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
-  send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
+  send: 'pi-dock send <name> [--wait] (--file <path> | [--] <text>...)',
   wait: 'pi-dock wait <name> <id>',
   start: 'pi-dock start <name>',
   stop: 'pi-dock stop <name>...',
   ls: 'pi-dock ls',
   logs: 'pi-dock logs <name> [--tail <n>] [--raw] [--follow]',
   show: 'pi-dock show <name>',
-  set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
+  set: 'pi-dock set <name> (--model <provider/id> | --thinking <level> | --system-prompt <file> | --tools <a,b> | --no-tools | --x key[=value])...',
   compact: 'pi-dock compact <name> [--] [instructions...]',
   models: 'pi-dock models [filter]',
   skill: 'pi-dock skill',
-  '--help': 'pi-dock [--help | -h]',
+  '--help': 'pi-dock [--help]',
 };
 // Shutdown aborts the current run (in-flight request, running tools) before exiting; that normally takes well under a second.
 const STOP_EXIT_TIMEOUT_MS = 5000;
@@ -318,13 +318,17 @@ function modelRef({ provider, id }) {
   return `${provider}/${id}`;
 }
 
+// A model matches if its ref contains the filter, which finds a pasted ref even when the provider
+// id has a slash. A filter with a slash also matches the provider and id parts separately.
 async function matchingModels(modelRuntime, filter) {
   const query = filter.toLowerCase();
   const slash = query.indexOf('/');
+  const matches = (model) => modelRef(model).toLowerCase().includes(query)
+    || (slash !== -1
+      && model.provider.toLowerCase().includes(query.slice(0, slash))
+      && model.id.toLowerCase().includes(query.slice(slash + 1)));
   return (await modelRuntime.getAvailable())
-    .filter((model) => (slash === -1
-      ? modelRef(model).toLowerCase().includes(query)
-      : model.provider.toLowerCase().includes(query.slice(0, slash)) && model.id.toLowerCase().includes(query.slice(slash + 1))))
+    .filter(matches)
     .sort((a, b) => (modelRef(a) < modelRef(b) ? -1 : 1));
 }
 
@@ -733,7 +737,7 @@ async function logsCommand(argv) {
   const { values, positionals: [name] } = parseCommand(argv, {
     tail: { type: 'string' },
     raw: { type: 'boolean' },
-    follow: { type: 'boolean', short: 'f' },
+    follow: { type: 'boolean' },
   }, 1);
   if (name === undefined) {
     failUsage();

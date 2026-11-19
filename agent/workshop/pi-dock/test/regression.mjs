@@ -752,13 +752,12 @@ async function main() {
       start: 'pi-dock start <name>',
       logs: 'pi-dock logs <name> [--tail <n>] [--raw] [--follow]',
       models: 'pi-dock models [filter]',
-      send: 'pi-dock send <name> [--wait] [--file <path>] [--] [text...]',
+      send: 'pi-dock send <name> [--wait] (--file <path> | [--] <text>...)',
       wait: 'pi-dock wait <name> <id>',
       skill: 'pi-dock skill',
-      '--help': 'pi-dock [--help | -h]',
-      '-h': 'pi-dock [--help | -h]',
+      '--help': 'pi-dock [--help]',
       spawn: 'pi-dock spawn --name <name> [--fork <path|id>] [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
-      set: 'pi-dock set <name> [--model <provider/id>] [--thinking <level>] [--system-prompt <file>] [--tools <a,b> | --no-tools] [--x key[=value]]...',
+      set: 'pi-dock set <name> (--model <provider/id> | --thinking <level> | --system-prompt <file> | --tools <a,b> | --no-tools | --x key[=value])...',
     };
     const emptyPrompt = path.join(sandbox, 'empty-prompt.txt');
     await fs.writeFile(emptyPrompt, '');
@@ -768,7 +767,8 @@ async function main() {
       [['stop'], undefined],
       [['start', 'v1', '--force'], "Unknown option '--force'"],
       [['logs', 'v1', 'other'], "Unexpected argument 'other'"],
-      [['logs', 'v1', '--follow=yes'], "Option '-f, --follow' does not take an argument"],
+      [['logs', 'v1', '--follow=yes'], "Option '--follow' does not take an argument"],
+      [['logs', 'v1', '-f'], "Unknown option '-f'"],
       [['models', 'a', 'b'], "Unexpected argument 'b'"],
       [['spawn', '-n', 'v1'], "Unknown option '-n'"],
       [['spawn', '--name'], "Option '--name <value>' argument missing"],
@@ -779,13 +779,13 @@ async function main() {
       [['send', 'v1', '--file', ''], "Option '--file' must not be empty"],
       [['send', 'v1'], undefined],
       [['send', 'v1', '--file', emptyPrompt, 'text'], undefined],
+      [['set', 'v1'], undefined],
       [['wait', 'v1'], undefined],
       [['wait', 'v1', 'p1', 'p2'], "Unexpected argument 'p2'"],
       [['wait', 'v1', 'p1', '--json'], "Unknown option '--json'"],
       [['--help', 'extra'], "Unexpected argument 'extra'"],
       [['skill', 'extra'], "Unexpected argument 'extra'"],
       [['skill', '--json'], "Unknown option '--json'"],
-      [['-h', '--json'], "Unknown option '--json'"],
     ];
     for (const [commandArgs, reason] of rejected) {
       const result = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), commandArgs);
@@ -805,11 +805,10 @@ async function main() {
     const help = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), []);
     assert.equal(help.code, 0, help.stderr);
     assert.match(help.stdout, /AI agents: read the output of pi-dock skill before using pi-dock\. It is the full operating guide,\nalso shipped as the pi-dock Pi skill\.\n$/);
-    for (const flag of ['--help', '-h']) {
-      const alias = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), [flag]);
-      assert.equal(alias.code, 0, alias.stderr);
-      assert.equal(alias.stdout, help.stdout, `${flag} matches bare help`);
-    }
+    const longHelp = await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['--help']);
+    assert.equal(longHelp.code, 0, longHelp.stderr);
+    assert.equal(longHelp.stdout, help.stdout, '--help matches bare help');
+    assert.deepEqual(await runOwnedNode(sandbox, path.join(root, 'bin', 'pi-dock.mjs'), ['-h']), { code: 1, signal: null, stdout: '', stderr: 'unknown command: -h; run pi-dock --help\n' }, 'there is no short help option');
 
     const ageCases = [['s', 0, /^\ds$/], ['m', 12.5 * 60, /^12m$/], ['h', 5.5 * 3600, /^5h$/], ['d', 43.5 * 86400, /^43d$/]];
     for (const [suffix, seconds] of ageCases) {
@@ -1137,8 +1136,10 @@ async function main() {
       'regress/alpha-2   1M       500      no        no',
       '',
     ].join('\n'));
-    const oneRegress = await runOwnedNode(sandbox, cli, ['models', 'REGRESS/ALPHA-1']);
+    const oneRegress = await runOwnedNode(sandbox, cli, ['models', 'REGRESS/PHA-1']);
     assert.deepEqual(oneRegress.stdout.split('\n').slice(1, -1), ['regress/alpha-10  200K     8.2K     yes       yes']);
+    const pastedRef = await runOwnedNode(sandbox, cli, ['models', 'local/llama/tiny']);
+    assert.deepEqual(pastedRef.stdout.split('\n').slice(1, -1), ['local/llama/tiny  200K     500      no        no'], 'models finds a pasted ref whose provider id has a slash');
     const noRegress = await runOwnedNode(sandbox, cli, ['models', 'regress/zzz']);
     assert.equal(noRegress.code, 1);
     assert.equal(noRegress.stderr.trim(), 'no available models match regress/zzz');
