@@ -403,8 +403,8 @@ try {
   // to register. Logged at once, so a later startup failure (say, the model that provider
   // supplies is not found) keeps the cause. Pi's CLI exits on such an error; a diagnostic does
   // not itself stop an agent, as with a flag whose extension is not loaded.
-  // Pi's CLI also reports each extension package warning as a diagnostic. Since SDK 1.5.0 this
-  // includes a package that could not be installed, which the agent then runs without.
+  // Pi's CLI also reports each extension package warning as a diagnostic, such as a package
+  // that could not be installed, which the agent then runs without.
   const packageWarnings = (services.resourceLoader.getExtensions().warnings ?? []).map(({ path: source, warning }) => ({
     type: 'warning',
     message: `Extension package "${source}": ${warning}`,

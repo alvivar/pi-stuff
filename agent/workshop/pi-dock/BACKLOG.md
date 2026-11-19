@@ -48,7 +48,7 @@ ships.
 |---|---|---|
 | A wake that fails before owning the pipe (manifest gone) appends `failed` without truncating; on an already torn log the two lines merge and the next wake can't repair it. | Only the pipe owner may touch the log; needs a torn line plus a deleted manifest. | Such a log shows up. |
 | A `spawn` racing a stopped agent of the same name can leave an extra `spawned`; `ls` shows `failed` until the next wake. | No damage; the next wake fixes it; very rare race. | Seen in real use. |
-| While a runner starts, `start`/`stop`/`wait` wait up to 3 s, then say `not responding`; `ls`/`show` show `not-responding`. | True: it doesn't answer yet. Before, a second runner was launched. | A normal boot takes over 3 s. |
+| While a runner starts, `start`/`stop`/`wait` wait up to 3 s, then say `not responding`; `ls`/`show` show `not-responding`. | True: it doesn't answer yet. | A normal boot takes over 3 s. |
 | A failed log write from session events (`turn`, `text`, `external`) or `onError` throws inside the SDK; in tests it ended in `fail()`. | The observed outcome is already explicit. | A log failure that does not end in `failed`. |
 | Extension errors after shutdown begins are not logged, including `session_shutdown` handler errors. | Keeps `stopped`/`failed` the last event. | Shutdown errors need diagnosing. |
 | A `session_shutdown` handler that hangs keeps the agent from exiting; `stop` reports `did not exit within 5s`. | Pi waits for it the same way on quit; the failure is visible. | A real extension hangs there. |

@@ -55,9 +55,8 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 
 ## Install
 
-pi-dock is a Pi package that contains only the pi-dock skill (no extensions) and the CLI. With
-pi-dock 0.4.0 or later on npm, this is all Pi's AI agents need (if npm still offers only
-0.0.1, a placeholder for the name, install from a checkout as described below):
+pi-dock is a Pi package that contains only the pi-dock skill (no extensions) and the CLI. This
+is all Pi's AI agents need:
 
 ```bash
 pi install npm:pi-dock   # the skill, plus the CLI it runs
