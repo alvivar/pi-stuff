@@ -22,11 +22,11 @@ Roles limit what each may act on and own, not what it may think about.
   own the verdict on the code; reading it to judge the goal is fine. Not owning
   the verdict keeps the review independent; not implementing keeps your context
   free for the whole goal.
-- **Builder**: does the task with its own judgment and verifies its own work.
-  Does not stage or commit.
-- **Reviewer**: a different terminal from the builder. Reads the actual change,
-  read-only, and judges it against the goal, the project's principles and
-  quality: a change can match the task and still miss the goal.
+- **Implementer**: does the task with its own judgment and verifies its own
+  work. Does not stage or commit.
+- **Reviewer**: a different terminal from the implementer. Reads the actual
+  change, read-only, and judges it against the goal, the project's principles
+  and quality: a change can match the task and still miss the goal.
 - **Committer**: its own terminal. Commits exactly the approved change, by
   explicit paths, and reports the hash. Blocks rather than cleans if the worktree
   or index is not what it expected. Separate from the reviewer so the commit is
@@ -39,12 +39,12 @@ when it is you.
 ## The loop
 
 ```
-TASK      → builder       goal, why, boundaries, where, what "done" looks like
-DONE      ← builder       what changed, how it was verified, decisions affecting
+TASK      → implementer   goal, why, boundaries, where, what "done" looks like
+DONE      ← implementer   what changed, how it was verified, decisions affecting
                           goal, scope or behavior (or BLOCKED: what is missing)
 REVIEW    → reviewer      the goal, where to see the change, the DONE report verbatim
 APPROVE   ← reviewer      or CHANGES: concrete findings (what, where, why, how to fix)
-FIX       → builder       the findings verbatim, your dissent alongside if any;
+FIX       → implementer   the findings verbatim, your dissent alongside if any;
                           then REVIEW again
 COMMIT    → committer     paths, branch, message; the hash goes to your task list
 COMMITTED ← committer     or BLOCKED: what the worktree looked like
@@ -74,8 +74,8 @@ scope or behavior) or "add-retry BLOCKED" via link_send to designer@pi-link.
 
 - **Point the reviewer at the change.** Give it the diff command and name new
   files; `git diff` does not show untracked ones.
-- **Unverified is not done.** The builder says how it verified; the reviewer
-  checks that the verification actually exercises the change.
+- **Unverified is not done.** The implementer says how it verified; the
+  reviewer checks that the verification actually exercises the change.
 - **Bounded convergence.** Two fix rounds usually suffice. A round that resolves
   nothing and settles nothing is not converging: then the disagreement belongs
   to the user; bring both positions and your recommendation.
