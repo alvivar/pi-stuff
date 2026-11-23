@@ -12,105 +12,105 @@ their version is cut, so a new entry may not have one yet.
 
 ---
 
-## Unreleased
+## 0.7.0 — 2026-11-22
 
 ### Breaking changes
 
-- **Agents run Pi SDK 1.6.0.** The dependency moves from exactly `1.5.2` to exactly `1.6.0`.
-  Agents and their extensions get the changes in Pi's changelog for 1.6.0, including its
-  breaking one: extension components now return `readonly string[]` from `render()`. Extensions
-  that edit the output in place must copy it first. The `find` tool now matches path patterns
-  relative to the search directory: `src/*.ts` no longer matches `pkg/src/a.ts`. Use
-  `**/src/*.ts` to match at any depth.
-  When `spawn` uses the provider default for `openai`, `azure` or `openai-codex`, the model is
-  now `gpt-6.2-sol` instead of `gpt-6.1-sol`. On GPT-6.2 Sol and Astra, `--thinking off` and
-  `--thinking minimal` both use `low` reasoning effort; `show` prints the level requested.
-  Errors thrown by `pi.events` handlers now log `extension_error` with `on: events:<channel>`.
-  If `stop` interrupts a batch of tool calls, the session records `Operation aborted` for calls
-  that had not started. The agent sees those results when it wakes. Pi also updates `undici`
-  to 8.12.4 for security fixes.
+- **Agents run Pi SDK 1.6.0.** The dependency moves from exactly `1.5.0` to exactly `1.6.0`.
+  Agents and their extensions get the changes in Pi's changelog for 1.5.1, 1.5.2 and 1.6.0,
+  including three breaking changes. OpenAI-compatible models no longer send `"tools": []` when
+  all tools are disabled in a session that has used tools. A proxy that requires it needs
+  `compat.requiresToolsWithToolHistory: true` in `models.json`. The grep tool no longer calls
+  `GrepOperations.readFile` for context lines. Extension components now return
+  `readonly string[]` from `render()`; extensions that edit the output in place must copy it
+  first.
+
+  The `find` tool now matches path patterns relative to the search directory: `src/*.ts` no
+  longer matches `pkg/src/a.ts`. Use `**/src/*.ts` to match at any depth. When `spawn` uses
+  the provider default, several providers pick newer models: `anthropic` uses `claude-opus-5-5`,
+  and `openai`, `azure` and `openai-codex` use `gpt-6.2-sol` instead of `gpt-6.1-sol`. On
+  GPT-6.2 Sol and Astra, `--thinking off` and `--thinking minimal` both use `low` reasoning
+  effort; `show` prints the level requested.
+
+  Pi now keeps eligible prompt caches warm for up to 30 minutes between runs, so an idle agent
+  can make billable requests. Set `"cacheWarming": "streaming"` in Pi's global settings to
+  restore the previous behavior between runs. Errors thrown by `pi.events` handlers now log
+  `extension_error` with `on: events:<channel>`. If `stop` interrupts a batch of tool calls,
+  the session records `Operation aborted` for calls that had not started. The agent sees those
+  results when it wakes. Before it exits, the agent finishes saving any OAuth login it is
+  refreshing, as Pi does. Pi updates `undici` from 8.12.3 to 8.12.4 for security fixes.
+  (`ccfdcb4`, `c1edc2f`)
 - **`compact` takes strict arguments, like `send`.** An unknown option fails with the usage
   line `pi-dock compact <name> [--] [instructions...]` before anything reaches the agent;
   before, `pi-dock compact w1 --help` compacted `w1` with the instructions `--help`.
-  Instructions that start with `-` now follow `--`: `pi-dock compact w1 -- --help`.
+  Instructions that start with `-` now follow `--`: `pi-dock compact w1 -- --help`. (`f4a1304`)
 - **`compact` prints `<name> compacted`**, like `<name> stopped`, instead of `compacted`.
+  (`f4a1304`)
 - **Failed runner requests name the command and report the underlying error.** `start`, `send`,
   `compact` and `stop` report `agent <name> <command> request failed: <error>` for errors such
   as a connection closed before a reply. The first three used to report a stop or crash during
   `status`, `prompt` or `compact`; `stop` printed the agent name and the raw error.
+  (`e00d3cb`, `ff0bd14`)
 - **Refusals name the agent and the command.** `agent <name> refused start|send|stop: <reply>`:
   `start` said `refused status`, and `send` printed the bare JSON reply. A failed compaction
-  prints `agent <name> compaction failed: <reason>` instead of the bare reason.
+  prints `agent <name> compaction failed: <reason>` instead of the bare reason. (`e00d3cb`)
 - **No short options.** `pi-dock -h` fails with `unknown command: -h; run pi-dock --help`, and
   `pi-dock logs <name> -f`, an undocumented alias, with `Unknown option '-f'`. Use `--help`
-  and `--follow`.
+  and `--follow`. (`bf7e6e3`)
 
 ### Added
 
 - **The log shows when Pi keeps an agent's prompt cache warm.** Each completed refresh, a
   billable request that Pi can make while the agent is idle or during a run, logs a
-  `cache_warmed` event, with the run id if a run is on. It carries no cost: Pi prices it at API
-  rates, which a subscription does not pay. A cancelled, failed or outdated refresh logs
-  nothing.
+  `cache_warmed` event, with the run id if a run is on. The event has no cost field: Pi prices
+  the request at API rates, which a subscription does not pay. A cancelled, failed or outdated
+  refresh logs nothing. `"cacheWarming": "streaming"` prevents idle refreshes, but Pi can still
+  refresh the cache during a run while the next request is slow to come. Set it to `"off"` to
+  prevent those refreshes too. (`7d8ff37`, `3cdc643`)
 
 ### Changed
 
-- **The docs say how to prevent every cache refresh.** `"cacheWarming": "streaming"` prevents
-  only the refreshes while the agent is idle. Pi can still refresh the cache during a run while
-  the next request is slow to come, and `"off"` prevents those too.
 - **The docs say which model `ls` and `show` print.** It is the stored model, which every wake
   reapplies. `spawn` and `start` print the model in use, including any change an extension has
-  already made.
+  already made. (`3cdc643`)
 
 ### Fixed
 
 - **`spawn --fork` identifies a path it cannot access**: `cannot access fork source <path>:
-  <error>`, with the path as entered and the original error.
+  <error>`, with the path as entered and the original error. (`ff0bd14`)
 - **The usage lines of `send` and `set` say what they require.** `send` takes the text or
   `--file`, exactly one: `pi-dock send <name> [--wait] (--file <path> | [--] <text>...)`.
   `set` takes at least one option: `pi-dock set <name> (--model <provider/id> | ...)...`.
+  (`bf7e6e3`)
 - **`models` finds a pasted ref whose provider id has a slash**, such as
   `pi-dock models local/llama/tiny`, which `--model` accepts. A ref matches if it contains the
   filter; a filter with `/` still also matches the provider and the model id separately, as in
   `pi-dock models anthropic/haiku`. The hints for an unknown `--model` use the same filter.
+  (`bf7e6e3`)
 - **A mistake in what you typed prints the usage line.** An invalid `--thinking` level, an
   invalid agent name and a name repeated in `stop` now print the reason and the command's usage
-  line, like an unknown option; errors from running the command print no usage line.
+  line, like an unknown option; errors from running the command print no usage line. (`e00d3cb`)
 - **`send --file` names a file it cannot read**: `cannot read prompt file <file>: <error>`,
   instead of Node's bare error. An empty file fails with `empty prompt` and no longer prints the
   usage line: that is only known once the file is read. `--file ''` fails with
-  `Option '--file' must not be empty` and the usage line, like the other options.
+  `Option '--file' must not be empty` and the usage line, like the other options. (`e00d3cb`)
 - **`ls` and `show` report `stopping` when the runner answers that it is shutting down**, after
   a stop or a fatal error, instead of the `stopped` or `failed` in the log. `not-responding` now
   covers any failed status request, such as a reply that is not JSON, not only a timeout; they
-  read the state from the log only when no runner is listening.
-- **`stop` no longer tells you to kill a runner that is slow to exit.** Since Pi SDK 1.5.2 the
-  runner can be saving a refreshed login, and killing it then can invalidate that login.
+  read the state from the log only when no runner is listening. (`87e0299`)
+- **`stop` no longer tells you to kill a runner that is slow to exit.** The runner can be saving
+  a refreshed login, and killing it then can invalidate that login.
   `did not exit within 5s; terminate PID <pid> externally` is now
   `did not exit within 5s; PID <pid> is still shutting down`. The 5 s and the exit code 1 stay.
+  (`87e0299`)
 - **`logs` reads the log of a spawn that created no agent.** A spawn that fails after its
   runner starts (e.g. `tools not found`) leaves a log but no manifest, and `logs` answered
   `no such agent`. It now prints any log there is. `no such agent` (no log and no manifest) and
-  `no log for agent` (a manifest but no log) are unchanged.
+  `no log for agent` (a manifest but no log) are unchanged. (`678a9cd`)
 - **`--model` takes models whose provider id contains `/`.** `spawn`, `set` and the agent
   itself split the ref at its first slash, so such a provider, as Pi derives from a URL, was not
   found although `pi-dock models` listed it. They now match the whole `provider/id` ref.
-
-## 0.7.0 — 2026-11-18
-
-### Breaking changes
-
-- **Agents run Pi SDK 1.5.2.** The dependency moves from exactly `1.5.0` to exactly `1.5.2`.
-  Agents and their extensions get the changes in Pi's changelog for 1.5.1 and 1.5.2, including
-  its breaking ones: OpenAI-compatible models no longer send `"tools": []` when all tools are
-  disabled in a session that has used tools (a proxy that requires it needs
-  `compat.requiresToolsWithToolHistory: true` in `models.json`), and the grep tool no longer
-  calls `GrepOperations.readFile` for context lines. Pi now keeps eligible prompt caches warm
-  for up to 30 minutes between runs, so an idle agent can make billable requests;
-  `"cacheWarming": "streaming"` in Pi's global settings restores the previous behavior. When no
-  `--model` is given, several providers default to newer models, e.g. `anthropic` to
-  `claude-opus-5-5`. `stop` now lets the agent finish saving an OAuth login it is refreshing
-  before it exits, as Pi does. (`ccfdcb4`)
+  (`678a9cd`)
 
 ## 0.6.0 — 2026-11-07
 
