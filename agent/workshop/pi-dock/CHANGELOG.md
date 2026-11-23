@@ -16,6 +16,19 @@ their version is cut, so a new entry may not have one yet.
 
 ### Breaking changes
 
+- **Agents run Pi SDK 1.6.0.** The dependency moves from exactly `1.5.2` to exactly `1.6.0`.
+  Agents and their extensions get the changes in Pi's changelog for 1.6.0, including its
+  breaking one: extension components now return `readonly string[]` from `render()`. Extensions
+  that edit the output in place must copy it first. The `find` tool now matches path patterns
+  relative to the search directory: `src/*.ts` no longer matches `pkg/src/a.ts`. Use
+  `**/src/*.ts` to match at any depth.
+  When `spawn` uses the provider default for `openai`, `azure` or `openai-codex`, the model is
+  now `gpt-6.2-sol` instead of `gpt-6.1-sol`. On GPT-6.2 Sol and Astra, `--thinking off` and
+  `--thinking minimal` both use `low` reasoning effort; `show` prints the level requested.
+  Errors thrown by `pi.events` handlers now log `extension_error` with `on: events:<channel>`.
+  If `stop` interrupts a batch of tool calls, the session records `Operation aborted` for calls
+  that had not started. The agent sees those results when it wakes. Pi also updates `undici`
+  to 8.12.4 for security fixes.
 - **`compact` takes strict arguments, like `send`.** An unknown option fails with the usage
   line `pi-dock compact <name> [--] [instructions...]` before anything reaches the agent;
   before, `pi-dock compact w1 --help` compacted `w1` with the instructions `--help`.
@@ -35,7 +48,7 @@ their version is cut, so a new entry may not have one yet.
 ### Added
 
 - **The log shows when Pi keeps an agent's prompt cache warm.** Each completed refresh, a
-  billable request that Pi 1.5.2 can make while the agent is idle or during a run, logs a
+  billable request that Pi can make while the agent is idle or during a run, logs a
   `cache_warmed` event, with the run id if a run is on. It carries no cost: Pi prices it at API
   rates, which a subscription does not pay. A cancelled, failed or outdated refresh logs
   nothing.

@@ -116,7 +116,7 @@ async function shutdown(event, details, code) {
   // Read before abort's await, during which a pending bindExtensions could still complete.
   const extensionsBound = bound;
   unsubscribe();
-  // Not expected to reject: in SDK 1.5.2, abort() signals the run, retry and compaction to stop,
+  // Not expected to reject: in SDK 1.6.0, abort() signals the run, retry and compaction to stop,
   // then awaits idle, which only resolves. Should it reject, shutdown still ends in its terminal
   // event, which would not mention the failed abort.
   await session?.abort().catch(() => {});

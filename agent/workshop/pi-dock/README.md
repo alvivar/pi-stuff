@@ -46,7 +46,7 @@ Each agent is one detached process hosting one Pi session, identified by a name 
 
 - Node.js **22.19 or later** (required by the Pi SDK).
 - Pi set up with credentials for at least one model. pi-dock runs agents with its own copy of the
-  Pi SDK (`@earendil-works/pi-coding-agent` 1.5.2) but uses your Pi agent directory
+  Pi SDK (`@earendil-works/pi-coding-agent` 1.6.0) but uses your Pi agent directory
   (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`) for credentials, settings, models and extensions.
   `pi-dock models` lists only the models whose credentials are configured.
 - The `pi` command is needed to set up credentials and to install pi-dock for Pi (below).

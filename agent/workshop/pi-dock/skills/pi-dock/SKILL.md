@@ -54,7 +54,7 @@ command.
      which it sees as failed: say in its first prompt that it is the fork. See
      [Forking a session](../../README.md#forking-a-session).
    - `--thinking` is `off|minimal|low|medium|high|xhigh|max` and is applied on every wake.
-     Without it, the session's saved level or Pi's default applies.
+     Without it, Pi uses the saved level or its default. Pi clamps unsupported levels.
    - Names are lowercase `a-z0-9` segments joined by single `.`, `_` or `-`, at most 64
      characters; Windows device names are reserved. Invalid names are rejected, never
      normalized. A name that exists fails with `agent already exists: <name>`.
