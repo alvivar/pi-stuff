@@ -42,6 +42,8 @@ const MCP_TOOL_PREFIX = `mcp_${MCP_SERVER_NAME}_`;
 
 type AcpThoughtLevel = "low" | "medium" | "high" | "xhigh";
 
+const THOUGHT_LEVEL_ORDER: AcpThoughtLevel[] = ["low", "medium", "high", "xhigh"];
+
 interface ModelCatalogEntry {
 	id: string;
 	name: string;
@@ -128,22 +130,22 @@ function parseCatalogFromSessionResult(res: any): ModelCatalogEntry[] {
 	const availableModels: { modelId: string; name: string }[] = res?.models?.availableModels ?? [];
 	if (!modelOpt?.options?.length) return DEFAULT_CATALOG;
 
-	const levelSuffixes: AcpThoughtLevel[] = ["low", "medium", "high", "xhigh"];
-	const entries: ModelCatalogEntry[] = modelOpt.options.map((opt: any) => {
+	return modelOpt.options.map((opt: any) => {
 		const id = String(opt.value);
-		const levels = levelSuffixes.filter((lvl) => availableModels.some((m) => m.modelId === `${id}-${lvl}`));
+		const levels = THOUGHT_LEVEL_ORDER.filter((lvl) => availableModels.some((m) => m.modelId === `${id}-${lvl}`));
 		return { id, name: String(opt.name ?? id), ...guessWindow(id), thoughtLevels: levels };
 	});
-	return entries.length > 0 ? entries : DEFAULT_CATALOG;
 }
 
-function resolveThoughtLevel(requested: ThinkingLevel | undefined, available: AcpThoughtLevel[]): AcpThoughtLevel | undefined {
+export function resolveThoughtLevel(
+	requested: ThinkingLevel | undefined,
+	available: AcpThoughtLevel[],
+): AcpThoughtLevel | undefined {
 	if (available.length === 0 || !requested) return undefined;
-	const desired: AcpThoughtLevel = requested === "minimal" ? "low" : (requested as AcpThoughtLevel);
+	const desired: AcpThoughtLevel = requested === "minimal" ? "low" : requested === "max" ? "xhigh" : requested;
 	if (available.includes(desired)) return desired;
-	const order: AcpThoughtLevel[] = ["low", "medium", "high", "xhigh"];
-	for (let i = order.indexOf(desired) - 1; i >= 0; i--) {
-		if (available.includes(order[i]!)) return order[i]!;
+	for (let i = THOUGHT_LEVEL_ORDER.indexOf(desired) - 1; i >= 0; i--) {
+		if (available.includes(THOUGHT_LEVEL_ORDER[i]!)) return THOUGHT_LEVEL_ORDER[i]!;
 	}
 	return available[0];
 }
@@ -563,7 +565,7 @@ export default function (pi: ExtensionAPI) {
 		reasoning: ThinkingLevel | undefined,
 	): Promise<void> {
 		let cfg = sessionConfigs.get(sessionId) ?? updateSessionConfig(sessionId);
-		const fallbackLevel = resolveThoughtLevel(reasoning, ["low", "medium", "high", "xhigh"]);
+		const fallbackLevel = resolveThoughtLevel(reasoning, THOUGHT_LEVEL_ORDER);
 		const setLegacyModel = async () => {
 			const candidate = fallbackLevel ? `${modelId}-${fallbackLevel}` : modelId;
 			const exact =
