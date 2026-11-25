@@ -123,13 +123,27 @@ function guessWindow(modelId: string): { contextWindow: number; maxTokens: numbe
 	return { contextWindow: 1_048_576, maxTokens: 65_536 };
 }
 
+function buildThinkingLevelMap(levels: AcpThoughtLevel[]): ProviderChatModelConfig["thinkingLevelMap"] {
+	if (levels.length === 0) return undefined;
+	return {
+		off: null,
+		minimal: null,
+		low: levels.includes("low") ? "low" : null,
+		medium: levels.includes("medium") ? "medium" : null,
+		high: levels.includes("high") ? "high" : null,
+		...(levels.includes("xhigh") ? { xhigh: "xhigh" } : {}),
+	};
+}
+
 function toProviderModel(entry: ModelCatalogEntry): ProviderChatModelConfig {
+	const thinkingLevelMap = buildThinkingLevelMap(entry.thoughtLevels);
 	return {
 		type: "chat",
 		id: entry.id,
 		name: entry.name,
 		api: API_NAME,
 		reasoning: entry.thoughtLevels.length > 0,
+		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
 		input: ["text", "image"],
 		cost: ZERO_COST,
 		contextWindow: entry.contextWindow,
