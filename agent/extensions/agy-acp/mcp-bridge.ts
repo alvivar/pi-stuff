@@ -29,18 +29,6 @@ export function toolSetKey(tools: Tool[]): string {
 		.join(",");
 }
 
-function toInputSchema(parameters: unknown): Record<string, unknown> {
-	if (parameters && typeof parameters === "object") {
-		const schema = parameters as Record<string, unknown>;
-		return {
-			type: "object",
-			...schema,
-			properties: (schema.properties as Record<string, unknown> | undefined) ?? {},
-		};
-	}
-	return { type: "object", properties: {} };
-}
-
 function sanitizeArgs(tool: Tool, rawArgs: unknown): Record<string, unknown> {
 	if (!rawArgs || typeof rawArgs !== "object" || Array.isArray(rawArgs)) return {};
 	const args = { ...(rawArgs as Record<string, unknown>) };
@@ -98,7 +86,12 @@ export class McpBridge {
 		if (this.server) return;
 		if (this.listening) return this.listening;
 		const server = http.createServer((req, res) => {
-			void this.handleHttp(req, res);
+			void this.handleHttp(req, res).catch(() => {
+				if (!res.writableEnded && !res.destroyed) {
+					if (!res.headersSent) res.writeHead(500);
+					res.end();
+				}
+			});
 		});
 		const startPromise = new Promise<void>((resolve, reject) => {
 			server.once("error", reject);
@@ -151,6 +144,10 @@ export class McpBridge {
 			res.writeHead(400).end();
 			return;
 		}
+		if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
+			res.writeHead(400).end();
+			return;
+		}
 
 		// JSON-RPC notifications (no id) get 202 Accepted with empty body.
 		if (msg.id === undefined) {
@@ -191,7 +188,7 @@ export class McpBridge {
 					tools: this.tools.map((t) => ({
 						name: t.name,
 						description: t.description,
-						inputSchema: toInputSchema(t.parameters),
+						inputSchema: t.parameters,
 					})),
 				};
 			case "tools/call": {
