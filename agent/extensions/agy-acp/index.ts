@@ -253,14 +253,18 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const shutdown = () => {
-		cancelActiveTurn("Session shut down");
+	const resetClient = () => {
+		cancelActiveTurn("ACP client reset");
 		clearWidget();
-		mcpBridge.close();
 		client?.kill();
 		client = undefined;
 		starting = undefined;
 		sessionConfigs.clear();
+	};
+
+	const shutdown = () => {
+		resetClient();
+		mcpBridge.close();
 	};
 
 	const reconstruct = (ctx: ExtensionContext) => {
@@ -476,7 +480,7 @@ export default function (pi: ExtensionAPI) {
 	async function getClient(cwd: string): Promise<AcpClient> {
 		if (client?.isAlive && clientCwd === cwd) return client;
 		if (starting && clientCwd === cwd) return starting;
-		shutdown();
+		resetClient();
 		clientCwd = cwd;
 		const c = new AcpClient(resolveAgyBinary(), ["acp", "--dangerously-skip-permissions"], cwd);
 		c.onNotification = handleNotification;
@@ -697,13 +701,14 @@ export default function (pi: ExtensionAPI) {
 			try {
 				if (options?.signal?.aborted) throw new Error("Request was aborted");
 
+				let plan = buildPromptPlan(context.messages, isSummaryCall ? undefined : syncState, cwd);
+				const c = await getClient(cwd);
+
 				const bridged = isSummaryCall ? [] : selectBridgedTools(getCurrentTools(context.messages));
 				mcpBridge.setTools(bridged);
 				const mcpKey = toolSetKey(bridged);
 				const mcpServers = bridged.length > 0 ? [await mcpBridge.getServerConfig()] : [];
 
-				let plan = buildPromptPlan(context.messages, isSummaryCall ? undefined : syncState, cwd);
-				const c = await getClient(cwd);
 				const session = await ensureAcpSession(c, cwd, isSummaryCall ? "fresh" : plan.mode, mcpServers, mcpKey);
 				sessionId = session.sessionId;
 				// If resume/load fell back to a new session (or tools changed), send full history instead of only the delta.
