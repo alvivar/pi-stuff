@@ -2,10 +2,11 @@
  * Dual-context synchronization between Pi's stateless TranscriptContext and agy's stateful ACP session.
  *
  * Pi is the source of truth for conversation branches (/tree, /fork, /compact, model switches).
- * We store a watermark (syncedCount + prefixHash) on each branch:
- *  - Consecutive agy turns: prefix matches -> send only the latest user message.
- *  - Handoff from another model -> agy: prefix matches (or no session yet) -> send delta + latest message.
- *  - Branch rollback / compaction / cwd change: prefix diverges -> start a fresh agy session with current history.
+ * We store a watermark (sessionId, piSessionId, syncedCount, prefixHash) on each branch,
+ * plus a write-ahead `pending` marker before mutating an existing ACP session:
+ *  - Consecutive agy turns: branch watermark valid & prefix matches -> send only the latest user message.
+ *  - Handoff from another model -> agy: branch watermark valid & prefix matches -> send delta + latest message.
+ *  - Branch rollback (/tree), /fork, interrupted turn, compaction, or cwd change -> start a fresh agy session.
  */
 import { createHash } from "node:crypto";
 import type { AssistantMessage, ImageContent, Message, TextContent } from "@earendil-works/pi-ai";

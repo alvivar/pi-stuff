@@ -39,7 +39,7 @@ Pi remains the source of truth for the conversation tree. After each `agy` turn,
 - **Consecutive `agy` turns:** only your new message (and attached images) is sent; `agy` keeps its own in-session memory without re-sending history.
 - **Switching from another model → `agy`:** only the turns that happened since the last watermark are forwarded as a compact delta.
 - **Switching from `agy` → another model:** `agy`'s replies are saved as normal Pi assistant messages, with a compact footnote of files/commands `agy` touched internally so the next model knows what changed.
-- **`/resume`, `/tree`, `/fork`:** resuming a Pi session lazily reconnects to the matching `agy` session via `session/resume`. Rolling back in `/tree`, forking, or changing `cwd` automatically starts a fresh `agy` session with the active branch's history.
+- **`/resume`, `/tree`, `/fork`:** resuming a Pi session lazily reconnects to the matching `agy` session via `session/resume`. Rolling back in `/tree`, forking, recovering from an interrupted turn, or changing `cwd` automatically starts a fresh `agy` session with the active branch's history.
 
 ### 2. Combined Tools (`agy` Native + Pi Extensions)
 - **Coding & terminal tools:** `agy` runs its own file, search, web, and shell tools internally, launched with `--dangerously-skip-permissions` to match Pi's permissionless workflow. Live tool progress appears in a temporary widget above Pi's editor.
@@ -66,5 +66,5 @@ Pi remains the source of truth for the conversation tree. After each `agy` turn,
 | --- | --- |
 | [`index.ts`](./index.ts) | Pi provider registration, ACP lifecycle, streaming, widget, and MCP ↔ `toolUse` continuation loop |
 | [`acp-client.ts`](./acp-client.ts) | Minimal stdio NDJSON JSON-RPC 2.0 client for `agy acp` |
-| [`context-sync.ts`](./context-sync.ts) | Pure watermark hashing, cross-model handoff formatting, and compaction-summary pinning |
+| [`context-sync.ts`](./context-sync.ts) | Pure watermark hashing, branch/session isolation, cross-model handoff formatting, and compaction-summary pinning |
 | [`mcp-bridge.ts`](./mcp-bridge.ts) | Ephemeral localhost Streamable HTTP MCP server bridging Pi extension tools into `agy` |
