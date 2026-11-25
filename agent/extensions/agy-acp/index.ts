@@ -56,9 +56,7 @@ interface SessionConfig {
 	model?: string;
 	thought?: string;
 	thoughtOptions: AcpThoughtLevel[];
-	availableModels: { modelId: string; name: string }[];
 	mcpKey: string;
-	useLegacySetModel?: boolean;
 }
 
 interface PendingMcpCall {
@@ -296,18 +294,12 @@ export default function (pi: ExtensionAPI) {
 		shutdown();
 	});
 
-	function updateSessionConfig(
-		sessionId: string,
-		configOptions?: any[],
-		availableModels?: { modelId: string; name: string }[],
-		mcpKey?: string,
-	): SessionConfig {
+	function updateSessionConfig(sessionId: string, configOptions?: any[], mcpKey?: string): SessionConfig {
 		let cfg = sessionConfigs.get(sessionId);
 		if (!cfg) {
-			cfg = { thoughtOptions: [], availableModels: [], mcpKey: mcpKey ?? "" };
+			cfg = { thoughtOptions: [], mcpKey: mcpKey ?? "" };
 			sessionConfigs.set(sessionId, cfg);
 		}
-		if (availableModels) cfg.availableModels = availableModels;
 		if (mcpKey !== undefined) cfg.mcpKey = mcpKey;
 		if (Array.isArray(configOptions)) {
 			for (const opt of configOptions) {
@@ -539,7 +531,7 @@ export default function (pi: ExtensionAPI) {
 					try {
 						replaying = true;
 						const res: any = await c.request(method, params);
-						updateSessionConfig(syncState.sessionId, res?.configOptions, res?.models?.availableModels, mcpKey);
+						updateSessionConfig(syncState.sessionId, res?.configOptions, mcpKey);
 						return { sessionId: syncState.sessionId, resumed: true };
 					} catch {
 						// try next method or fall through to a fresh session
@@ -552,7 +544,7 @@ export default function (pi: ExtensionAPI) {
 
 		const res: any = await c.request("session/new", { cwd, mcpServers });
 		const sessionId = String(res.sessionId);
-		updateSessionConfig(sessionId, res?.configOptions, res?.models?.availableModels, mcpKey);
+		updateSessionConfig(sessionId, res?.configOptions, mcpKey);
 		return { sessionId, resumed: false };
 	}
 
@@ -563,37 +555,15 @@ export default function (pi: ExtensionAPI) {
 		reasoning: ThinkingLevel | undefined,
 	): Promise<void> {
 		let cfg = sessionConfigs.get(sessionId) ?? updateSessionConfig(sessionId);
-		const fallbackLevel = resolveThoughtLevel(reasoning, THOUGHT_LEVEL_ORDER);
-		const setLegacyModel = async () => {
-			const candidate = fallbackLevel ? `${modelId}-${fallbackLevel}` : modelId;
-			const exact =
-				cfg.availableModels.find((m) => m.modelId === candidate) ??
-				cfg.availableModels.find((m) => m.modelId === modelId);
-			await c.request("session/set_model", { sessionId, modelId: exact?.modelId ?? modelId });
-			cfg.model = modelId;
-			cfg.thought = fallbackLevel;
-		};
-
-		if (cfg.useLegacySetModel) {
-			if (cfg.model !== modelId || cfg.thought !== fallbackLevel) await setLegacyModel();
-			return;
-		}
 
 		if (cfg.model !== modelId) {
-			try {
-				const res: any = await c.request("session/set_config_option", {
-					sessionId,
-					configId: "model",
-					value: modelId,
-				});
-				cfg = updateSessionConfig(sessionId, res?.configOptions);
-				cfg.model = modelId;
-			} catch (err: any) {
-				if (err?.code !== -32601) throw err;
-				cfg.useLegacySetModel = true;
-				await setLegacyModel();
-				return;
-			}
+			const res: any = await c.request("session/set_config_option", {
+				sessionId,
+				configId: "model",
+				value: modelId,
+			});
+			cfg = updateSessionConfig(sessionId, res?.configOptions);
+			cfg.model = modelId;
 		}
 
 		const targetThought = resolveThoughtLevel(reasoning, cfg.thoughtOptions);
