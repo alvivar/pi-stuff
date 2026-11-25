@@ -29,8 +29,11 @@ export function toolSetKey(tools: Tool[]): string {
 		.join(",");
 }
 
-function sanitizeArgs(tool: Tool, rawArgs: unknown): Record<string, unknown> {
-	if (!rawArgs || typeof rawArgs !== "object" || Array.isArray(rawArgs)) return {};
+function parseToolArgs(tool: Tool, rawArgs: unknown): Record<string, unknown> {
+	if (rawArgs === undefined) return {};
+	if (!rawArgs || typeof rawArgs !== "object" || Array.isArray(rawArgs)) {
+		throw Object.assign(new Error("Tool arguments must be an object"), { code: -32602 });
+	}
 	const args = { ...(rawArgs as Record<string, unknown>) };
 	// agy injects `toolSummary` on MCP tool calls; strip it unless the Pi tool schema declares it.
 	const props = (tool.parameters as Record<string, any> | undefined)?.properties;
@@ -198,7 +201,7 @@ export class McpBridge {
 				if (!tool) {
 					return { content: [{ type: "text", text: `Unknown Pi tool: ${name}` }], isError: true };
 				}
-				return this.onToolCall(name, sanitizeArgs(tool, params?.arguments));
+				return this.onToolCall(name, parseToolArgs(tool, params?.arguments));
 			}
 			default:
 				throw Object.assign(new Error(`Method not supported: ${method}`), { code: -32601 });
