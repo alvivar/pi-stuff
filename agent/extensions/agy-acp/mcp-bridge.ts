@@ -54,6 +54,7 @@ function sanitizeArgs(tool: Tool, rawArgs: unknown): Record<string, unknown> {
 
 export class McpBridge {
 	private server: http.Server | undefined;
+	private listening: Promise<void> | undefined;
 	private port = 0;
 	private readonly token = randomBytes(24).toString("hex");
 	private tools: Tool[] = [];
@@ -83,6 +84,7 @@ export class McpBridge {
 	}
 
 	close(): void {
+		this.listening = undefined;
 		if (!this.server) return;
 		try {
 			this.server.closeAllConnections();
@@ -94,23 +96,39 @@ export class McpBridge {
 
 	private async ensureListening(): Promise<void> {
 		if (this.server) return;
+		if (this.listening) return this.listening;
 		const server = http.createServer((req, res) => {
 			void this.handleHttp(req, res);
 		});
-		await new Promise<void>((resolve, reject) => {
+		const startPromise = new Promise<void>((resolve, reject) => {
 			server.once("error", reject);
 			server.listen(0, "127.0.0.1", () => {
 				server.off("error", reject);
 				resolve();
 			});
-		});
-		const addr = server.address();
-		if (!addr || typeof addr === "string") {
-			server.close();
-			throw new Error("Failed to bind local MCP bridge port");
-		}
-		this.server = server;
-		this.port = addr.port;
+		}).then(
+			() => {
+				if (this.listening !== startPromise) {
+					server.close();
+					throw new Error("MCP bridge closed during startup");
+				}
+				const addr = server.address();
+				if (!addr || typeof addr === "string") {
+					server.close();
+					this.listening = undefined;
+					throw new Error("Failed to bind local MCP bridge port");
+				}
+				this.server = server;
+				this.port = addr.port;
+				this.listening = undefined;
+			},
+			(err) => {
+				if (this.listening === startPromise) this.listening = undefined;
+				throw err;
+			},
+		);
+		this.listening = startPromise;
+		return startPromise;
 	}
 
 	private async handleHttp(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
