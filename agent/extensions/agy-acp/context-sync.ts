@@ -52,6 +52,7 @@ export interface AgyToolRecord {
 export interface AgyActionsEntryData {
 	assistantTimestamp: number;
 	tools: AgyToolRecord[];
+	totalCount?: number;
 	durationMs?: number;
 }
 
@@ -296,18 +297,20 @@ export function buildNextSyncState(
 	};
 }
 
-export function formatToolSummaryForTranscript(tools: AgyToolRecord[]): string {
+export function formatToolSummaryForTranscript(tools: AgyToolRecord[], totalCount?: number): string {
 	if (tools.length === 0) return "";
+	const total = Math.max(totalCount ?? tools.length, tools.length);
 	const shown = tools.slice(0, MAX_TOOL_SUMMARY_ITEMS);
 	const lines = shown.map((t) => {
 		const failed = t.status === "failed" || (t.exitCode !== undefined && t.exitCode !== 0);
-		const icon = failed ? "✗" : "✓";
+		const completed = !failed && t.status === "completed";
+		const icon = failed ? "✗" : completed ? "✓" : "…";
 		const kind = t.kind ? `${t.kind}: ` : "";
 		const exitNote = t.exitCode !== undefined && t.exitCode !== 0 ? ` (exit ${t.exitCode})` : "";
 		return `- ${icon} ${kind}${t.target || t.title}${exitNote}`;
 	});
-	if (tools.length > shown.length) {
-		lines.push(`- … (${tools.length - shown.length} more internal actions)`);
+	if (total > shown.length) {
+		lines.push(`- … (${total - shown.length} more internal actions)`);
 	}
 	return `\n\n---\n_Actions executed internally by agy (via agy's own tools, not Pi's tools):_\n${lines.join("\n")}`;
 }
@@ -327,26 +330,29 @@ export function collectBranchAgyActions(
 	return map;
 }
 
+function isAgyAssistant(msg: Message | { role: string }, providerName: string): msg is AssistantMessage {
+	return msg.role === "assistant" && "provider" in msg && msg.provider === providerName;
+}
+
 /**
  * Non-destructively append compact agy tool summaries to matching agy assistant messages
  * for handoff to non-agy models (via `pi.on("context")`), returning undefined when unchanged.
  */
-export function injectAgyActionsForHandoff<T extends { role: string }>(
+export function injectAgyActionsForHandoff<T extends Message | { role: string }>(
 	messages: readonly T[],
 	actionsByTimestamp: ReadonlyMap<number, AgyActionsEntryData>,
 	providerName: string,
 ): T[] | undefined {
 	if (actionsByTimestamp.size === 0) return undefined;
 	let changed = false;
-	const next = messages.map((m: any) => {
-		if (m.role !== "assistant" || m.provider !== providerName || typeof m.timestamp !== "number") return m;
+	const next = messages.map((m) => {
+		if (!isAgyAssistant(m, providerName)) return m;
 		const entry = actionsByTimestamp.get(m.timestamp);
 		if (!entry) return m;
-		const summary = formatToolSummaryForTranscript(entry.tools);
+		const summary = formatToolSummaryForTranscript(entry.tools, entry.totalCount);
 		if (!summary) return m;
 		changed = true;
-		const content = Array.isArray(m.content) ? [...m.content, { type: "text", text: summary }] : [{ type: "text", text: summary }];
-		return { ...m, content } as T;
+		return { ...m, content: [...m.content, { type: "text" as const, text: summary }] } as T;
 	});
 	return changed ? next : undefined;
 }

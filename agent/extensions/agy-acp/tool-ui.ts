@@ -28,7 +28,7 @@ export interface LiveToolWidgetComponent extends Component {
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const MAX_LIVE_ROWS = 6;
 const MAX_COLLAPSED_ROWS = 4;
-const MAX_STORED_TOOLS = 50;
+export const MAX_STORED_TOOLS = 50;
 const MAX_PREVIEW_LINES = 6;
 const MAX_PREVIEW_CHARS = 400;
 
@@ -110,12 +110,13 @@ function extractTarget(u: any, cwd: string): string | undefined {
 	if (typeof input?.Query === "string" && input.Query.trim()) return singleLine(input.Query);
 	if (typeof input?.query === "string" && input.query.trim()) return singleLine(input.query);
 	if (typeof input?.Pattern === "string" && input.Pattern.trim()) return singleLine(input.Pattern);
-
-	if (typeof u.title === "string" && u.title.trim()) {
-		const cleaned = u.title.replace(/^File\s+/, "");
-		return /^(\/?[A-Za-z]:[\\/]|\/)/.test(cleaned) ? normalizePath(cleaned, cwd) : singleLine(cleaned);
-	}
 	return undefined;
+}
+
+function formatDisplayTitle(rawTitle: unknown, cwd: string): string | undefined {
+	if (typeof rawTitle !== "string" || !rawTitle.trim()) return undefined;
+	const cleaned = rawTitle.replace(/^File\s+/, "");
+	return /^(\/?[A-Za-z]:[\\/]|\/)/.test(cleaned) ? normalizePath(cleaned, cwd) : singleLine(cleaned);
 }
 
 function extractOutputPreview(u: any): string | undefined {
@@ -162,7 +163,7 @@ export function upsertAcpToolRecord(
 	const id = String(update.toolCallId ?? "");
 	const rawName = typeof update.name === "string" && update.name ? update.name : undefined;
 	const rawKind = typeof update.kind === "string" && update.kind ? update.kind : undefined;
-	const rawTitle = typeof update.title === "string" && update.title ? singleLine(update.title) : undefined;
+	const rawTitle = formatDisplayTitle(update.title, cwd);
 	const rawStatus = typeof update.status === "string" && update.status ? update.status : undefined;
 	const target = extractTarget(update, cwd);
 	const exitCode = typeof update.rawOutput?.exit_code === "number" ? update.rawOutput.exit_code : undefined;
@@ -175,10 +176,10 @@ export function upsertAcpToolRecord(
 		record = {
 			id,
 			title: rawTitle || rawName || "tool",
-			name: rawName,
-			kind: rawKind,
+			...(rawName ? { name: rawName } : {}),
+			...(rawKind ? { kind: rawKind } : {}),
 			status: rawStatus || "in_progress",
-			target,
+			...(target ? { target } : {}),
 		};
 		tools.push(record);
 	} else {
@@ -197,20 +198,6 @@ export function upsertAcpToolRecord(
 			record.durationMs = Math.max(0, now - start);
 		}
 	}
-}
-
-export function compactToolsForStorage(tools: AgyToolRecord[]): AgyToolRecord[] {
-	return tools.slice(0, MAX_STORED_TOOLS).map((t) => ({
-		id: t.id,
-		title: t.title,
-		...(t.name ? { name: t.name } : {}),
-		...(t.kind ? { kind: t.kind } : {}),
-		...(t.status ? { status: t.status } : {}),
-		...(t.target ? { target: t.target } : {}),
-		...(t.exitCode !== undefined ? { exitCode: t.exitCode } : {}),
-		...(t.outputPreview ? { outputPreview: t.outputPreview } : {}),
-		...(t.durationMs !== undefined ? { durationMs: t.durationMs } : {}),
-	}));
 }
 
 function formatDuration(ms: number): string {
@@ -337,17 +324,24 @@ export function renderAgyActionsEntry(
 	const tools = data?.tools;
 	if (!tools || tools.length === 0) return undefined;
 
-	const failedCount = tools.filter((t) => t.status === "failed" || (t.exitCode !== undefined && t.exitCode !== 0)).length;
-	const allFailed = failedCount === tools.length;
-	const bgToken = allFailed ? "toolErrorBg" : failedCount > 0 ? "toolPendingBg" : "toolSuccessBg";
+	const totalCount = Math.max(data.totalCount ?? tools.length, tools.length);
+	const isFailed = (t: AgyToolRecord) => t.status === "failed" || (t.exitCode !== undefined && t.exitCode !== 0);
+	const failedCount = tools.filter(isFailed).length;
+	const incompleteCount = tools.filter((t) => !isFailed(t) && t.status !== "completed").length;
+	const allFailed = failedCount === totalCount;
+	const bgToken = allFailed ? "toolErrorBg" : failedCount > 0 || incompleteCount > 0 ? "toolPendingBg" : "toolSuccessBg";
 	const box = new Box(1, 1, makeBgFn(theme, bgToken));
 
-	const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
-	const countLabel = `${tools.length} ${tools.length === 1 ? "action" : "actions"}`;
+	const icon = allFailed
+		? theme.fg("error", "✗")
+		: incompleteCount === totalCount
+			? theme.fg("warning", "…")
+			: theme.fg("success", "✓");
+	const countLabel = `${totalCount} ${totalCount === 1 ? "action" : "actions"}`;
 	const failedPart = failedCount > 0 && !allFailed ? ` ${theme.fg("warning", `(${failedCount} failed)`)}` : "";
 	const durationPart = data.durationMs !== undefined ? ` · ${formatDuration(data.durationMs)}` : "";
 	const hasExpandableDetail =
-		tools.length > MAX_COLLAPSED_ROWS || tools.some((t) => Boolean(t.outputPreview) || t.durationMs !== undefined);
+		totalCount > MAX_COLLAPSED_ROWS || tools.some((t) => Boolean(t.outputPreview) || t.durationMs !== undefined);
 	const hint = !options.expanded && hasExpandableDetail ? `  ${theme.fg("dim", `(${options.keyHint("app.tools.expand", "to expand")})`)}` : "";
 
 	const header = `${icon} ${theme.fg("toolTitle", theme.bold("agy"))} ${theme.fg("muted", `· ${countLabel}`)}${failedPart}${theme.fg("muted", durationPart)}${hint}`;
@@ -363,8 +357,10 @@ export function renderAgyActionsEntry(
 		}
 	}
 
-	if (!options.expanded && tools.length > shown.length) {
-		box.addChild(new TruncatedText(theme.fg("dim", `  … +${tools.length - shown.length} more`), 0, 0));
+	if (!options.expanded && totalCount > shown.length) {
+		box.addChild(new TruncatedText(theme.fg("dim", `  … +${totalCount - shown.length} more`), 0, 0));
+	} else if (options.expanded && totalCount > tools.length) {
+		box.addChild(new TruncatedText(theme.fg("dim", `  … (+${totalCount - tools.length} more actions not stored)`), 0, 0));
 	}
 
 	return box;

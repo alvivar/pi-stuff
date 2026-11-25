@@ -34,9 +34,9 @@ import {
 import { MCP_SERVER_NAME, McpBridge, type McpToolResult, selectBridgedTools, toolSetKey } from "./mcp-bridge.ts";
 import {
 	type AgyPlanEntry,
-	compactToolsForStorage,
 	createLiveToolWidget,
 	type LiveToolWidgetComponent,
+	MAX_STORED_TOOLS,
 	renderAgyActionsEntry,
 	upsertAcpToolRecord,
 } from "./tool-ui.ts";
@@ -836,7 +836,8 @@ export default function (pi: ExtensionAPI) {
 				if (!isSummaryCall && turn.tools.length > 0) {
 					pi.appendEntry<AgyActionsEntryData>(ACTIONS_ENTRY_TYPE, {
 						assistantTimestamp: finalOutput.timestamp,
-						tools: compactToolsForStorage(turn.tools),
+						tools: turn.tools.slice(0, MAX_STORED_TOOLS),
+						totalCount: turn.tools.length,
 						durationMs: Math.max(0, Date.now() - turn.startedAt),
 					});
 				}
