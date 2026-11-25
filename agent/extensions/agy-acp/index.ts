@@ -55,6 +55,7 @@ interface SessionConfig {
 	thoughtOptions: AcpThoughtLevel[];
 	availableModels: { modelId: string; name: string }[];
 	mcpKey: string;
+	useLegacySetModel?: boolean;
 }
 
 interface PendingMcpCall {
@@ -516,10 +517,12 @@ export default function (pi: ExtensionAPI) {
 		if (mode === "continue" && syncState?.sessionId && syncState.cwd === cwd) {
 			const existing = sessionConfigs.get(syncState.sessionId);
 			if (existing) {
-				// If Pi's active extension tools changed (e.g. /link-connect), start fresh so agy discovers them.
+				// If Pi's active extension tools changed (e.g. /link-connect), close the old session and start fresh.
 				if (existing.mcpKey === mcpKey) {
 					return { sessionId: syncState.sessionId, resumed: true };
 				}
+				sessionConfigs.delete(syncState.sessionId);
+				void c.request("session/close", { sessionId: syncState.sessionId }).catch(() => {});
 			} else {
 				const caps = c.initializeResult?.agentCapabilities ?? {};
 				const attempts: [string, any][] = [];
@@ -557,6 +560,21 @@ export default function (pi: ExtensionAPI) {
 		reasoning: ThinkingLevel | undefined,
 	): Promise<void> {
 		let cfg = sessionConfigs.get(sessionId) ?? updateSessionConfig(sessionId);
+		const fallbackLevel = resolveThoughtLevel(reasoning, ["low", "medium", "high", "xhigh"]);
+		const setLegacyModel = async () => {
+			const candidate = fallbackLevel ? `${modelId}-${fallbackLevel}` : modelId;
+			const exact =
+				cfg.availableModels.find((m) => m.modelId === candidate) ??
+				cfg.availableModels.find((m) => m.modelId === modelId);
+			await c.request("session/set_model", { sessionId, modelId: exact?.modelId ?? modelId });
+			cfg.model = modelId;
+			cfg.thought = fallbackLevel;
+		};
+
+		if (cfg.useLegacySetModel) {
+			if (cfg.model !== modelId || cfg.thought !== fallbackLevel) await setLegacyModel();
+			return;
+		}
 
 		if (cfg.model !== modelId) {
 			try {
@@ -569,11 +587,8 @@ export default function (pi: ExtensionAPI) {
 				cfg.model = modelId;
 			} catch (err: any) {
 				if (err?.code !== -32601) throw err;
-				const fallbackLevel = resolveThoughtLevel(reasoning, ["low", "medium", "high", "xhigh"]);
-				const candidate = fallbackLevel ? `${modelId}-${fallbackLevel}` : modelId;
-				const exact = cfg.availableModels.find((m) => m.modelId === candidate || m.modelId === modelId);
-				await c.request("session/set_model", { sessionId, modelId: exact?.modelId ?? modelId });
-				cfg.model = modelId;
+				cfg.useLegacySetModel = true;
+				await setLegacyModel();
 				return;
 			}
 		}
@@ -665,6 +680,15 @@ export default function (pi: ExtensionAPI) {
 			pending.resolve(mcpResult);
 		});
 
+		// Never leave an unmatched parallel MCP call hanging if Pi skipped or aborted one of the batch.
+		for (const orphaned of turn.awaitingResults.values()) {
+			orphaned.resolve({
+				content: [{ type: "text", text: "Tool call was skipped or produced no result in Pi." }],
+				isError: true,
+			});
+		}
+		turn.awaitingResults.clear();
+
 		// If another MCP call arrived while Pi was busy running the previous batch, emit it now.
 		scheduleMcpFlush(turn);
 
@@ -676,8 +700,12 @@ export default function (pi: ExtensionAPI) {
 		context: TranscriptContext,
 		options?: SimpleStreamOptions,
 	): AssistantMessageEventStream {
+		const systemPrompt = getCurrentSystemPrompt(context.messages);
+		// Compaction and /tree branch summaries are one-off auxiliary calls, not chat turns.
+		const isSummaryCall = systemPrompt?.startsWith(PI_SUMMARY_PROMPT_PREFIX) ?? false;
+
 		// If agy is paused awaiting Pi toolResult(s) from our MCP bridge, resume that in-flight turn.
-		if (activeTurn && activeTurn.awaitingResults.size > 0) {
+		if (!isSummaryCall && activeTurn && activeTurn.awaitingResults.size > 0) {
 			const awaitingIds = new Set(activeTurn.awaitingResults.keys());
 			const { results, steeredTexts } = findContinuationResults(context.messages, awaitingIds);
 			if (results.length > 0) {
@@ -691,9 +719,6 @@ export default function (pi: ExtensionAPI) {
 		(async () => {
 			const output = createEmptyAssistantMessage(model);
 			const cwd = activeCtx?.cwd ?? process.cwd();
-			const systemPrompt = getCurrentSystemPrompt(context.messages);
-			// Compaction and /tree branch summaries are one-off auxiliary calls, not chat turns.
-			const isSummaryCall = systemPrompt?.startsWith(PI_SUMMARY_PROMPT_PREFIX) ?? false;
 			let widgetTimer: ReturnType<typeof setTimeout> | undefined;
 			let sessionId: string | undefined;
 			let turn: ActiveTurn | undefined;
@@ -704,10 +729,14 @@ export default function (pi: ExtensionAPI) {
 				let plan = buildPromptPlan(context.messages, isSummaryCall ? undefined : syncState, cwd);
 				const c = await getClient(cwd);
 
-				const bridged = isSummaryCall ? [] : selectBridgedTools(getCurrentTools(context.messages));
-				mcpBridge.setTools(bridged);
-				const mcpKey = toolSetKey(bridged);
-				const mcpServers = bridged.length > 0 ? [await mcpBridge.getServerConfig()] : [];
+				let mcpKey = "";
+				let mcpServers: any[] = [];
+				if (!isSummaryCall) {
+					const bridged = selectBridgedTools(getCurrentTools(context.messages));
+					mcpBridge.setTools(bridged);
+					mcpKey = toolSetKey(bridged);
+					if (bridged.length > 0) mcpServers = [await mcpBridge.getServerConfig()];
+				}
 
 				const session = await ensureAcpSession(c, cwd, isSummaryCall ? "fresh" : plan.mode, mcpServers, mcpKey);
 				sessionId = session.sessionId;
