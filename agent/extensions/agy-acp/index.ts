@@ -218,32 +218,34 @@ function toolResultToMcp(msg: ToolResultMessage): McpToolResult {
 	return { content, isError: msg.isError };
 }
 
-function findContinuationResults(
+export function findContinuationResults(
 	messages: Message[],
 	awaitingIds: ReadonlySet<string>,
-): { results: ToolResultMessage[]; steeredTexts: string[] } {
-	// Walk back to the last assistant message so steered user messages (e.g. incoming pi-link chats)
-	// appended after a toolResult do not break continuation matching.
+): { results: ToolResultMessage[]; steeredContent: McpToolResult["content"] } {
+	// Walk back to the last assistant message so steered user messages (e.g. incoming pi-link chats
+	// or image attachments) appended after a toolResult do not break continuation matching.
 	const results: ToolResultMessage[] = [];
-	const steeredTexts: string[] = [];
+	const steeredMessages: McpToolResult["content"][] = [];
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]!;
 		if (m.role === "assistant") break;
 		if (m.role === "toolResult" && awaitingIds.has(m.toolCallId)) {
 			results.unshift(m);
 		} else if (m.role === "user") {
-			const text =
-				typeof m.content === "string"
-					? m.content.trim()
-					: m.content
-							.filter((p) => p.type === "text")
-							.map((p) => p.text)
-							.join("\n")
-							.trim();
-			if (text) steeredTexts.unshift(text);
+			const parts: McpToolResult["content"] = [];
+			if (typeof m.content === "string") {
+				const text = m.content.trim();
+				if (text) parts.push({ type: "text", text });
+			} else {
+				for (const p of m.content) {
+					if (p.type === "text" && p.text.trim()) parts.push({ type: "text", text: p.text.trim() });
+					else if (p.type === "image") parts.push({ type: "image", data: p.data, mimeType: p.mimeType });
+				}
+			}
+			if (parts.length > 0) steeredMessages.unshift(parts);
 		}
 	}
-	return { results, steeredTexts };
+	return { results, steeredContent: steeredMessages.flat() };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -644,7 +646,7 @@ export default function (pi: ExtensionAPI) {
 		model: Model<Api>,
 		context: TranscriptContext,
 		results: ToolResultMessage[],
-		steeredTexts: string[],
+		steeredContent: McpToolResult["content"],
 		options?: SimpleStreamOptions,
 	): AssistantMessageEventStream {
 		const stream = createAssistantMessageEventStream();
@@ -673,11 +675,11 @@ export default function (pi: ExtensionAPI) {
 			if (!pending) return;
 			turn.awaitingResults.delete(tr.toolCallId);
 			const mcpResult = toolResultToMcp(tr);
-			if (idx === results.length - 1 && steeredTexts.length > 0) {
-				mcpResult.content.push({
-					type: "text",
-					text: `\n\n[Incoming message received in Pi while this tool ran:]\n${steeredTexts.join("\n\n")}`,
-				});
+			if (idx === results.length - 1 && steeredContent.length > 0) {
+				mcpResult.content.push(
+					{ type: "text", text: "\n\n[Incoming message received in Pi while this tool ran:]" },
+					...steeredContent,
+				);
 			}
 			pending.resolve(mcpResult);
 		});
@@ -709,9 +711,9 @@ export default function (pi: ExtensionAPI) {
 		// If agy is paused awaiting Pi toolResult(s) from our MCP bridge, resume that in-flight turn.
 		if (!isSummaryCall && activeTurn && activeTurn.awaitingResults.size > 0) {
 			const awaitingIds = new Set(activeTurn.awaitingResults.keys());
-			const { results, steeredTexts } = findContinuationResults(context.messages, awaitingIds);
+			const { results, steeredContent } = findContinuationResults(context.messages, awaitingIds);
 			if (results.length > 0) {
-				return resumePausedTurn(activeTurn, model, context, results, steeredTexts, options);
+				return resumePausedTurn(activeTurn, model, context, results, steeredContent, options);
 			}
 			cancelActiveTurn("Conversation diverged while awaiting Pi tool result");
 		}
