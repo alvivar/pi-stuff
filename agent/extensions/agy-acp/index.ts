@@ -22,18 +22,29 @@ import {
 import type { ExtensionAPI, ExtensionContext, ProviderChatModelConfig } from "@earendil-works/pi-coding-agent";
 import { AcpClient, resolveAgyBinary } from "./acp-client.ts";
 import {
+	type AgyActionsEntryData,
 	type AgySyncState,
 	type AgyToolRecord,
 	buildNextSyncState,
 	buildPromptPlan,
-	formatToolSummaryForTranscript,
+	collectBranchAgyActions,
+	injectAgyActionsForHandoff,
 	resolveBranchSyncState,
 } from "./context-sync.ts";
 import { MCP_SERVER_NAME, McpBridge, type McpToolResult, selectBridgedTools, toolSetKey } from "./mcp-bridge.ts";
+import {
+	type AgyPlanEntry,
+	compactToolsForStorage,
+	createLiveToolWidget,
+	type LiveToolWidgetComponent,
+	renderAgyActionsEntry,
+	upsertAcpToolRecord,
+} from "./tool-ui.ts";
 
 const PROVIDER_NAME = "agy";
 const API_NAME = "agy-acp";
 const SYNC_ENTRY_TYPE = "agy-acp-sync";
+const ACTIONS_ENTRY_TYPE = "agy-acp-actions";
 const WIDGET_KEY = "agy-acp-live";
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 // Prefix of Pi's SUMMARIZATION_SYSTEM_PROMPT used by /compact and /tree branch summarization.
@@ -69,18 +80,22 @@ interface PendingMcpCall {
 
 interface ActiveTurn {
 	sessionId: string;
+	cwd: string;
+	startedAt: number;
 	isSummaryCall: boolean;
 	contextMessages: Message[];
 	output: AssistantMessage;
 	stream: AssistantMessageEventStream | null;
 	openBlock: { index: number; type: "text" | "thinking" } | null;
 	tools: AgyToolRecord[];
+	toolStartTimes: Map<string, number>;
 	ignoredToolCallIds: Set<string>;
-	plan: { content: string; status: string }[];
+	plan: AgyPlanEntry[];
+	liveWidget?: LiveToolWidgetComponent;
+	widgetMounted: boolean;
 	contextUsed?: number;
 	signal?: AbortSignal;
 	detachAbort?: () => void;
-	onWidgetUpdate: () => void;
 	// MCP calls waiting to be emitted as Pi toolCalls on the next stream boundary.
 	queuedMcpCalls: PendingMcpCall[];
 	flushMcpTimer?: ReturnType<typeof setTimeout>;
@@ -232,6 +247,11 @@ export default function (pi: ExtensionAPI) {
 	const mcpBridge = new McpBridge((name, args) => handleBridgedToolCall(name, args));
 
 	const clearWidget = () => {
+		if (activeTurn) {
+			activeTurn.liveWidget?.dispose();
+			activeTurn.liveWidget = undefined;
+			activeTurn.widgetMounted = false;
+		}
 		if (activeCtx?.hasUI) activeCtx.ui.setWidget(WIDGET_KEY, undefined);
 	};
 
@@ -278,6 +298,17 @@ export default function (pi: ExtensionAPI) {
 			ctx.sessionManager.getSessionId(),
 		);
 	};
+
+	pi.registerEntryRenderer<AgyActionsEntryData>(ACTIONS_ENTRY_TYPE, (entry, options, theme) =>
+		renderAgyActionsEntry(entry.data, options, theme),
+	);
+
+	pi.on("context", async (event, ctx) => {
+		if (ctx.model?.provider === PROVIDER_NAME) return;
+		const actions = collectBranchAgyActions(ctx.sessionManager.getBranch(), ACTIONS_ENTRY_TYPE);
+		const next = injectAgyActionsForHandoff(event.messages, actions, PROVIDER_NAME);
+		return next ? { messages: next } : undefined;
+	});
 
 	pi.on("session_start", async (_e, ctx) => reconstruct(ctx));
 	pi.on("session_tree", async (_e, ctx) => reconstruct(ctx));
@@ -430,20 +461,8 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				closeOpenBlock(turn);
-				const existing = turn.tools.find((t) => t.id === id);
-				if (existing) {
-					if (u.title) existing.title = rawTitle;
-					if (u.kind) existing.kind = String(u.kind);
-					if (u.status) existing.status = String(u.status);
-				} else {
-					turn.tools.push({
-						id,
-						title: rawTitle || rawName || "tool",
-						kind: u.kind ? String(u.kind) : undefined,
-						status: u.status ? String(u.status) : "in_progress",
-					});
-				}
-				turn.onWidgetUpdate();
+				upsertAcpToolRecord(turn.tools, u, turn.cwd, turn.toolStartTimes);
+				updateLiveWidget(turn);
 				break;
 			}
 			case "plan":
@@ -451,7 +470,7 @@ export default function (pi: ExtensionAPI) {
 					content: String(e.content ?? ""),
 					status: String(e.status ?? "pending"),
 				}));
-				turn.onWidgetUpdate();
+				updateLiveWidget(turn);
 				break;
 			case "usage_update":
 				if (typeof u.used === "number") turn.contextUsed = u.used;
@@ -578,24 +597,20 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	function renderLiveWidget(turn: ActiveTurn): void {
-		if (!activeCtx?.hasUI || !turn.stream) return;
-		const lines: string[] = [];
-		const shownTools = turn.tools.slice(-6);
-		if (turn.tools.length > shownTools.length) {
-			lines.push(`  … ${turn.tools.length - shownTools.length} earlier agy actions`);
+	function updateLiveWidget(turn: ActiveTurn): void {
+		if (turn.isSummaryCall || !activeCtx?.hasUI || !turn.stream) return;
+		if (turn.tools.length === 0 && turn.plan.length === 0) return;
+		if (turn.liveWidget) {
+			turn.liveWidget.update();
+			return;
 		}
-		for (const t of shownTools) {
-			const icon = t.status === "completed" ? "✓" : t.status === "failed" ? "✗" : "…";
-			const kind = t.kind ? `[${t.kind}] ` : "";
-			lines.push(`  ${icon} ${kind}${t.title}`);
-		}
-		if (turn.plan.length > 0) {
-			const done = turn.plan.filter((p) => p.status === "completed").length;
-			const active = turn.plan.find((p) => p.status === "in_progress");
-			lines.push(`  plan ${done}/${turn.plan.length}${active ? ` · ${active.content}` : ""}`);
-		}
-		activeCtx.ui.setWidget(WIDGET_KEY, lines.length > 0 ? lines : undefined);
+		if (turn.widgetMounted) return;
+		turn.widgetMounted = true;
+		activeCtx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
+			const widget = createLiveToolWidget(tui, theme, turn);
+			turn.liveWidget = widget;
+			return widget;
+		});
 	}
 
 	function attachAbort(turn: ActiveTurn, signal: AbortSignal | undefined): void {
@@ -692,7 +707,6 @@ export default function (pi: ExtensionAPI) {
 		(async () => {
 			const output = createEmptyAssistantMessage(model);
 			const cwd = activeCtx?.cwd ?? process.cwd();
-			let widgetTimer: ReturnType<typeof setTimeout> | undefined;
 			let sessionId: string | undefined;
 			let turn: ActiveTurn | undefined;
 
@@ -739,23 +753,20 @@ export default function (pi: ExtensionAPI) {
 
 				turn = {
 					sessionId,
+					cwd,
+					startedAt: Date.now(),
 					isSummaryCall,
 					contextMessages: context.messages,
 					output,
 					stream,
 					openBlock: null,
 					tools: [],
+					toolStartTimes: new Map(),
 					ignoredToolCallIds: new Set(),
 					plan: [],
+					widgetMounted: false,
 					queuedMcpCalls: [],
 					awaitingResults: new Map(),
-					onWidgetUpdate: () => {
-						if (isSummaryCall || widgetTimer) return;
-						widgetTimer = setTimeout(() => {
-							widgetTimer = undefined;
-							if (activeTurn === turn) renderLiveWidget(turn);
-						}, 100);
-					},
 				};
 				activeTurn = turn;
 				attachAbort(turn, options?.signal);
@@ -773,9 +784,6 @@ export default function (pi: ExtensionAPI) {
 				const finalOutput = turn.output;
 				if (!finalStream) return;
 
-				if (!isSummaryCall && turn.tools.length > 0) {
-					appendBlock(turn, "text", formatToolSummaryForTranscript(turn.tools));
-				}
 				closeOpenBlock(turn);
 
 				const u = res?.usage ?? {};
@@ -810,6 +818,15 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 
+				clearWidget();
+				if (!isSummaryCall && turn.tools.length > 0) {
+					pi.appendEntry<AgyActionsEntryData>(ACTIONS_ENTRY_TYPE, {
+						assistantTimestamp: finalOutput.timestamp,
+						tools: compactToolsForStorage(turn.tools),
+						durationMs: Math.max(0, Date.now() - turn.startedAt),
+					});
+				}
+
 				const piSessionId = activeCtx?.sessionManager.getSessionId();
 				if (!isSummaryCall && piSessionId) {
 					syncState = buildNextSyncState(turn.contextMessages, finalOutput, sessionId, cwd, piSessionId);
@@ -836,7 +853,6 @@ export default function (pi: ExtensionAPI) {
 			} finally {
 				turn?.detachAbort?.();
 				if (turn) rejectPendingMcpCalls(turn, "agy turn ended");
-				if (widgetTimer) clearTimeout(widgetTimer);
 				clearWidget();
 				if (activeTurn === turn) activeTurn = undefined;
 				if (isSummaryCall && sessionId && client?.isAlive) {

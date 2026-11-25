@@ -40,8 +40,19 @@ export interface SessionEntryLike {
 export interface AgyToolRecord {
 	id: string;
 	title: string;
+	name?: string;
 	kind?: string;
 	status?: string;
+	target?: string;
+	exitCode?: number;
+	outputPreview?: string;
+	durationMs?: number;
+}
+
+export interface AgyActionsEntryData {
+	assistantTimestamp: number;
+	tools: AgyToolRecord[];
+	durationMs?: number;
 }
 
 export interface PromptPlan {
@@ -289,12 +300,53 @@ export function formatToolSummaryForTranscript(tools: AgyToolRecord[]): string {
 	if (tools.length === 0) return "";
 	const shown = tools.slice(0, MAX_TOOL_SUMMARY_ITEMS);
 	const lines = shown.map((t) => {
-		const icon = t.status === "failed" ? "✗" : "✓";
+		const failed = t.status === "failed" || (t.exitCode !== undefined && t.exitCode !== 0);
+		const icon = failed ? "✗" : "✓";
 		const kind = t.kind ? `${t.kind}: ` : "";
-		return `- ${icon} ${kind}${t.title}`;
+		const exitNote = t.exitCode !== undefined && t.exitCode !== 0 ? ` (exit ${t.exitCode})` : "";
+		return `- ${icon} ${kind}${t.target || t.title}${exitNote}`;
 	});
 	if (tools.length > shown.length) {
 		lines.push(`- … (${tools.length - shown.length} more internal actions)`);
 	}
 	return `\n\n---\n_Actions executed internally by agy (via agy's own tools, not Pi's tools):_\n${lines.join("\n")}`;
+}
+
+export function collectBranchAgyActions(
+	branchEntries: readonly SessionEntryLike[],
+	actionsEntryType: string,
+): Map<number, AgyActionsEntryData> {
+	const map = new Map<number, AgyActionsEntryData>();
+	for (const entry of branchEntries) {
+		if (entry.type !== "custom" || entry.customType !== actionsEntryType) continue;
+		const data = entry.data as AgyActionsEntryData | undefined;
+		if (typeof data?.assistantTimestamp === "number" && Array.isArray(data.tools) && data.tools.length > 0) {
+			map.set(data.assistantTimestamp, data);
+		}
+	}
+	return map;
+}
+
+/**
+ * Non-destructively append compact agy tool summaries to matching agy assistant messages
+ * for handoff to non-agy models (via `pi.on("context")`), returning undefined when unchanged.
+ */
+export function injectAgyActionsForHandoff<T extends { role: string }>(
+	messages: readonly T[],
+	actionsByTimestamp: ReadonlyMap<number, AgyActionsEntryData>,
+	providerName: string,
+): T[] | undefined {
+	if (actionsByTimestamp.size === 0) return undefined;
+	let changed = false;
+	const next = messages.map((m: any) => {
+		if (m.role !== "assistant" || m.provider !== providerName || typeof m.timestamp !== "number") return m;
+		const entry = actionsByTimestamp.get(m.timestamp);
+		if (!entry) return m;
+		const summary = formatToolSummaryForTranscript(entry.tools);
+		if (!summary) return m;
+		changed = true;
+		const content = Array.isArray(m.content) ? [...m.content, { type: "text", text: summary }] : [{ type: "text", text: summary }];
+		return { ...m, content } as T;
+	});
+	return changed ? next : undefined;
 }

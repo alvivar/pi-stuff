@@ -38,11 +38,11 @@ Pi remains the source of truth for the conversation tree. After each `agy` turn,
 
 - **Consecutive `agy` turns:** only your new message (and attached images) is sent; `agy` keeps its own in-session memory without re-sending history.
 - **Switching from another model → `agy`:** only the turns that happened since the last watermark are forwarded as a compact delta.
-- **Switching from `agy` → another model:** `agy`'s replies are saved as normal Pi assistant messages, with a compact footnote of files/commands `agy` touched internally so the next model knows what changed.
+- **Switching from `agy` → another model:** `agy`'s replies are saved as clean Pi assistant messages, while internal `agy` actions are stored in a collapsible `agy-acp-actions` entry and injected non-destructively via Pi's `context` hook whenever another model takes over, so Opus/Astra see what files or commands `agy` touched without cluttering the chat transcript.
 - **`/resume`, `/tree`, `/fork`:** resuming a Pi session lazily reconnects to the matching `agy` session via `session/resume`. Rolling back in `/tree`, forking, recovering from an interrupted turn, or changing `cwd` automatically starts a fresh `agy` session with the active branch's history.
 
 ### 2. Combined Tools (`agy` Native + Pi Extensions)
-- **Coding & terminal tools:** `agy` runs its own file, search, web, and shell tools internally, launched with `--dangerously-skip-permissions` to match Pi's permissionless workflow. Live tool progress appears in a temporary widget above Pi's editor.
+- **Coding & terminal tools:** `agy` runs its own file, search, web, and shell tools internally, launched with `--dangerously-skip-permissions` to match Pi's permissionless workflow. Live progress renders in a themed `@earendil-works/pi-tui` widget above Pi's editor, and completed turns leave a compact collapsible action card (`Ctrl+O` to expand command outputs and durations) right above `agy`'s reply.
 - **Pi extension tools (`pi-link`, `codemode`, MCP servers, etc.):** any active non-core Pi tool (everything except `read`, `write`, `edit`, `bash`) is automatically exposed to `agy` through an ephemeral, loopback-only Streamable HTTP MCP server (`127.0.0.1` with a per-process random bearer token). When `agy` invokes one, `agy-acp` pauses the MCP call, emits a native Pi `toolCall`, lets Pi execute it with your real session identity, hooks, and UI, and feeds the `toolResult` back into the same `agy` turn.
 
 ### 3. Compaction
@@ -68,3 +68,4 @@ Pi remains the source of truth for the conversation tree. After each `agy` turn,
 | [`acp-client.ts`](./acp-client.ts) | Minimal stdio NDJSON JSON-RPC 2.0 client for `agy acp` |
 | [`context-sync.ts`](./context-sync.ts) | Pure watermark hashing, branch/session isolation, cross-model handoff formatting, and compaction-summary pinning |
 | [`mcp-bridge.ts`](./mcp-bridge.ts) | Ephemeral localhost Streamable HTTP MCP server bridging Pi extension tools into `agy` |
+| [`tool-ui.ts`](./tool-ui.ts) | Rich ACP tool metadata extraction, live themed TUI widget, and collapsible `EntryRenderer` card |
