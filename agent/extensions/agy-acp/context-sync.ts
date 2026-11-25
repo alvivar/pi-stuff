@@ -34,8 +34,13 @@ export interface PromptPlan {
 }
 
 const MAX_TOOL_RESULT_CHARS = 800;
-const MAX_HISTORY_CHARS = 24_000;
+const MAX_HISTORY_CHARS = 80_000;
 const MAX_TOOL_SUMMARY_ITEMS = 20;
+
+const SUMMARY_PREFIXES = [
+	"The conversation history before this point was compacted into the following summary:",
+	"The following is a summary of a branch that this conversation came back from:",
+];
 
 export function nonSystemMessages(messages: Message[]): Message[] {
 	return messages.filter((m) => m.role !== "system");
@@ -122,22 +127,35 @@ function formatMessageForHandoff(msg: Message): string {
 	return "";
 }
 
+function isPinnedSummary(msg: Message): boolean {
+	if (msg.role !== "user") return false;
+	const text = extractText(msg.content).trimStart();
+	return SUMMARY_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
+
 function formatContextBlock(messages: Message[], kind: "history" | "delta"): string {
-	const rendered = messages.map(formatMessageForHandoff).filter(Boolean);
-	if (rendered.length === 0) return "";
+	const entries = messages
+		.map((m) => ({ text: formatMessageForHandoff(m), pinned: isPinnedSummary(m) }))
+		.filter((e) => e.text.length > 0);
+	if (entries.length === 0) return "";
+
+	// Preserve a leading compaction/branch summary so trimming old turns never discards it.
+	const pinnedHead = entries[0]!.pinned ? entries.shift()! : null;
+	const budget = Math.max(MAX_HISTORY_CHARS - (pinnedHead ? pinnedHead.text.length + 2 : 0), 4_000);
 
 	// Keep the most recent context within budget if a Pi session is very long.
 	const kept: string[] = [];
 	let total = 0;
-	for (let i = rendered.length - 1; i >= 0; i--) {
-		const chunk = rendered[i]!;
-		if (total + chunk.length > MAX_HISTORY_CHARS && kept.length > 0) {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const chunk = entries[i]!.text;
+		if (total + chunk.length > budget && kept.length > 0) {
 			kept.unshift(`[… ${i + 1} earlier messages omitted for brevity]`);
 			break;
 		}
 		kept.unshift(chunk);
 		total += chunk.length + 2;
 	}
+	if (pinnedHead) kept.unshift(pinnedHead.text);
 
 	const header =
 		kind === "history"

@@ -9,6 +9,7 @@ import {
 	type AssistantMessage,
 	type AssistantMessageEventStream,
 	createAssistantMessageEventStream,
+	getCurrentSystemPrompt,
 	type Model,
 	type SimpleStreamOptions,
 	type StopReason,
@@ -30,6 +31,8 @@ const API_NAME = "agy-acp";
 const SYNC_ENTRY_TYPE = "agy-acp-sync";
 const WIDGET_KEY = "agy-acp-live";
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+// Prefix of Pi's SUMMARIZATION_SYSTEM_PROMPT used by /compact and /tree branch summarization.
+const PI_SUMMARY_PROMPT_PREFIX = "You are a context summarization assistant.";
 
 type AcpThoughtLevel = "low" | "medium" | "high" | "xhigh";
 
@@ -445,6 +448,9 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const cwd = activeCtx?.cwd ?? process.cwd();
+			const systemPrompt = getCurrentSystemPrompt(context.messages);
+			// Compaction and /tree branch summaries are one-off auxiliary calls, not chat turns.
+			const isSummaryCall = systemPrompt?.startsWith(PI_SUMMARY_PROMPT_PREFIX) ?? false;
 			let widgetTimer: ReturnType<typeof setTimeout> | undefined;
 			let sessionId: string | undefined;
 
@@ -457,18 +463,28 @@ export default function (pi: ExtensionAPI) {
 			try {
 				if (options?.signal?.aborted) throw new Error("Request was aborted");
 
-				let plan = buildPromptPlan(context.messages, syncState, cwd);
+				let plan = buildPromptPlan(context.messages, isSummaryCall ? undefined : syncState, cwd);
 				const c = await getClient(cwd);
-				const session = await ensureAcpSession(c, cwd, plan.mode);
+				const session = await ensureAcpSession(c, cwd, isSummaryCall ? "fresh" : plan.mode);
 				sessionId = session.sessionId;
 				// If resume/load fell back to a new session, send full history instead of only the delta.
-				if (plan.mode === "continue" && !session.resumed) {
+				if (!isSummaryCall && plan.mode === "continue" && !session.resumed) {
 					plan = buildPromptPlan(context.messages, undefined, cwd);
 				}
 
 				await applyModelAndThinking(c, sessionId, model.id, options?.reasoning);
 
-				let payload: any = { sessionId, prompt: plan.prompt };
+				const promptBlocks = isSummaryCall
+					? [
+							{
+								type: "text" as const,
+								text: `${systemPrompt}\n\nDo NOT use any tools, read files, or run commands. Only output the requested summary text.`,
+							},
+							...plan.prompt,
+						]
+					: plan.prompt;
+
+				let payload: any = { sessionId, prompt: promptBlocks };
 				if (options?.onPayload) {
 					const replaced = await options.onPayload(payload, model);
 					if (replaced && typeof replaced === "object") payload = replaced;
@@ -484,12 +500,11 @@ export default function (pi: ExtensionAPI) {
 					plan: [],
 					signal: options?.signal,
 					onWidgetUpdate: () => {
-						if (!widgetTimer) {
-							widgetTimer = setTimeout(() => {
-								widgetTimer = undefined;
-								if (activeTurn === turn) renderLiveWidget(turn);
-							}, 100);
-						}
+						if (isSummaryCall || widgetTimer) return;
+						widgetTimer = setTimeout(() => {
+							widgetTimer = undefined;
+							if (activeTurn === turn) renderLiveWidget(turn);
+						}, 100);
 					},
 				};
 				activeTurn = turn;
@@ -499,7 +514,7 @@ export default function (pi: ExtensionAPI) {
 
 				const res: any = await c.request("session/prompt", payload);
 
-				if (turn.tools.length > 0) {
+				if (!isSummaryCall && turn.tools.length > 0) {
 					appendBlock(turn, "text", formatToolSummaryForTranscript(turn.tools));
 				}
 				closeOpenBlock(turn);
@@ -535,8 +550,10 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 
-				syncState = buildNextSyncState(context.messages, output, sessionId, cwd);
-				pi.appendEntry(SYNC_ENTRY_TYPE, syncState);
+				if (!isSummaryCall) {
+					syncState = buildNextSyncState(context.messages, output, sessionId, cwd);
+					pi.appendEntry(SYNC_ENTRY_TYPE, syncState);
+				}
 
 				stream.push({ type: "done", reason: stopReason, message: output });
 				stream.end();
@@ -551,6 +568,10 @@ export default function (pi: ExtensionAPI) {
 				if (widgetTimer) clearTimeout(widgetTimer);
 				clearWidget();
 				if (activeTurn?.output === output) activeTurn = undefined;
+				if (isSummaryCall && sessionId && client?.isAlive) {
+					sessionConfigs.delete(sessionId);
+					void client.request("session/close", { sessionId }).catch(() => {});
+				}
 			}
 		})();
 
