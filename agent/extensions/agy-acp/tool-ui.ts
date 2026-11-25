@@ -327,16 +327,17 @@ export function renderAgyActionsEntry(
 	const totalCount = Math.max(data.totalCount ?? tools.length, tools.length);
 	const isFailed = (t: AgyToolRecord) => t.status === "failed" || (t.exitCode !== undefined && t.exitCode !== 0);
 	const failedCount = tools.filter(isFailed).length;
-	const incompleteCount = tools.filter((t) => !isFailed(t) && t.status !== "completed").length;
+	const completedCount = tools.filter((t) => !isFailed(t) && t.status === "completed").length;
 	const allFailed = failedCount === totalCount;
-	const bgToken = allFailed ? "toolErrorBg" : failedCount > 0 || incompleteCount > 0 ? "toolPendingBg" : "toolSuccessBg";
+	const allCompleted = completedCount === totalCount;
+	const bgToken = allFailed ? "toolErrorBg" : allCompleted ? "toolSuccessBg" : "toolPendingBg";
 	const box = new Box(1, 1, makeBgFn(theme, bgToken));
 
 	const icon = allFailed
 		? theme.fg("error", "✗")
-		: incompleteCount === totalCount
-			? theme.fg("warning", "…")
-			: theme.fg("success", "✓");
+		: allCompleted
+			? theme.fg("success", "✓")
+			: theme.fg("warning", "…");
 	const countLabel = `${totalCount} ${totalCount === 1 ? "action" : "actions"}`;
 	const failedPart = failedCount > 0 && !allFailed ? ` ${theme.fg("warning", `(${failedCount} failed)`)}` : "";
 	const durationPart = data.durationMs !== undefined ? ` · ${formatDuration(data.durationMs)}` : "";
