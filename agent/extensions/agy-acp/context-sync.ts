@@ -19,11 +19,18 @@ export interface AgySyncState {
 	cwd: string;
 	syncedCount: number;
 	prefixHash: string;
-	piSessionId?: string;
+	piSessionId: string;
 }
 
+export interface AgyPendingMarker {
+	sessionId: string;
+	pending: true;
+}
+
+export type AgySyncEntryData = AgySyncState | AgyPendingMarker;
+
 export interface SessionEntryLike {
-	id?: string;
+	id: string;
 	type: string;
 	customType?: string;
 	data?: unknown;
@@ -227,41 +234,36 @@ export function buildPromptPlan(messages: Message[], state: AgySyncState | undef
 
 /**
  * Resolve the active branch's watermark, invalidating it if the underlying mutable ACP session
- * was also used outside the current branch (e.g. a rolled-back `/tree` descendant or sibling)
- * or belongs to a parent Pi session from before `/fork`.
+ * was left mid-turn (`pending`), was also used outside the current branch (e.g. `/tree` rollback),
+ * or does not belong to the active Pi session (e.g. `/fork`).
  */
 export function resolveBranchSyncState(
 	branchEntries: readonly SessionEntryLike[],
 	allEntries: readonly SessionEntryLike[],
 	syncEntryType: string,
-	piSessionId?: string,
+	piSessionId: string,
 ): AgySyncState | undefined {
 	const branchIds = new Set<string>();
-	const branchRefs = new Set<SessionEntryLike>();
-	let candidate: AgySyncState | undefined;
+	let lastEntry: AgySyncEntryData | undefined;
 
 	for (const entry of branchEntries) {
-		if (entry.id !== undefined) branchIds.add(entry.id);
-		branchRefs.add(entry);
-		const data = entry.data as AgySyncState | undefined;
+		branchIds.add(entry.id);
+		const data = entry.data as AgySyncEntryData | undefined;
 		if (entry.type === "custom" && entry.customType === syncEntryType && data?.sessionId) {
-			candidate = data;
+			lastEntry = data;
 		}
 	}
-	if (!candidate) return undefined;
-	if (candidate.piSessionId && piSessionId && candidate.piSessionId !== piSessionId) {
-		return undefined;
-	}
+	if (!lastEntry || "pending" in lastEntry) return undefined;
+	if (!piSessionId || lastEntry.piSessionId !== piSessionId) return undefined;
 
 	for (const entry of allEntries) {
-		const data = entry.data as AgySyncState | undefined;
-		if (entry.type !== "custom" || entry.customType !== syncEntryType || data?.sessionId !== candidate.sessionId) {
+		const data = entry.data as AgySyncEntryData | undefined;
+		if (entry.type !== "custom" || entry.customType !== syncEntryType || data?.sessionId !== lastEntry.sessionId) {
 			continue;
 		}
-		const inBranch = entry.id !== undefined ? branchIds.has(entry.id) : branchRefs.has(entry);
-		if (!inBranch) return undefined;
+		if (!branchIds.has(entry.id)) return undefined;
 	}
-	return candidate;
+	return lastEntry;
 }
 
 // Include assistantMessage because Pi appends it to context.messages before the next turn.
@@ -270,7 +272,7 @@ export function buildNextSyncState(
 	assistantMessage: AssistantMessage,
 	sessionId: string,
 	cwd: string,
-	piSessionId?: string,
+	piSessionId: string,
 ): AgySyncState {
 	const synced = [...nonSystemMessages(messages), assistantMessage];
 	return {
@@ -278,7 +280,7 @@ export function buildNextSyncState(
 		cwd,
 		syncedCount: synced.length,
 		prefixHash: hashMessages(synced),
-		...(piSessionId ? { piSessionId } : {}),
+		piSessionId,
 	};
 }
 

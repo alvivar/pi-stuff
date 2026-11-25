@@ -224,8 +224,6 @@ export default function (pi: ExtensionAPI) {
 	let clientCwd: string | undefined;
 	let starting: Promise<AcpClient> | undefined;
 	const sessionConfigs = new Map<string, SessionConfig>();
-	// Tracks each mutable ACP session's latest cleanly completed prefixHash (null while a turn is in-flight/aborted).
-	const sessionHeads = new Map<string, string | null>();
 	let syncState: AgySyncState | undefined;
 	let activeCtx: ExtensionContext | undefined;
 	let activeTurn: ActiveTurn | undefined;
@@ -731,13 +729,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				if (options?.signal?.aborted) throw new Error("Request was aborted");
 
-				const effectiveSyncState =
-					!isSummaryCall &&
-					syncState &&
-					(!sessionHeads.has(syncState.sessionId) || sessionHeads.get(syncState.sessionId) === syncState.prefixHash)
-						? syncState
-						: undefined;
-				let plan = buildPromptPlan(context.messages, effectiveSyncState, cwd);
+				let plan = buildPromptPlan(context.messages, isSummaryCall ? undefined : syncState, cwd);
 				const c = await getClient(cwd);
 
 				let mcpKey = "";
@@ -800,7 +792,11 @@ export default function (pi: ExtensionAPI) {
 
 				stream.push({ type: "start", partial: output });
 
-				if (!isSummaryCall) sessionHeads.set(sessionId, null);
+				if (!isSummaryCall) {
+					// Persist a WAL marker before mutating an existing ACP session so abort/crash+restart never reuses it.
+					if (session.resumed) pi.appendEntry(SYNC_ENTRY_TYPE, { sessionId, pending: true });
+					syncState = undefined;
+				}
 				const res: any = await c.request("session/prompt", payload);
 
 				const finalStream = turn.stream;
@@ -844,15 +840,9 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 
-				if (!isSummaryCall) {
-					syncState = buildNextSyncState(
-						turn.contextMessages,
-						finalOutput,
-						sessionId,
-						cwd,
-						activeCtx?.sessionManager.getSessionId(),
-					);
-					sessionHeads.set(sessionId, syncState.prefixHash);
+				const piSessionId = activeCtx?.sessionManager.getSessionId();
+				if (!isSummaryCall && piSessionId) {
+					syncState = buildNextSyncState(turn.contextMessages, finalOutput, sessionId, cwd, piSessionId);
 					pi.appendEntry(SYNC_ENTRY_TYPE, syncState);
 				}
 
