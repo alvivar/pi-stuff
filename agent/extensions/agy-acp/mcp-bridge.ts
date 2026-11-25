@@ -134,6 +134,7 @@ export class McpBridge {
 			return;
 		}
 
+		req.setEncoding("utf8");
 		let body = "";
 		for await (const chunk of req) body += chunk;
 
