@@ -47,7 +47,7 @@ Pi remains the source of truth for the conversation tree. After each `agy` turn,
 
 ### 3. Compaction
 - `agy`'s live window occupancy (`usage_update.used`) is reported to Pi's context meter, so auto-compaction in `agy` lowers Pi's meter automatically instead of triggering duplicate compaction.
-- Pi's `/compact` and `/tree` branch summaries run as isolated one-off summary calls (no tools, closed immediately, no sync state pollution). On the next chat turn, `agy` starts a fresh session seeded with Pi's pinned summary.
+- Pi's `/compact` and `/tree` branch summaries run as isolated one-off summary calls (Pi extension tools are omitted, the prompt instructs `agy` not to invoke its native tools on a best-effort basis, the temporary ACP session is closed immediately, and sync state is untouched). On the next chat turn, `agy` starts a fresh session seeded with Pi's pinned summary.
 
 ---
 
